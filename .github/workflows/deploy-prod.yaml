@@ -84,6 +84,20 @@ jobs:
           echo "Deploying image tag: $TAG (registry: $IMAGE_REGISTRY/$IMAGE_REPOSITORY)"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
+      - name: Verify image existence before migrations
+        run: |
+          TAG="${{ steps.image.outputs.tag }}"
+          echo "Verifying images for tag $TAG exist in $IMAGE_REGISTRY/$IMAGE_REPOSITORY..."
+          for SERVICE in ems-api ems-web ems-worker; do
+            IMAGE_URI="$IMAGE_REGISTRY/$IMAGE_REPOSITORY/$SERVICE:$TAG"
+            echo "Checking $IMAGE_URI..."
+            docker manifest inspect "$IMAGE_URI" > /dev/null 2>&1 || {
+              echo "::error::Image $IMAGE_URI does not exist or is not readable. Gating deploy before migrations."
+              exit 1
+            }
+          done
+          echo "All service images verified successfully."
+
       # Pre-migration backup (Phase 1 item 5): pg_dump custom format uploaded
       # to object storage. Assumptions documented in scripts/backup-prod.sh.
       # A failed migration is recovered by restoring this snapshot — the

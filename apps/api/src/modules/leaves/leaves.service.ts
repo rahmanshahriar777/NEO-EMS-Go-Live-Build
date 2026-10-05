@@ -1234,17 +1234,25 @@ export class LeavesService {
             )
           : {};
 
-      const result = await tx.leaveRequest.update({
-        where: { id: requestId },
-        data: {
-          status: LeaveStatus.PENDING as any,
-          totalDays,
-          ...chainData,
-        } as any,
-        include: {
-          leaveType: { select: { id: true, name: true, code: true } },
-        },
-      });
+      let result: any;
+      try {
+        result = await tx.leaveRequest.update({
+          where: { id: requestId, status: LeaveStatus.DRAFT as any } as any,
+          data: {
+            status: LeaveStatus.PENDING as any,
+            totalDays,
+            ...chainData,
+          } as any,
+          include: {
+            leaveType: { select: { id: true, name: true, code: true } },
+          },
+        });
+      } catch (e: any) {
+        if (e?.code !== 'P2025') throw e;
+        throw new ConflictException(
+          'Leave request was already submitted or processed — please refresh and try again',
+        );
+      }
 
       await this.audit.log(
         {

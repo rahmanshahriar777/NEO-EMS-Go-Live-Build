@@ -1,13 +1,18 @@
 name: Build & Push Docker Images
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Monorepo CI Pipeline"]
+    types: [completed]
     branches: [main]
+  push:
     tags: ['v*']
+  workflow_dispatch:
 
 jobs:
   docker:
     name: Build Multi-stage Container Images
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -26,6 +31,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
