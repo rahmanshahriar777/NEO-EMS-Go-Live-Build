@@ -116,10 +116,19 @@ class ApiClient {
     return this.refreshPromise;
   }
 
-  private handleSessionExpired(): never {
-    this.sessionExpired = true;
-    if (typeof window !== 'undefined') {
-      window.location.href = '/login';
+  private handleSessionExpired(isSessionCheck = false): never {
+    if (!isSessionCheck) {
+      this.sessionExpired = true;
+      if (
+        typeof window !== 'undefined' &&
+        !window.location.pathname.startsWith('/login') &&
+        !window.location.pathname.startsWith('/register') &&
+        !window.location.pathname.startsWith('/invitation-accept') &&
+        !window.location.pathname.startsWith('/reset-password') &&
+        !window.location.pathname.startsWith('/verify-email')
+      ) {
+        window.location.href = '/login';
+      }
     }
     throw new ApiError('Session expired — please sign in again.', 401);
   }
@@ -184,14 +193,15 @@ class ApiClient {
     // If refresh fails, every pending request REJECTS (no hanging) and the
     // user is sent back to /login.
     if (response.status === 401 && !this.isAuthEndpoint(endpoint)) {
+      const isSessionCheck = endpoint.includes('/auth/me');
       try {
         await this.doRefresh();
+        response = await this.fetchOnce(url, init);
+        if (response.status === 401) {
+          this.handleSessionExpired(isSessionCheck);
+        }
       } catch {
-        this.handleSessionExpired();
-      }
-      response = await this.fetchOnce(url, init);
-      if (response.status === 401) {
-        this.handleSessionExpired();
+        this.handleSessionExpired(isSessionCheck);
       }
     }
 

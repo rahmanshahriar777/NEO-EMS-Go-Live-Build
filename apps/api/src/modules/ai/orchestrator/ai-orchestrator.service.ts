@@ -53,13 +53,15 @@ export class AiOrchestratorService {
       recoveryWindowMs: this.config.circuitRecoveryWindowMs,
       halfOpenLimit: this.config.circuitHalfOpenLimit,
     };
-    const redisClient = this.redisService.getClient();
-    const evalClient: RedisEvalClient | null = redisClient
-      ? {
-          eval: (script, numKeys, ...args) =>
-            (redisClient as any).eval(script, numKeys, ...args) as Promise<unknown>,
+    const evalClient: RedisEvalClient = {
+      eval: (script, numKeys, ...args) => {
+        const client = this.redisService.getClient();
+        if (!client) {
+          return Promise.reject(new Error('Redis client not ready'));
         }
-      : null;
+        return (client as any).eval(script, numKeys, ...args) as Promise<unknown>;
+      },
+    };
     this.breakerStore = new ResilientBreakerStore(evalClient, breakerConfig, this.logger);
 
     // Latency trackers stay per-process: they feed the health dashboard's
