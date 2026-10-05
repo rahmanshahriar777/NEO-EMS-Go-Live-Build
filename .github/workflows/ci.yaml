@@ -1,0 +1,271 @@
+name: Monorepo CI Pipeline
+
+on:
+  push:
+    branches: [main, develop, 'release/**']
+  pull_request:
+    branches: [main, develop, 'release/**']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Fast secret scan — no dependencies needed.
+  # ---------------------------------------------------------------------------
+  gitleaks:
+    name: Secret scanning (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+
+  # ---------------------------------------------------------------------------
+  # Lint, typecheck, test (+ coverage gates), build, dependency audit.
+  # ---------------------------------------------------------------------------
+  validate:
+    name: Lint, Typecheck, Test & Build
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.0-pg16
+        env:
+          POSTGRES_USER: ems_admin
+          POSTGRES_PASSWORD: ems_secure_password_123!
+          POSTGRES_DB: ems_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7.4.11-alpine3.21
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10.5.2
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      # B7: fail the pipeline on any CRITICAL advisory.
+      #
+      # Failure-policy decision (go-live hardening, infra): --audit-level=critical
+      # fails the build ONLY on critical advisories. Deliberately NOT high:
+      # high-severity advisories in transitive deps the team cannot patch
+      # directly would block go-live builds with no actionable fix; they are
+      # still printed in full in this step's logs and triaged out-of-band.
+      # Revisit to --audit-level=high once the advisory backlog is triaged.
+      - name: Dependency audit (fail on critical)
+        run: pnpm audit --audit-level=critical
+
+      # Phase 1 item 4: every process.env.VAR read in code must be documented
+      # in .env.example (see scripts/check-env-docs.sh for scan rules and the
+      # allowlist for genuinely dynamic reads).
+      - name: Env docs completeness check
+        run: bash scripts/check-env-docs.sh
+
+      - name: Prisma Generate Client
+        run: pnpm --filter @ems/database db:generate
+        env:
+          DATABASE_URL: postgresql://ems_admin:ems_secure_password_123!@localhost:5432/ems_db?schema=public
+
+      - name: Lint Check
+        run: pnpm lint
+
+      - name: TypeScript Typecheck
+        run: pnpm typecheck
+
+      - name: Run Automated Tests
+        run: pnpm test
+        env:
+          DATABASE_URL: postgresql://ems_admin:ems_secure_password_123!@localhost:5432/ems_db?schema=public
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          JWT_ACCESS_SECRET: test-access-secret-minimum-64-characters-long-key-for-jwt-signing
+          JWT_REFRESH_SECRET: test-refresh-secret-minimum-64-characters-long-key-for-jwt-rotation
+
+      # Coverage ratchet: jest's coverageThreshold gates (apps/api/jest.config.js)
+      # are enforced here. Global floor is 13% statements today; the target is
+      # 60% (BUILD_SPEC Phase 1) — the api-owning worker raises the floors as
+      # modules gain tests. Per-module 70% gates already cover auth/payroll/
+      # leaves/guards.
+      - name: Coverage gates (enforced via jest thresholds)
+        run: pnpm --filter @ems/api test:cov -- --ci
+        env:
+          DATABASE_URL: postgresql://ems_admin:ems_secure_password_123!@localhost:5432/ems_db?schema=public
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          JWT_ACCESS_SECRET: test-access-secret-minimum-64-characters-long-key-for-jwt-signing
+          JWT_REFRESH_SECRET: test-refresh-secret-minimum-64-characters-long-key-for-jwt-rotation
+
+      - name: Build All Workspaces
+        run: pnpm build
+
+  # ---------------------------------------------------------------------------
+  # B6: all three production images must build AND start. Also runs trivy
+  # image scans (fail on CRITICAL) and a fail-closed negative test (the api
+  # must refuse to boot without DATABASE_URL).
+  # ---------------------------------------------------------------------------
+  container-smoke:
+    name: Container build, smoke & scan
+    runs-on: ubuntu-latest
+    needs: [validate]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build api image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          tags: ems-api:ci
+          load: true
+
+      - name: Build worker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/worker/Dockerfile
+          tags: ems-worker:ci
+          load: true
+
+      - name: Build web image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          tags: ems-web:ci
+          load: true
+          build-args: |
+            API_INTERNAL_URL=http://api:4000/api/:path*
+
+      # Trivy image scan (B7 pipeline hardening): fail on CRITICAL findings.
+      - name: Trivy scan api image
+        uses: aquasecurity/trivy-action@v0.28.0
+        with:
+          image-ref: ems-api:ci
+          format: table
+          severity: CRITICAL
+          exit-code: '1'
+
+      - name: Trivy scan worker image
+        uses: aquasecurity/trivy-action@v0.28.0
+        with:
+          image-ref: ems-worker:ci
+          format: table
+          severity: CRITICAL
+          exit-code: '1'
+
+      - name: Trivy scan web image
+        uses: aquasecurity/trivy-action@v0.28.0
+        with:
+          image-ref: ems-web:ci
+          format: table
+          severity: CRITICAL
+          exit-code: '1'
+
+      - name: Start test network + infra
+        run: |
+          docker network create ems-ci
+          docker run -d --name ems-ci-postgres --network ems-ci \
+            -e POSTGRES_USER=ems_admin -e POSTGRES_PASSWORD=ems_secure_password_123! -e POSTGRES_DB=ems_db \
+            postgres:16.15-alpine
+          docker run -d --name ems-ci-redis --network ems-ci \
+            redis:7.4.11-alpine3.21 redis-server --appendonly yes
+          sleep 8
+
+      # Negative test: fail-closed boot without DATABASE_URL (production).
+      - name: API refuses to boot without DATABASE_URL
+        run: |
+          set +e
+          docker run --rm --network ems-ci -e NODE_ENV=production ems-api:ci
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then
+            echo "::error::api booted without DATABASE_URL — fail-closed broken"
+            exit 1
+          fi
+          echo "api correctly refused to boot without DATABASE_URL (exit $code)"
+
+      - name: API liveness + readiness
+        run: |
+          docker run -d --name ems-ci-api --network ems-ci -p 4000:4000 \
+            -e NODE_ENV=production \
+            -e DATABASE_URL=postgresql://ems_admin:ems_secure_password_123!@ems-ci-postgres:5432/ems_db?schema=public \
+            -e REDIS_HOST=ems-ci-redis -e REDIS_PORT=6379 \
+            -e S3_ENDPOINT=localhost -e S3_ACCESS_KEY=ci -e S3_SECRET_KEY=ci \
+            -e JWT_ACCESS_SECRET=ci-access-secret-placeholder \
+            -e JWT_REFRESH_SECRET=ci-refresh-secret-placeholder \
+            -e DOCUMENT_ENCRYPTION_KEY=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff \
+            ems-api:ci
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:4000/api/v1/health/liveness > /dev/null; then
+              echo "api liveness OK"
+              break
+            fi
+            sleep 2
+            if [ "$i" -eq 30 ]; then echo "::error::api liveness never became ready"; docker logs ems-ci-api; exit 1; fi
+          done
+          curl -sf http://localhost:4000/api/v1/health/readiness | head -c 400; echo
+
+      - name: Web serves traffic
+        run: |
+          docker run -d --name ems-ci-web -p 3000:3000 ems-web:ci
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000 > /dev/null; then
+              echo "web OK"
+              break
+            fi
+            sleep 2
+            if [ "$i" -eq 30 ]; then echo "::error::web never became ready"; docker logs ems-ci-web; exit 1; fi
+          done
+
+      - name: Worker connects and listens
+        run: |
+          docker run -d --name ems-ci-worker --network ems-ci \
+            -e NODE_ENV=production -e REDIS_HOST=ems-ci-redis -e REDIS_PORT=6379 \
+            ems-worker:ci
+          sleep 12
+          docker logs ems-ci-worker | grep -q "worker.listening" \
+            || { echo "::error::worker never reached listening state"; docker logs ems-ci-worker; exit 1; }
+          echo "worker listening OK"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f ems-ci-api ems-ci-web ems-ci-worker ems-ci-postgres ems-ci-redis 2>/dev/null || true
+          docker network rm ems-ci 2>/dev/null || true

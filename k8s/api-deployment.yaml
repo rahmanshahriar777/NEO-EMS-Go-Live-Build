@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ems-api
+  namespace: ems-production
+  labels:
+    app: ems-api
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: ems-api
+  template:
+    metadata:
+      labels:
+        app: ems-api
+    spec:
+      # Hardened pod security (go-live §5.3 item 9). The image runs as the
+      # non-root `node` user (see apps/api/Dockerfile `USER node`, uid 1000).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          # Image coordinates are SUBSTITUTED BY CI (deploy-prod.yaml via
+          # envsubst): IMAGE_REGISTRY/IMAGE_REPOSITORY/IMAGE_TAG.
+          # Manual `kubectl apply` of this file WITHOUT envsubst will not
+          # resolve the image — export the three vars first, e.g.:
+          #   IMAGE_REGISTRY=ghcr.io IMAGE_REPOSITORY=<owner>/<repo> \
+          #     IMAGE_TAG=sha-<short-sha> envsubst < k8s/api-deployment.yaml | kubectl apply -f -
+          # The tag is always an immutable per-commit sha-<sha> or semver tag
+          # built by docker-build.yaml. NEVER :latest.
+          image: ${IMAGE_REGISTRY}/${IMAGE_REPOSITORY}/ems-api:${IMAGE_TAG}
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4000
+          envFrom:
+            - configMapRef:
+                name: ems-config
+            - secretRef:
+                name: ems-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          # Writable /tmp alongside the read-only root filesystem.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health/liveness
+              port: 4000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health/readiness
+              port: 4000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ems-api-service
+  namespace: ems-production
+spec:
+  type: ClusterIP
+  selector:
+    app: ems-api
+  ports:
+    - port: 4000
+      targetPort: 4000
+      protocol: TCP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ems-api-hpa
+  namespace: ems-production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ems-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 75

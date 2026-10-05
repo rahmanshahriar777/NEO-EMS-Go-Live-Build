@@ -1,0 +1,369 @@
+/* ─── NEO EMS EXECUTIVE SIDEBAR EDITORIAL THEME ───────────────────── */
+
+.sidebar-editorial {
+  --sidebar-bg: #ffffff;
+  --sidebar-bg-muted: #faf9f7;
+  --sidebar-bg-warm: #f0eeea;
+  --sidebar-border: #e2dfda;
+  --sidebar-border-subtle: #ece9e4;
+  --sidebar-text-primary: #1a1816;
+  --sidebar-text-secondary: #6b6560;
+  --sidebar-text-tertiary: #9b9590;
+  --sidebar-text-inverse: #faf9f7;
+  --sidebar-accent: #2c5f4a;
+  --sidebar-accent-light: #e8f0ec;
+  --sidebar-accent-hover: #234d3b;
+  --sidebar-accent-muted: #d4e3da;
+  --sidebar-positive: #2c7a4e;
+  --sidebar-positive-bg: #e8f5ec;
+  --sidebar-warning: #b8860b;
+  --sidebar-warning-bg: #fdf6e3;
+  --sidebar-info: #4a6fa5;
+  --sidebar-info-bg: #eef2f8;
+  --sidebar-rose: #a0344a;
+  --sidebar-rose-bg: #fce8ec;
+  --sidebar-shadow-sm: 0 1px 2px rgba(26, 24, 22, 0.04);
+  --sidebar-shadow-md: 0 2px 8px rgba(26, 24, 22, 0.06), 0 1px 2px rgba(26, 24, 22, 0.04);
+  --sidebar-radius-sm: 6px;
+  --sidebar-radius-md: 10px;
+  --sidebar-radius-lg: 14px;
+  --sidebar-font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --sidebar-font-mono: 'DM Mono', 'SF Mono', 'Fira Code', monospace;
+  --sidebar-font-serif: 'Instrument Serif', Georgia, serif;
+  --sidebar-transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  width: 256px;
+  flex-shrink: 0;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--sidebar-border);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100vh;
+  font-family: var(--sidebar-font-sans);
+  color: var(--sidebar-text-primary);
+  user-select: none;
+  position: relative;
+  z-index: 40;
+}
+
+/* ─── BRAND HEADER ────────────────────────────────────────────────── */
+.sidebar-brand {
+  height: 68px;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--sidebar-border-subtle);
+  text-decoration: none;
+  color: inherit;
+  background: var(--sidebar-bg);
+}
+
+.sidebar-brand-left {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.sidebar-brand-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--sidebar-radius-sm);
+  background: var(--sidebar-accent);
+  color: var(--sidebar-text-inverse);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--sidebar-font-serif);
+  font-size: 19px;
+  font-weight: 700;
+  box-shadow: var(--sidebar-shadow-sm);
+}
+
+.sidebar-brand-title {
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--sidebar-text-primary);
+  letter-spacing: -0.01em;
+}
+
+.sidebar-brand-sub {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 1px;
+}
+
+.sidebar-brand-label {
+  font-size: 10px;
+  font-family: var(--sidebar-font-mono);
+  color: var(--sidebar-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sidebar-brand-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--sidebar-accent);
+}
+
+.sidebar-brand-type {
+  font-size: 10px;
+  font-family: var(--sidebar-font-mono);
+  color: var(--sidebar-accent);
+  font-weight: 600;
+}
+
+.sidebar-system-badge {
+  font-family: var(--sidebar-font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--sidebar-bg-muted);
+  color: var(--sidebar-text-secondary);
+  border: 1px solid var(--sidebar-border);
+}
+
+/* ─── NAVIGATION SCROLL AREA ──────────────────────────────────────── */
+.sidebar-nav-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.sidebar-nav-container::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sidebar-nav-container::-webkit-scrollbar-thumb {
+  background: var(--sidebar-border);
+  border-radius: 4px;
+}
+
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar-section-label {
+  font-family: var(--sidebar-font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sidebar-text-tertiary);
+  padding: 0 10px 6px;
+  font-weight: 600;
+}
+
+/* ─── NAV LINKS ───────────────────────────────────────────────────── */
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--sidebar-radius-md);
+  font-size: 13px;
+  font-weight: 450;
+  color: var(--sidebar-text-secondary);
+  text-decoration: none;
+  transition: all var(--sidebar-transition-fast);
+  position: relative;
+}
+
+.sidebar-link:hover {
+  background: var(--sidebar-bg-muted);
+  color: var(--sidebar-text-primary);
+}
+
+.sidebar-link.active {
+  background: var(--sidebar-accent-light);
+  color: var(--sidebar-accent);
+  font-weight: 600;
+}
+
+.sidebar-link.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--sidebar-accent);
+}
+
+.sidebar-icon {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+  color: var(--sidebar-text-secondary);
+  opacity: 0.8;
+  transition: all var(--sidebar-transition-fast);
+}
+
+.sidebar-link:hover .sidebar-icon {
+  color: var(--sidebar-text-primary);
+  opacity: 1;
+}
+
+.sidebar-link.active .sidebar-icon {
+  color: var(--sidebar-accent);
+  opacity: 1;
+}
+
+.sidebar-badge {
+  margin-left: auto;
+  font-family: var(--sidebar-font-mono);
+  font-size: 10px;
+  padding: 1.5px 6px;
+  border-radius: 6px;
+  background: var(--sidebar-bg-muted);
+  color: var(--sidebar-text-tertiary);
+  border: 1px solid var(--sidebar-border-subtle);
+  font-weight: 500;
+}
+
+.sidebar-link.active .sidebar-badge {
+  background: var(--sidebar-bg);
+  color: var(--sidebar-accent);
+  border-color: var(--sidebar-accent-muted);
+  font-weight: 600;
+}
+
+.sidebar-badge.live {
+  background: var(--sidebar-accent-light);
+  color: var(--sidebar-accent);
+  border-color: var(--sidebar-accent-muted);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sidebar-badge-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--sidebar-positive);
+  animation: sidebarPulse 2s infinite;
+}
+
+@keyframes sidebarPulse {
+  0% { opacity: 0.6; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.1); }
+  100% { opacity: 0.6; transform: scale(0.9); }
+}
+
+/* ─── FOOTER USER PROFILE ─────────────────────────────────────────── */
+.sidebar-footer {
+  padding: 12px;
+  border-top: 1px solid var(--sidebar-border);
+  background: var(--sidebar-bg);
+}
+
+.sidebar-user-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: var(--sidebar-radius-md);
+  background: var(--sidebar-bg-muted);
+  border: 1px solid var(--sidebar-border-subtle);
+  transition: all var(--sidebar-transition-fast);
+}
+
+.sidebar-user-card:hover {
+  border-color: var(--sidebar-border);
+  background: var(--sidebar-bg-warm);
+}
+
+.sidebar-user-info-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  flex: 1;
+}
+
+.sidebar-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--sidebar-accent-light);
+  color: var(--sidebar-accent);
+  border: 1px solid var(--sidebar-accent-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--sidebar-font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.sidebar-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.sidebar-user-details {
+  overflow: hidden;
+  flex: 1;
+}
+
+.sidebar-user-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--sidebar-text-primary);
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-user-role {
+  font-size: 10px;
+  font-family: var(--sidebar-font-mono);
+  color: var(--sidebar-text-tertiary);
+  margin-top: 1px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sidebar-logout-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--sidebar-radius-sm);
+  background: transparent;
+  border: none;
+  color: var(--sidebar-text-tertiary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--sidebar-transition-fast);
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
+.sidebar-logout-btn:hover {
+  background: var(--sidebar-rose-bg);
+  color: var(--sidebar-rose);
+}

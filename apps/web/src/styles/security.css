@@ -1,0 +1,237 @@
+/* Security workspace (MFA, sessions) — follows the dashboard light theme. */
+
+.sec-page {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 8px 4px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.sec-card {
+  background: #fff;
+  border: 1px solid #e7e4df;
+  border-radius: 16px;
+  padding: 22px;
+  box-shadow: 0 1px 2px rgba(20, 18, 16, 0.04);
+}
+
+.sec-card h2 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1a1816;
+  margin: 0 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sec-card p.sec-desc {
+  font-size: 13px;
+  color: #6b6560;
+  margin: 0 0 16px;
+  line-height: 1.55;
+}
+
+.sec-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-family: 'DM Mono', ui-monospace, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sec-badge-on {
+  background: #e8f0ec;
+  color: #2c5f4a;
+  border: 1px solid #cfe0d5;
+}
+
+.sec-badge-off {
+  background: #f5f4f2;
+  color: #8a857f;
+  border: 1px solid #e2dfda;
+}
+
+.sec-secret-box {
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 15px;
+  letter-spacing: 0.12em;
+  background: #faf9f7;
+  border: 1px dashed #cfc9c2;
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  word-break: break-all;
+  color: #1a1816;
+}
+
+.sec-steps {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  counter-reset: sec-step;
+}
+
+.sec-steps li {
+  display: flex;
+  gap: 12px;
+  font-size: 13px;
+  color: #4a4642;
+  line-height: 1.5;
+}
+
+.sec-steps li::before {
+  counter-increment: sec-step;
+  content: counter(sec-step);
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #e8f0ec;
+  color: #2c5f4a;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sec-input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid #e2dfda;
+  border-radius: 10px;
+  font-size: 14px;
+  color: #1a1816;
+  background: #fff;
+}
+
+.sec-input:focus {
+  outline: none;
+  border-color: #2c5f4a;
+  box-shadow: 0 0 0 3px rgba(44, 95, 74, 0.12);
+}
+
+.sec-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: 1px solid transparent;
+}
+
+.sec-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.sec-btn-primary {
+  background: #2c5f4a;
+  color: #fff;
+}
+
+.sec-btn-primary:hover:not(:disabled) {
+  background: #24493a;
+}
+
+.sec-btn-danger {
+  background: #fff;
+  color: #b42318;
+  border-color: #f3c6c0;
+}
+
+.sec-btn-danger:hover:not(:disabled) {
+  background: #fef3f2;
+}
+
+.sec-btn-ghost {
+  background: #fff;
+  color: #4a4642;
+  border-color: #e2dfda;
+}
+
+.sec-btn-ghost:hover:not(:disabled) {
+  background: #faf9f7;
+}
+
+.sec-error {
+  background: rgba(244, 63, 94, 0.08);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  color: #b42318;
+  font-size: 13px;
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+.sec-success {
+  background: #e8f0ec;
+  border: 1px solid #cfe0d5;
+  color: #2c5f4a;
+  font-size: 13px;
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+.sec-recovery-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.sec-recovery-code {
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 13px;
+  background: #faf9f7;
+  border: 1px solid #e2dfda;
+  border-radius: 8px;
+  padding: 8px 12px;
+  text-align: center;
+  color: #1a1816;
+  letter-spacing: 0.06em;
+}
+
+.sec-session-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 4px;
+  border-top: 1px solid #f0eeea;
+}
+
+.sec-session-row:first-of-type {
+  border-top: none;
+}
+
+.sec-session-meta {
+  font-size: 12px;
+  color: #8a857f;
+  font-family: 'DM Mono', ui-monospace, monospace;
+  margin-top: 4px;
+}
+
+.sec-empty {
+  text-align: center;
+  padding: 32px 16px;
+  color: #8a857f;
+  font-size: 13px;
+}

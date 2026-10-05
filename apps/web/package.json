@@ -1,0 +1,44 @@
+{
+  "dependencies": {
+    "@ems/shared": "workspace:*",
+    "@tanstack/react-query": "^5.104.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.475.0",
+    "next": "15.5.27",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-hook-form": "^7.89.0",
+    "tailwind-merge": "^3.0.2"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^22.13.5",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "autoprefixer": "^10.4.20",
+    "axe-core": "^4.13.0",
+    "jsdom": "^30.1.2",
+    "openapi-typescript": "^7.13.0",
+    "postcss": "^8.5.3",
+    "rimraf": "^6.0.1",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3",
+    "vitest": "^5.0.3"
+  },
+  "name": "@ems/web",
+  "private": true,
+  "scripts": {
+    "build": "next build",
+    "clean": "rimraf .next dist",
+    "dev": "next dev -p 3000",
+    "gen:api-types": "openapi-typescript ${API_DOCS_JSON_URL:-http://localhost:4000/api/docs-json} -o src/lib/api-types.ts",
+    "lint": "eslint .",
+    "start": "next start -p 3000",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "version": "1.0.0"
+}

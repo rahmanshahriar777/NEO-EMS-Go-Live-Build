@@ -1,0 +1,31 @@
+{
+  "name": "@ems/worker",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "clean": "rimraf dist",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test \"src/**/*.test.ts\" \"src/**/*.unit.spec.ts\"",
+    "_testGlobNote": "unit.spec.ts picks up the mocked-Prisma processor unit specs (worker 5, go-live hardening)."
+  },
+  "dependencies": {
+    "@ems/database": "workspace:*",
+    "@ems/mailer": "workspace:*",
+    "@ems/shared": "workspace:*",
+    "@google/generative-ai": "^0.24.1",
+    "bullmq": "^5.41.6",
+    "dotenv": "^16.4.7",
+    "groq-sdk": "^1.6.0",
+    "ioredis": "^5.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.5",
+    "rimraf": "^6.0.1",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  }
+}

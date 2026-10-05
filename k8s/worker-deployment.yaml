@@ -1,0 +1,121 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ems-worker
+  namespace: ems-production
+  labels:
+    app: ems-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ems-worker
+  template:
+    metadata:
+      labels:
+        app: ems-worker
+    spec:
+      # Hardened pod security (go-live §5.3 item 9). The image runs as the
+      # non-root `node` user (see apps/worker/Dockerfile `USER node`, uid 1000).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          # Image coordinates are SUBSTITUTED BY CI (deploy-prod.yaml via
+          # envsubst): IMAGE_REGISTRY/IMAGE_REPOSITORY/IMAGE_TAG.
+          # Manual `kubectl apply` of this file WITHOUT envsubst will not
+          # resolve the image — export the three vars first (see the same
+          # comment in k8s/api-deployment.yaml). NEVER :latest.
+          # No HTTP probes: the worker serves no traffic. Liveness is the
+          # BullMQ heartbeat + structured logs; K8s restarts on crash via
+          # restartPolicy. Startup recovery requeues stuck jobs (see
+          # apps/worker/src/main.ts recoverStuckJobs).
+          image: ${IMAGE_REGISTRY}/${IMAGE_REPOSITORY}/ems-worker:${IMAGE_TAG}
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: ems-config
+            - secretRef:
+                name: ems-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "150m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          # Writable /tmp alongside the read-only root filesystem.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+# ==============================================================================
+# HPA for the BullMQ worker (go-live §5.4 scalability).
+#
+# CPU-BASED TODAY — queue-depth scaling is the goal but the plumbing does not
+# exist yet: the worker exposes no HTTP endpoint and exports no BullMQ queue
+# counters (no prom-client gauges, no /metrics), so neither
+# prometheus-adapter (external metrics) nor KEDA has anything to scale on.
+#
+# QUEUE-DEPTH PLACEHOLDER (to wire when the metrics land):
+#   1. Export per-queue waiting/active counts (e.g. prom-client gauges fed by
+#      queue.getJobCounts(), scraped from a /metrics endpoint on the worker or
+#      via the API's guarded metrics controller), OR
+#   2. Install KEDA and use a ScaledObject with the redis scaler on the BullMQ
+#      list length, e.g.:
+#        apiVersion: keda.sh/v1alpha1
+#        kind: ScaledObject
+#        metadata: { name: ems-worker-qdepth, namespace: ems-production }
+#        spec:
+#          scaleTargetRef: { name: ems-worker }
+#          minReplicaCount: 1
+#          maxReplicaCount: 10
+#          triggers:
+#            - type: redis
+#              metadata:
+#                addressFromEnv: REDIS_HOST   # via TriggerAuthentication
+#                listName: bull:ems-notifications:wait
+#                listLength: "50"             # one waiting job batch per replica
+#      Until then, CPU is the dependable proxy: BullMQ processors are
+#      CPU-bound while draining, and scaleDown is stabilized (5 min) so a
+#      draining queue is not yanked mid-batch.
+# ==============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ems-worker-hpa
+  namespace: ems-production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ems-worker
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60

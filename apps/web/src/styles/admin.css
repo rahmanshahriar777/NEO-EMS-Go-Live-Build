@@ -1,0 +1,237 @@
+/* Admin workspace (users, roles) — follows the dashboard light theme. */
+
+.adm-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 8px 4px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.adm-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.adm-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #1a1816;
+  margin: 0;
+}
+
+.adm-subtitle {
+  font-size: 13px;
+  color: #6b6560;
+  margin: 4px 0 0;
+}
+
+.adm-card {
+  background: #fff;
+  border: 1px solid #e7e4df;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 1px 2px rgba(20, 18, 16, 0.04);
+}
+
+.adm-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.adm-table th {
+  text-align: left;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #8a857f;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e7e4df;
+  font-weight: 700;
+}
+
+.adm-table td {
+  padding: 12px;
+  border-bottom: 1px solid #f5f4f2;
+  color: #1a1816;
+  vertical-align: middle;
+}
+
+.adm-table tr:last-child td {
+  border-bottom: none;
+}
+
+.adm-role-pill {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 700;
+  font-family: 'DM Mono', ui-monospace, monospace;
+  background: #e8f0ec;
+  color: #2c5f4a;
+  border: 1px solid #d4e3da;
+  border-radius: 999px;
+  padding: 2px 9px;
+  margin: 1px 3px 1px 0;
+}
+
+.adm-status-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.adm-status-dot::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.adm-status-active { color: #2c7a4e; }
+.adm-status-inactive { color: #b42318; }
+
+.adm-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s;
+}
+
+.adm-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.adm-btn-primary { background: #2c5f4a; color: #fff; }
+.adm-btn-primary:hover:not(:disabled) { background: #24493a; }
+.adm-btn-danger { background: #fff; color: #b42318; border-color: #f3c6c0; }
+.adm-btn-danger:hover:not(:disabled) { background: #fef3f2; }
+.adm-btn-ghost { background: #fff; color: #4a4642; border-color: #e2dfda; }
+.adm-btn-ghost:hover:not(:disabled) { background: #faf9f7; }
+
+.adm-btn-sm { padding: 6px 12px; font-size: 12px; }
+
+.adm-input, .adm-select {
+  padding: 10px 14px;
+  border: 1px solid #e2dfda;
+  border-radius: 10px;
+  font-size: 13px;
+  color: #1a1816;
+  background: #fff;
+  width: 100%;
+}
+
+.adm-input:focus, .adm-select:focus {
+  outline: none;
+  border-color: #2c5f4a;
+  box-shadow: 0 0 0 3px rgba(44, 95, 74, 0.12);
+}
+
+.adm-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 18, 16, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+  padding: 20px;
+}
+
+.adm-modal {
+  background: #fff;
+  border-radius: 18px;
+  padding: 24px;
+  width: 100%;
+  max-width: 560px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.18);
+}
+
+.adm-modal h3 {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1a1816;
+  margin: 0 0 4px;
+}
+
+.adm-modal .adm-modal-sub {
+  font-size: 12.5px;
+  color: #6b6560;
+  margin: 0 0 18px;
+}
+
+.adm-form-group { margin-bottom: 14px; }
+
+.adm-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #4a4642;
+  margin-bottom: 6px;
+}
+
+.adm-error {
+  background: rgba(244, 63, 94, 0.08);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  color: #b42318;
+  font-size: 13px;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+}
+
+.adm-perm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.adm-perm-subject {
+  border: 1px solid #e7e4df;
+  border-radius: 12px;
+  padding: 12px;
+  background: #faf9f7;
+}
+
+.adm-perm-subject h4 {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #2c5f4a;
+  margin: 0 0 8px;
+  font-family: 'DM Mono', ui-monospace, monospace;
+}
+
+.adm-perm-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: #4a4642;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.adm-perm-check input { accent-color: #2c5f4a; }
+
+.adm-empty {
+  text-align: center;
+  padding: 40px 16px;
+  color: #8a857f;
+  font-size: 13px;
+}

@@ -1,0 +1,335 @@
+{
+  "_comment": "Payroll golden vectors. Each case: fixed input (employee base salary + salary components) -> expected payslip outputs, cents-exact. Expected values were hand-computed through the service's real arithmetic path (CurrencyUtil.toMinorUnits / calculateComponent / fromMinorUnits) and verified by payroll.golden.spec.ts. Amounts are in major units (GBP); the spec also asserts minor-unit totals.",
+  "cases": [
+    {
+      "expected": {
+        "deductionsCents": 57050,
+        "grossCents": 345000,
+        "grossPay": 3450.0,
+        "netCents": 287950,
+        "netPay": 2879.5,
+        "totalDeductions": 570.5
+      },
+      "input": {
+        "baseSalary": 3000.0,
+        "components": [
+          {
+            "calculationType": "PERCENTAGE_OF_BASIC",
+            "name": "Housing Allowance",
+            "type": "EARNING",
+            "value": 10
+          },
+          {
+            "calculationType": "FIXED",
+            "name": "Transport",
+            "type": "EARNING",
+            "value": 150
+          },
+          {
+            "calculationType": "PERCENTAGE_OF_BASIC",
+            "name": "Pension",
+            "type": "DEDUCTION",
+            "value": 5
+          },
+          {
+            "calculationType": "FIXED",
+            "name": "Income Tax",
+            "type": "DEDUCTION",
+            "value": 420.5
+          }
+        ]
+      },
+      "name": "full-time standard: base + percentage earning + fixed earning + percentage/fixed deductions"
+    },
+    {
+      "expected": {
+        "deductionsCents": 0,
+        "grossCents": 214999,
+        "grossPay": 2149.99,
+        "netCents": 214999,
+        "netPay": 2149.99,
+        "totalDeductions": 0
+      },
+      "input": {
+        "baseSalary": 1999.99,
+        "components": [
+          {
+            "calculationType": "PERCENTAGE_OF_BASIC",
+            "name": "Bonus",
+            "type": "EARNING",
+            "value": 7.5
+          }
+        ]
+      },
+      "name": "rounding edge: fractional-penny percentage rounds half-up at the pence boundary"
+    },
+    {
+      "expected": {
+        "deductionsCents": 0,
+        "grossCents": 242190,
+        "grossPay": 2421.9,
+        "netCents": 242190,
+        "netPay": 2421.9,
+        "totalDeductions": 0
+      },
+      "input": {
+        "baseSalary": 2345.67,
+        "components": [
+          {
+            "calculationType": "PERCENTAGE_OF_BASIC",
+            "name": "Commission",
+            "type": "EARNING",
+            "value": 3.25
+          }
+        ]
+      },
+      "name": "pence-level base with fractional percentage"
+    },
+    {
+      "expected": {
+        "deductionsCents": 150000,
+        "grossCents": 100000,
+        "grossPay": 1000.0,
+        "netCents": 0,
+        "netPay": 0.0,
+        "totalDeductions": 1500.0
+      },
+      "input": {
+        "baseSalary": 1000.0,
+        "components": [
+          {
+            "calculationType": "FIXED",
+            "name": "Advance Recovery",
+            "type": "DEDUCTION",
+            "value": 1500
+          }
+        ]
+      },
+      "name": "deductions exceeding gross floor net pay at zero"
+    },
+    {
+      "expected": {
+        "deductionsCents": 0,
+        "grossCents": 400000,
+        "grossPay": 4000.0,
+        "netCents": 400000,
+        "netPay": 4000.0,
+        "totalDeductions": 0
+      },
+      "input": {
+        "baseSalary": 4000.0,
+        "components": []
+      },
+      "name": "no components: base salary only"
+    }
+  ],
+  "multiEmployeeTotals": {
+    "_comment": "Two-employee run: emp-1 base 4000 no components; emp-2 base 2500 + 137.50 fixed overtime earning - 100 fixed deduction.",
+    "expected": {
+      "payslips": [
+        {
+          "employeeId": "emp-1",
+          "grossPay": 4000.0,
+          "netPay": 4000.0,
+          "totalDeductions": 0.0
+        },
+        {
+          "employeeId": "emp-2",
+          "grossPay": 2637.5,
+          "netPay": 2537.5,
+          "totalDeductions": 100.0
+        }
+      ],
+      "run": {
+        "totalDeductions": 100.0,
+        "totalGross": 6637.5,
+        "totalNet": 6537.5
+      }
+    },
+    "inputs": [
+      {
+        "baseSalary": 4000.0,
+        "components": [],
+        "id": "emp-1"
+      },
+      {
+        "baseSalary": 2500.0,
+        "components": [
+          {
+            "calculationType": "FIXED",
+            "name": "Overtime",
+            "type": "EARNING",
+            "value": 137.5
+          },
+          {
+            "calculationType": "FIXED",
+            "name": "Union Dues",
+            "type": "DEDUCTION",
+            "value": 100
+          }
+        ],
+        "id": "emp-2"
+      }
+    ]
+  },
+  "pendingPhase2": {
+    "_comment": "Phase 2 payroll variants NOT yet implemented: part-time hourly and contractor day-rate have no pay-basis logic (eligibility admits the statuses, but there is no hourlyRate*hours / dayRate*days computation). Joiner proration and unpaid-leave deduction GRADUATED to the phase2Proration golden section (implemented, go-live). Inputs are recorded so the golden suite can be extended; expected outputs are intentionally absent (never fabricate).",
+    "inputs": [
+      {
+        "employmentType": "PART_TIME",
+        "hourlyRate": 18.5,
+        "hoursWorked": 96,
+        "variant": "part-time hourly"
+      },
+      {
+        "dayRate": 450,
+        "daysWorked": 20,
+        "employmentType": "CONTRACTOR",
+        "variant": "contractor day-rate"
+      }
+    ]
+  },
+  "phase2Proration": {
+    "_comment": "Phase 2 item 4 golden vectors (go-live): joiner/leaver proration + unpaid-leave deduction. Expected values HAND-COMPUTED through the documented arithmetic (integer minor units; prorateByCalendarDays: minor*daysPresent/dim rounded; unpaid deduction: round(round(proratedMinor/dim)*unpaidDays) \u2014 see payroll.processor.ts). The spec replays them through the REAL shared functions (computePayslip, prorateByCalendarDays, applyAdditionalDeductions), so these pin the worker's exact composition, not a copy of its output. daysPresent is the contract boundary (daysPresentInMonth, unit-tested in the worker); the golden starts from days present.",
+    "cases": [
+      {
+        "name": "joiner proration \u2014 joined 2026-09-14, 17 of 30 days",
+        "currency": "GBP",
+        "baseSalary": 3600,
+        "components": [],
+        "period": {
+          "year": 2026,
+          "month": 9
+        },
+        "daysPresent": 17,
+        "unpaidLeaveDays": 0,
+        "expected": {
+          "proratedBase": 2040.0,
+          "grossCents": 204000,
+          "deductionsCents": 0,
+          "netCents": 204000,
+          "grossPay": 2040.0,
+          "totalDeductions": 0,
+          "netPay": 2040.0,
+          "breakdownLength": 1
+        }
+      },
+      {
+        "name": "leaver proration \u2014 left 2026-10-10, 10 of 31 days (rounding)",
+        "currency": "GBP",
+        "baseSalary": 4800,
+        "components": [],
+        "period": {
+          "year": 2026,
+          "month": 10
+        },
+        "daysPresent": 10,
+        "unpaidLeaveDays": 0,
+        "expected": {
+          "proratedBase": 1548.39,
+          "grossCents": 154839,
+          "deductionsCents": 0,
+          "netCents": 154839,
+          "grossPay": 1548.39,
+          "totalDeductions": 0,
+          "netPay": 1548.39,
+          "breakdownLength": 1
+        }
+      },
+      {
+        "name": "full month present \u2014 no proration applied",
+        "currency": "GBP",
+        "baseSalary": 3600,
+        "components": [],
+        "period": {
+          "year": 2026,
+          "month": 9
+        },
+        "daysPresent": 30,
+        "unpaidLeaveDays": 0,
+        "expected": {
+          "proratedBase": 3600.0,
+          "grossCents": 360000,
+          "deductionsCents": 0,
+          "netCents": 360000,
+          "grossPay": 3600.0,
+          "totalDeductions": 0,
+          "netPay": 3600.0,
+          "breakdownLength": 1
+        }
+      },
+      {
+        "name": "unpaid leave \u2014 2 days at daily rate (Sep 2026, 30 days)",
+        "currency": "GBP",
+        "baseSalary": 3000,
+        "components": [],
+        "period": {
+          "year": 2026,
+          "month": 9
+        },
+        "daysPresent": 30,
+        "unpaidLeaveDays": 2,
+        "expected": {
+          "proratedBase": 3000.0,
+          "unpaidDeduction": 200.0,
+          "unpaidLine": "Unpaid Leave (2 days)",
+          "grossCents": 300000,
+          "deductionsCents": 20000,
+          "netCents": 280000,
+          "grossPay": 3000.0,
+          "totalDeductions": 200.0,
+          "netPay": 2800.0,
+          "breakdownLength": 2
+        }
+      },
+      {
+        "name": "joiner + unpaid leave \u2014 deduction off the PRORATED base",
+        "currency": "GBP",
+        "baseSalary": 3600,
+        "components": [],
+        "period": {
+          "year": 2026,
+          "month": 9
+        },
+        "daysPresent": 17,
+        "unpaidLeaveDays": 1,
+        "expected": {
+          "proratedBase": 2040.0,
+          "unpaidDeduction": 68.0,
+          "unpaidLine": "Unpaid Leave (1 day)",
+          "grossCents": 204000,
+          "deductionsCents": 6800,
+          "netCents": 197200,
+          "grossPay": 2040.0,
+          "totalDeductions": 68.0,
+          "netPay": 1972.0,
+          "breakdownLength": 2
+        }
+      },
+      {
+        "name": "half-day unpaid leave \u2014 0.5 day deduction",
+        "currency": "GBP",
+        "baseSalary": 3000,
+        "components": [],
+        "period": {
+          "year": 2026,
+          "month": 9
+        },
+        "daysPresent": 30,
+        "unpaidLeaveDays": 0.5,
+        "expected": {
+          "proratedBase": 3000.0,
+          "unpaidDeduction": 50.0,
+          "unpaidLine": "Unpaid Leave (0.5 days)",
+          "grossCents": 300000,
+          "deductionsCents": 5000,
+          "netCents": 295000,
+          "grossPay": 3000.0,
+          "totalDeductions": 50.0,
+          "netPay": 2950.0,
+          "breakdownLength": 2
+        }
+      }
+    ]
+  }
+}

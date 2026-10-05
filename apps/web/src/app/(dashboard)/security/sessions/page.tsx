@@ -1,0 +1,158 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { MonitorSmartphone, LogOut, RefreshCw } from 'lucide-react';
+import { DashboardLayout } from '../../../../components/layout/dashboard-layout';
+import { api } from '../../../../lib/api-client';
+import { ErrorBanner } from '../../../../components/ui/error-banner';
+import '../../../../styles/security.css';
+
+interface Session {
+  id: string;
+  ipAddress?: string;
+  userAgent?: string;
+  createdAt?: string;
+  lastActiveAt?: string;
+  current?: boolean;
+}
+
+/**
+ * Active sessions (Phase 2 item 8).
+ *
+ * API contract (worker 1):
+ *   GET    /auth/sessions      → Session[]
+ *   DELETE /auth/sessions/:id  → revoke one session (not the current one)
+ *
+ * Revoking the current session signs this browser out — the API confirms
+ * and the client then drops local state via /auth/logout.
+ */
+export default function SessionsPage() {
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const fetchSessions = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await api.get<Session[] | { items: Session[] }>('/auth/sessions');
+      setSessions(Array.isArray(res) ? res : res?.items || []);
+    } catch (err: any) {
+      setError(err?.message || 'Could not load active sessions. The sessions API may not be deployed yet.');
+      setSessions([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSessions();
+  }, []);
+
+  const revoke = async (session: Session) => {
+    if (session.current) {
+      // The current session is ended via logout, not revocation.
+      try {
+        await api.post('/auth/logout', {});
+      } finally {
+        window.location.href = '/login';
+      }
+      return;
+    }
+    if (!window.confirm('Revoke this session? That device will be signed out immediately.')) return;
+    setRevoking(session.id);
+    setNotice(null);
+    try {
+      await api.delete(`/auth/sessions/${session.id}`);
+      setSessions((prev) => prev.filter((s) => s.id !== session.id));
+      setNotice('Session revoked. That device has been signed out.');
+    } catch (err: any) {
+      setNotice(null);
+      setError(err?.message || 'Could not revoke that session.');
+    } finally {
+      setRevoking(null);
+    }
+  };
+
+  const shortAgent = (ua?: string) => {
+    if (!ua) return 'Unknown device';
+    if (/mobile|android|iphone|ipad/i.test(ua)) return 'Mobile device';
+    const m = ua.match(/(Chrome|Firefox|Safari|Edge)\/[\d.]+/);
+    return m ? `${m[1]} browser` : 'Desktop browser';
+  };
+
+  return (
+    <DashboardLayout title="Active Sessions">
+      <div className="sec-page">
+        <div className="sec-card">
+          <h2>
+            <MonitorSmartphone className="w-5 h-5 text-[#2c5f4a]" />
+            Where you&apos;re signed in
+          </h2>
+          <p className="sec-desc">
+            Every device or browser holding a live session for your account.
+            Revoke anything you don&apos;t recognize — that device is signed out
+            immediately.
+          </p>
+
+          {notice && <div className="sec-success mb-3" role="status">{notice}</div>}
+
+          {error && (
+            <div className="mb-3">
+              <ErrorBanner
+                resource="active sessions"
+                detail={error}
+                onRetry={fetchSessions}
+                retrying={loading}
+              />
+            </div>
+          )}
+
+          {loading ? (
+            <div className="sec-empty">
+              <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />
+              Loading sessions…
+            </div>
+          ) : sessions.length === 0 && !error ? (
+            <div className="sec-empty">No active sessions found.</div>
+          ) : (
+            <div>
+              {sessions.map((s) => (
+                <div key={s.id} className="sec-session-row">
+                  <div>
+                    <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                      {shortAgent(s.userAgent)}
+                      {s.current && (
+                        <span className="sec-badge sec-badge-on">This device</span>
+                      )}
+                    </div>
+                    <div className="sec-session-meta">
+                      {s.ipAddress || 'IP unknown'}
+                      {s.lastActiveAt && (
+                        <> &bull; last active {new Date(s.lastActiveAt).toLocaleString()}</>
+                      )}
+                      {s.createdAt && (
+                        <> &bull; since {new Date(s.createdAt).toLocaleString()}</>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    className={`sec-btn ${s.current ? 'sec-btn-ghost' : 'sec-btn-danger'}`}
+                    disabled={revoking === s.id}
+                    onClick={() => revoke(s)}
+                    title={s.current ? 'Sign out this device' : 'Revoke this session'}
+                  >
+                    <LogOut className="w-4 h-4" />
+                    {revoking === s.id ? 'Revoking…' : s.current ? 'Sign out' : 'Revoke'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </DashboardLayout>
+  );
+}

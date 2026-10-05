@@ -1,0 +1,17 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'ems-api'
+    metrics_path: '/api/v1/health/liveness'
+    static_configs:
+      - targets: ['api:4000']
+
+  - job_name: 'ems-redis'
+    static_configs:
+      - targets: ['redis:6379']
+
+  - job_name: 'ems-postgres'
+    static_configs:
+      - targets: ['postgres:5432']

@@ -1,0 +1,112 @@
+# ==============================================================================
+# NEO EMS — Development compose
+# Local PostgreSQL + Redis + MinIO (+ pgAdmin). Dev defaults only — never use
+# these credentials outside a local machine. Production topology lives in
+# docker-compose.prod.yml (external managed PostgreSQL via DATABASE_URL).
+#
+# Image pins verified 2026-10-05. Re-verify with:
+#   docker buildx imagetools inspect <image>   (digests)
+# ==============================================================================
+
+services:
+  postgres:
+    image: postgres:16.15-alpine
+    container_name: ems-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ems_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ems_secure_password_123!}
+      POSTGRES_DB: ${POSTGRES_DB:-ems_db}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - ems-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ems_admin} -d ${POSTGRES_DB:-ems_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ems-network
+
+  redis:
+    image: redis:7.4.11-alpine3.21
+    container_name: ems-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - ems-redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - ems-network
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-10-15T17-29-55Z
+    container_name: ems-minio
+    restart: unless-stopped
+    ports:
+      - "${S3_PORT:-9000}:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio_secure_password_123!}
+    volumes:
+      - ems-minio-data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ems-network
+
+  minio-create-buckets:
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    container_name: ems-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    # NOTE: no `mc anonymous set` — buckets stay private. All document access
+    # goes through the authenticated API (AES-256-GCM decrypt + stream);
+    # anonymous reads are a finding, not a feature.
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set ems http://minio:9000 ${MINIO_ROOT_USER:-minio_admin} ${MINIO_ROOT_PASSWORD:-minio_secure_password_123!};
+      /usr/bin/mc mb --ignore-existing ems/${S3_BUCKET:-ems-documents};
+      exit 0;
+      "
+    networks:
+      - ems-network
+
+  pgadmin:
+    image: dpage/pgadmin4:9
+    container_name: ems-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@ems.local
+      PGADMIN_DEFAULT_PASSWORD: admin_password_123!
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - ems-network
+
+networks:
+  ems-network:
+    driver: bridge
+
+volumes:
+  ems-postgres-data:
+    driver: local
+  ems-redis-data:
+    driver: local
+  ems-minio-data:
+    driver: local

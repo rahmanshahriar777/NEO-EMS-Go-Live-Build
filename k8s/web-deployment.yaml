@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ems-web
+  namespace: ems-production
+  labels:
+    app: ems-web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ems-web
+  template:
+    metadata:
+      labels:
+        app: ems-web
+    spec:
+      # Hardened pod security (go-live §5.3 item 9). The image runs as the
+      # non-root `node` user (see apps/web/Dockerfile `USER node`, uid 1000).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          # Image coordinates are SUBSTITUTED BY CI (deploy-prod.yaml via
+          # envsubst): IMAGE_REGISTRY/IMAGE_REPOSITORY/IMAGE_TAG.
+          # Manual `kubectl apply` of this file WITHOUT envsubst will not
+          # resolve the image — export the three vars first (see the same
+          # comment in k8s/api-deployment.yaml). NEVER :latest.
+          image: ${IMAGE_REGISTRY}/${IMAGE_REPOSITORY}/ems-web:${IMAGE_TAG}
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: NEXT_PUBLIC_API_URL
+              value: "https://ems.yourcompany.com/api/v1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          # Writable /tmp plus Next.js standalone's runtime fetch/image cache
+          # alongside the read-only root filesystem. ASSUMPTION: the
+          # standalone server only writes under /tmp and .next/cache at
+          # runtime — verify with a container smoke test if the web pod
+          # crash-loops on startup.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: next-cache
+              mountPath: /app/.next/cache
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: next-cache
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ems-web-service
+  namespace: ems-production
+spec:
+  type: ClusterIP
+  selector:
+    app: ems-web
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP

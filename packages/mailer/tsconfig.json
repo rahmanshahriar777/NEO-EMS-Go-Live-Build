@@ -1,0 +1,1 @@
+{"compilerOptions":{"declaration":true,"declarationMap":true,"module":"NodeNext","moduleResolution":"NodeNext","outDir":"./dist","rootDir":"./src","target":"ES2022"},"exclude":["node_modules","dist","**/*.test.ts"],"extends":"../../tsconfig.base.json","include":["src/**/*"]}

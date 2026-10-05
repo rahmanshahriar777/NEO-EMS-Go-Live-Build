@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ems-production
+  labels:
+    app.kubernetes.io/name: ems
+    app.kubernetes.io/part-of: enterprise-workforce
+    # Pod Security Standards: baseline enforced on every pod in this namespace
+    # (go-live §5.3 item 9). The Deployments additionally set runAsNonRoot,
+    # readOnlyRootFilesystem and seccomp RuntimeDefault.
+    pod-security.kubernetes.io/enforce: baseline

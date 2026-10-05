@@ -1,0 +1,29 @@
+# ==============================================================================
+# NEO EMS — PodDisruptionBudgets (B6)
+# The worker is intentionally excluded: it usually runs a single replica and a
+# PDB with minAvailable: 1 would block every voluntary eviction (the HPA in
+# k8s/worker-deployment.yaml may scale it to 5 under load, but the common
+# case is 1). Its safety net is startup recovery (stuck-job requeue) + the
+# dead-letter queue, not disruption budgets.
+# ==============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ems-api-pdb
+  namespace: ems-production
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ems-api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ems-web-pdb
+  namespace: ems-production
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ems-web

@@ -1,0 +1,76 @@
+# ==============================================================================
+# NEO EMS — non-secret configuration (B3). Secrets live in ems-secrets
+# (k8s/secrets-template.yaml). Data services are EXTERNAL/managed: replace
+# the REPLACE_WITH_* hosts with your managed endpoints.
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ems-config
+  namespace: ems-production
+data:
+  NODE_ENV: "production"
+  PORT: "4000"
+  API_PREFIX: "/api/v1"
+  APP_NAME: "NEO EMS"
+  FRONTEND_URL: "https://ems.yourcompany.com"
+  ALLOWED_ORIGINS: "https://ems.yourcompany.com"
+  # --- Redis (managed or in-cluster; AUTH required) ---
+  REDIS_HOST: "REPLACE_WITH_MANAGED_REDIS_HOST"
+  REDIS_PORT: "6379"
+  # --- S3-compatible storage (managed or MinIO) ---
+  S3_ENDPOINT: "REPLACE_WITH_S3_ENDPOINT_HOST"
+  S3_PORT: "443"
+  S3_BUCKET: "ems-documents"
+  S3_USE_SSL: "true"
+  S3_REGION: "us-east-1"
+  # --- Documents ---
+  DOCUMENT_ENCRYPTION_ENABLED: "true"
+  DOCUMENT_MAX_FILE_SIZE_BYTES: "10485760"
+  DOCUMENT_ALLOWED_MIME_TYPES: "application/pdf,image/png,image/jpeg"
+  DOCUMENT_PRESIGNED_URL_EXPIRY_SECONDS: "900"
+  # --- Payroll ---
+  PAYROLL_CURRENCY: "GBP"
+  DEFAULT_CURRENCY: "GBP"
+  # --- Auth / throttling ---
+  JWT_ACCESS_EXPIRATION: "15m"
+  JWT_REFRESH_EXPIRATION: "7d"
+  THROTTLE_TTL: "60"
+  THROTTLE_LIMIT: "100"
+  # --- AI (keys are secrets; models/providers are config) ---
+  AI_PRIMARY_PROVIDER: "gemini"
+  AI_SECONDARY_PROVIDER: "groq"
+  AI_GEMINI_MODEL: "gemini-2.5-flash"
+  AI_GROQ_MODEL: "llama-3.3-70b-versatile"
+  AI_TIMEOUT_MS: "30000"
+  AI_CIRCUIT_FAILURE_THRESHOLD: "5"
+  AI_CIRCUIT_RECOVERY_WINDOW_MS: "30000"
+  AI_CIRCUIT_HALF_OPEN_LIMIT: "2"
+  AI_LOG_RETENTION_DAYS: "90"
+  # --- Email (SMTP_HOST required in production; fail closed) ---
+  SMTP_HOST: "REPLACE_WITH_SMTP_HOST"
+  SMTP_PORT: "587"
+  SMTP_SECURE: "false"
+  SMTP_USER: "REPLACE_WITH_SMTP_USER"
+  SMTP_FROM: "no-reply@yourcompany.com"
+  SMTP_TIMEOUT_MS: "15000"
+  # --- OAuth sign-in (disabled by default; secrets live in ems-secrets) ---
+  OAUTH_ENABLED: "false"
+  GOOGLE_CLIENT_ID: ""
+  GOOGLE_REDIRECT_URI: "REPLACE_WITH_GOOGLE_REDIRECT_URI"
+  MICROSOFT_CLIENT_ID: ""
+  MICROSOFT_REDIRECT_URI: "REPLACE_WITH_MICROSOFT_REDIRECT_URI"
+  MICROSOFT_TENANT: "common"
+  # --- Security switches ---
+  ALLOW_PUBLIC_REGISTRATION: "false"
+  TRUST_PROXY_HOPS: "1"
+  CSRF_COOKIE_NAME: "csrf"
+  INVITATION_TTL_HOURS: "72"
+  PASSWORD_RESET_TTL_MINUTES: "60"
+  # --- MFA (TOTP) ---
+  MFA_ISSUER: "NEO EMS"
+  MFA_TOTP_WINDOW: "1"
+  # --- Worker scheduling ---
+  SCHEDULE_TZ: "UTC"
+  # --- Observability ---
+  LOG_LEVEL: "info"

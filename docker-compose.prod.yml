@@ -1,0 +1,176 @@
+# ==============================================================================
+# NEO EMS — Production compose (single supported topology)
+#
+#   - PostgreSQL is EXTERNAL (managed: RDS / Cloud SQL / Azure). The api and
+#     worker fail closed when DATABASE_URL is unset — there is intentionally
+#     no postgres service in this file.
+#   - Redis + MinIO run as pinned compose services (or point REDIS_*/S3_*
+#     at managed equivalents and drop the services).
+#   - nginx terminates TLS on 443 (cert/key mounted at /etc/nginx/certs —
+#     provide tls.crt + tls.key via TLS_CERT_DIR, e.g. from certbot) and
+#     reverse-proxies web (3000) + api (4000). Port 80 only redirects to
+#     HTTPS (plus the ACME challenge path). If TLS terminates upstream
+#     (load balancer), drop the 443 mapping and the 443 server block in
+#     docker/nginx.conf, keeping :80 as the entrypoint.
+#
+# Required secrets come from the environment (see .env.example). Copy
+# .env.example to .env.production, fill every REQUIRED value, then:
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+#
+# Image pins verified 2026-10-05.
+# ==============================================================================
+
+services:
+  redis:
+    image: redis:7.4.11-alpine3.21
+    container_name: ems-prod-redis
+    restart: always
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set for production}
+    volumes:
+      - ems-prod-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set for production}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ems-prod-net
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-10-15T17-29-55Z
+    container_name: ems-prod-minio
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER must be set for production}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set for production}
+    volumes:
+      - ems-prod-minio-data:/data
+    command: server /data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ems-prod-net
+
+  minio-create-buckets:
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    container_name: ems-prod-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    # Buckets stay PRIVATE — no anonymous policy. Document downloads are
+    # served by the authenticated API only.
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set ems http://minio:9000 ${MINIO_ROOT_USER:?} ${MINIO_ROOT_PASSWORD:?};
+      /usr/bin/mc mb --ignore-existing ems/${S3_BUCKET:-ems-documents};
+      exit 0;
+      "
+    networks:
+      - ems-prod-net
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: ems-api:prod
+    container_name: ems-prod-api
+    restart: always
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL (managed PostgreSQL) must be set for production}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set for production}
+      S3_ENDPOINT: minio
+      S3_PORT: 9000
+      S3_BUCKET: ${S3_BUCKET:-ems-documents}
+      S3_USE_SSL: "false"
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY must be set for production}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY must be set for production}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET must be set for production}
+      DOCUMENT_ENCRYPTION_KEY: ${DOCUMENT_ENCRYPTION_KEY:?DOCUMENT_ENCRYPTION_KEY must be set for production}
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - ems-prod-net
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    image: ems-worker:prod
+    container_name: ems-prod-worker
+    restart: always
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL (managed PostgreSQL) must be set for production}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set for production}
+      S3_ENDPOINT: minio
+      S3_PORT: 9000
+      S3_BUCKET: ${S3_BUCKET:-ems-documents}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY must be set for production}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY must be set for production}
+      DOCUMENT_ENCRYPTION_KEY: ${DOCUMENT_ENCRYPTION_KEY:?DOCUMENT_ENCRYPTION_KEY must be set for production}
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - ems-prod-net
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        API_INTERNAL_URL: http://api:4000/api/:path*
+    image: ems-web:prod
+    container_name: ems-prod-web
+    restart: always
+    environment:
+      NODE_ENV: production
+    depends_on:
+      - api
+    networks:
+      - ems-prod-net
+
+  nginx:
+    image: nginx:1.29-alpine
+    container_name: ems-prod-nginx
+    restart: always
+    ports:
+      - "80:80"
+      # 443 is LIVE: docker/nginx.conf terminates TLS on this listener.
+      # TLS_CERT_DIR must contain tls.crt + tls.key (certbot, internal CA…).
+      - "443:443"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ${TLS_CERT_DIR:-./certs}:/etc/nginx/certs:ro
+    depends_on:
+      - web
+      - api
+    networks:
+      - ems-prod-net
+
+networks:
+  ems-prod-net:
+    driver: bridge
+
+volumes:
+  ems-prod-redis-data:
+  ems-prod-minio-data:

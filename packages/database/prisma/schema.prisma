@@ -1,0 +1,1221 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+// -----------------------------------------------------------------------------
+// Enums
+// -----------------------------------------------------------------------------
+
+enum SystemRole {
+  SUPER_ADMIN
+  HR_ADMIN
+  MANAGER
+  EMPLOYEE
+  AUDITOR
+}
+
+enum EmploymentStatus {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  PROBATION
+  INTERN
+  TERMINATED
+  RESIGNED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  HALF_DAY
+  ABSENT
+  ON_LEAVE
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  DRAFT
+}
+
+enum LeaveTypeEnum {
+  ANNUAL
+  SICK
+  CASUAL
+  MATERNITY
+  PATERNITY
+  UNPAID
+  BEREAVEMENT
+}
+
+enum PayrollStatus {
+  DRAFT
+  PROCESSING
+  APPROVED
+  PAID
+  CANCELLED
+}
+
+enum SalaryComponentType {
+  EARNING
+  DEDUCTION
+}
+
+enum CalculationType {
+  FIXED
+  PERCENTAGE_OF_BASIC
+  PERCENTAGE_OF_GROSS
+}
+
+enum ReviewStatus {
+  DRAFT
+  SELF_REVIEW_SUBMITTED
+  MANAGER_REVIEW_SUBMITTED
+  COMPLETED
+  ARCHIVED
+}
+
+enum GoalStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  ON_HOLD
+  CANCELLED
+}
+
+enum FeedbackType {
+  PEER
+  MANAGER
+  SUBORDINATE
+  GENERAL
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  READ
+  LOGIN
+  LOGOUT
+  APPROVE
+  REJECT
+  RUN_PAYROLL
+  INGEST_DOCUMENT
+  DOCUMENT_DOWNLOAD
+}
+
+enum ErasureStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// -----------------------------------------------------------------------------
+// Authentication & RBAC / PBAC Models (Phase 2)
+// -----------------------------------------------------------------------------
+
+model User {
+  id                  String               @id @default(uuid())
+  email               String               @unique
+  passwordHash        String
+  isActive            Boolean              @default(true)
+  // Login hardening (Phase 2): lockout state tracked here rather than in
+  // a separate table so a single UPDATE covers a failed attempt.
+  failedLoginAttempts Int                  @default(0)
+  lockedUntil         DateTime?
+  // Email verification (open registration must not grant access unverified).
+  emailVerified            Boolean   @default(false)
+  emailVerificationToken   String?   @unique
+  emailVerificationExpires DateTime?
+  // MFA (Phase 2 item 8; worker 1 owns the TOTP service). mfaSecret is stored
+  // encrypted by the API; mfaRecoveryHashes holds sha256 hashes of
+  // single-use recovery codes, never the codes themselves.
+  mfaSecret                String?
+  mfaEnabled               Boolean   @default(false)
+  mfaRecoveryHashes        String[]  @default([])
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  deletedAt           DateTime?
+
+  roles               UserRole[]
+  refreshTokens       RefreshToken[]
+  loginAuditLogs      LoginAuditLog[]
+  passwordResetTokens PasswordResetToken[]
+  invitationsCreated  Invitation[]          @relation("InvitationCreatedBy")
+  oauthAccounts       OAuthAccount[]
+  employee            Employee?
+  auditLogs           AuditLog[]
+  notifications       Notification[]
+  approvedPayrollRuns PayrollRun[]
+  erasureRequestsRequested ErasureRequest[] @relation("ErasureRequestedBy")
+  erasureRequestsReviewed  ErasureRequest[] @relation("ErasureReviewedBy")
+  rosterEntriesCreated     RosterEntry[]
+  pushSubscriptions        PushSubscription[]
+
+  @@index([email])
+  @@map("users")
+}
+
+model Role {
+  id          String           @id @default(uuid())
+  name        String           @unique // custom role names allowed (was SystemRole enum)
+  description String?
+  isSystem    Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  users       UserRole[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(uuid())
+  action      String           // e.g. "READ", "CREATE", "MANAGE"
+  subject     String           // e.g. "EMPLOYEE", "PAYROLL", "LEAVE"
+  description String?
+  createdAt   DateTime         @default(now())
+
+  roles       RolePermission[]
+
+  @@unique([action, subject])
+  @@map("permissions")
+}
+
+model UserRole {
+  userId    String
+  roleId    String
+  assignedAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  assignedAt   DateTime   @default(now())
+
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid())
+  tokenHash  String    @unique
+  userId     String
+  familyId   String    // for rotation tracking & reuse detection
+  isRevoked  Boolean   @default(false)
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  createdIp  String?
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+model LoginAuditLog {
+  id             String    @id @default(uuid())
+  userId         String?
+  emailAttempted String
+  ipAddress      String?
+  userAgent      String?
+  isSuccess      Boolean
+  failureReason  String?
+  createdAt      DateTime  @default(now())
+
+  user           User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([emailAttempted])
+  @@map("login_audit_logs")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  tokenHash String    @unique
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// -----------------------------------------------------------------------------
+// Invitation-based onboarding (Phase 1 B2; worker 1 owns the flow).
+// tokenHash is the sha256 of the raw invite token; the raw token is emailed
+// once and never stored. role grants the SystemRole on acceptance.
+// -----------------------------------------------------------------------------
+model Invitation {
+  id          String      @id @default(uuid())
+  email       String
+  tokenHash   String      @unique
+  role        String // role name (custom roles allowed)
+  employeeId  String?
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdById String?
+  createdAt   DateTime    @default(now())
+
+  employee  Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  createdBy User?     @relation("InvitationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([email])
+  @@map("invitations")
+}
+
+// -----------------------------------------------------------------------------
+// OAuth sign-in (Phase 3 item 5; worker 1 owns the flow).
+// Tokens are stored encrypted (accessTokenEnc/refreshTokenEnc); they must
+// never be logged or returned by the API.
+// -----------------------------------------------------------------------------
+model OAuthAccount {
+  id             String   @id @default(uuid())
+  userId         String
+  provider       String   // e.g. "google", "microsoft"
+  providerId     String
+  accessTokenEnc String?
+  refreshTokenEnc String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerId])
+  @@index([userId, provider])
+  @@map("oauth_accounts")
+}
+
+// -----------------------------------------------------------------------------
+// Multi-entity & multi-location (Phase 3 item 1).
+// Entity: legal entity with its own currency, timezone, working week and
+// holiday calendar. Site: physical location under an entity.
+// entityId is nullable on scoped tables for back-compat; the migration
+// backfills existing rows to the 'default' entity.
+// -----------------------------------------------------------------------------
+model Entity {
+  id                String    @id @default(uuid())
+  name              String
+  currency          String    @default("GBP")
+  timezone          String    @default("Europe/London")
+  // e.g. {"mon":true,...,"sun":false}; interpreted by scheduling/leave code.
+  workingWeek       Json      @default("{\"mon\":true,\"tue\":true,\"wed\":true,\"thu\":true,\"fri\":true,\"sat\":false,\"sun\":false}")
+  // Opaque external reference for now; a first-class HolidayCalendar model
+  // is future work.
+  holidayCalendarId String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  sites         Site[]
+  employees     Employee[]
+  departments   Department[]
+  payrollRuns   PayrollRun[]
+  leaveRequests LeaveRequest[]
+  rosterEntries RosterEntry[]
+
+  @@map("entities")
+}
+
+model Site {
+  id        String   @id @default(uuid())
+  entityId  String
+  name      String
+  location  String?
+  // Null = inherit the entity's timezone.
+  timezone  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entity    Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@index([entityId])
+  @@map("sites")
+}
+
+// -----------------------------------------------------------------------------
+// Organizational & Employee Models (Phase 3)
+// -----------------------------------------------------------------------------
+
+model Department {
+  id             String        @id @default(uuid())
+  name           String
+  code           String        @unique
+  description    String?
+  parentId       String?
+  headEmployeeId String?
+  entityId       String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  deletedAt      DateTime?
+
+  parent         Department?   @relation("DepartmentHierarchy", fields: [parentId], references: [id])
+  children       Department[]  @relation("DepartmentHierarchy")
+  entity         Entity?       @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  employees      Employee[]
+  designations   Designation[]
+  payrollRuns    PayrollRun[]
+
+  @@index([parentId])
+  @@index([headEmployeeId])
+  @@index([entityId])
+  @@map("departments")
+}
+
+model Designation {
+  id           String      @id @default(uuid())
+  title        String
+  code         String      @unique
+  description  String?
+  level        Int         @default(1)
+  departmentId String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  deletedAt    DateTime?
+
+  department   Department? @relation(fields: [departmentId], references: [id])
+  employees    Employee[]
+
+  @@index([departmentId])
+  @@map("designations")
+}
+
+model Employee {
+  id               String                    @id @default(uuid())
+  employeeNumber   String                    @unique
+  userId           String?                   @unique
+  firstName        String
+  lastName         String
+  email            String                    @unique
+  phone            String?
+  dateOfBirth      DateTime?
+  gender           Gender?
+  address          String?
+  departmentId     String?
+  designationId    String?
+  managerId        String?
+  joiningDate      DateTime                  @default(now())
+  status           EmploymentStatus          @default(FULL_TIME)
+  profileSummary   String?
+  avatarUrl        String?
+  // Phase 2 items 3 & 5: extended profile + per-employee timezone
+  timezone         String?
+  emergencyContact Json?
+  contractStart    DateTime?
+  contractEnd      DateTime?
+  workLocation     String?
+  bankAccountEnc   String? // encrypted bank identifier (AES-256-GCM, app-level)
+  taxIdEnc         String? // encrypted tax identifier (AES-256-GCM, app-level)
+  terminationDate  DateTime?
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  deletedAt        DateTime?
+  // Marks rows created by the dev seed so demo data is never confused with
+  // real records. Seed sets this on every demo row (F26).
+  isDemo           Boolean                   @default(false)
+  entityId         String?
+
+  user             User?                     @relation(fields: [userId], references: [id])
+  entity           Entity?                   @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  department       Department?               @relation(fields: [departmentId], references: [id])
+  designation      Designation?              @relation(fields: [designationId], references: [id])
+  manager          Employee?                 @relation("ManagerHierarchy", fields: [managerId], references: [id])
+  subordinates     Employee[]                @relation("ManagerHierarchy")
+
+  attendance       AttendanceRecord[]
+  attendanceCorrections AttendanceCorrection[]
+  leaveBalances    LeaveBalance[]
+  leaveRequests    LeaveRequest[]
+  leaveApprovals   LeaveApproval[]
+  salaryStructures EmployeeSalaryStructure[]
+  // F8 (statutory-survival): payroll, payslip, attendance and review records
+  // must survive an employee hard-delete, so these relations are Restrict.
+  // There is intentionally NO direct Employee->PayrollRun relation (runs are
+  // scoped by department, not employee) and NO PayrollItem model, so no
+  // change was needed for those two named in the contract.
+  payslips         Payslip[]
+  reviews          PerformanceReview[]       @relation("EmployeeReviews")
+  reviewedBy       PerformanceReview[]       @relation("ReviewerEvaluations")
+  goals            Goal[]
+  feedbackGiven    Feedback[]                @relation("FeedbackSender")
+  feedbackReceived Feedback[]                @relation("FeedbackRecipient")
+  history          EmployeeEmploymentHistory[]
+  documents        Document[]
+  documentAcknowledgements DocumentAcknowledgement[]
+  erasureRequests  ErasureRequest[]
+  rosterEntries    RosterEntry[]
+  invitations      Invitation[]
+  onboardingChecklists OnboardingChecklist[]
+  hiredCandidates  Candidate[]
+
+  @@index([departmentId])
+  @@index([designationId])
+  @@index([managerId])
+  @@index([status])
+  @@index([entityId])
+  @@index([firstName, lastName])
+  @@map("employees")
+}
+
+model EmployeeEmploymentHistory {
+  id                 String    @id @default(uuid())
+  employeeId         String
+  previousDepartment String?
+  previousDesignation String?
+  previousSalary     Decimal?  @db.Decimal(12, 2)
+  reason             String?
+  changedAt          DateTime  @default(now())
+
+  employee           Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@map("employee_employment_histories")
+}
+
+model AuditLog {
+  id         String      @id @default(uuid())
+  actorId    String?
+  actorEmail String?
+  action     AuditAction
+  entityType String      // e.g. "EMPLOYEE", "DEPARTMENT", "LEAVE"
+  entityId   String
+  beforeState Json?
+  afterState  Json?
+  ipAddress  String?
+  // Tamper-evidence (F18): hash chain. hash = H(prevHash || canonical row);
+  // verified by the /audit/verify job. Nullable so pre-existing rows stay valid.
+  prevHash   String?
+  hash       String?
+  // Chain hardening (Phase 1): gapless unique position; backfilled 1..N in
+  // chronological order by the migration. schemeVersion marks the hashing
+  // scheme — existing rows are v1; the API starts v2 from a checkpoint row.
+  sequence      Int @unique
+  schemeVersion Int @default(1)
+  createdAt  DateTime    @default(now())
+
+  actor      User?       @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([actorId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// -----------------------------------------------------------------------------
+// Attendance & Leave Models (Phase 4)
+// -----------------------------------------------------------------------------
+
+model Shift {
+  id                 String             @id @default(uuid())
+  name               String
+  startTime          String             // e.g. "09:00"
+  endTime            String             // e.g. "18:00"
+  gracePeriodMinutes Int                @default(15)
+  isDefault          Boolean            @default(false)
+  createdAt          DateTime           @default(now())
+
+  attendanceRecords  AttendanceRecord[]
+
+  @@map("shifts")
+}
+
+model AttendanceRecord {
+  id               String           @id @default(uuid())
+  employeeId       String
+  date             DateTime         @db.Date
+  clockInTime      DateTime?
+  clockOutTime     DateTime?
+  totalHoursWorked Decimal?         @db.Decimal(5, 2)
+  status           AttendanceStatus @default(PRESENT)
+  anomalyFlag      Boolean          @default(false)
+  shiftId          String?
+  breakMinutes     Int? // Phase 2 item 5: tracked breaks
+  overtimeMinutes  Int? // Phase 2 item 5: computed overtime
+  notes            String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  employee         Employee         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  shift            Shift?           @relation(fields: [shiftId], references: [id])
+  corrections      AttendanceCorrection[]
+
+  @@unique([employeeId, date])
+  @@index([date])
+  @@index([status])
+  @@index([shiftId])
+  @@map("attendance_records")
+}
+
+enum CorrectionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Attendance correction requests (Phase 2, item 5). The service currently
+// uses a documented Redis interim store; new code should use this table.
+model AttendanceCorrection {
+  id                 String           @id @default(uuid())
+  attendanceRecordId String
+  employeeId         String
+  requestedClockIn   DateTime?
+  requestedClockOut  DateTime?
+  reason             String
+  status             CorrectionStatus @default(PENDING)
+  reviewedById       String?
+  reviewedAt         DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  attendanceRecord AttendanceRecord @relation(fields: [attendanceRecordId], references: [id], onDelete: Cascade)
+  employee         Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, status])
+  @@map("attendance_corrections")
+}
+
+model LeaveType {
+  id                 String         @id @default(uuid())
+  name               String
+  code               String         @unique
+  type               LeaveTypeEnum  @default(ANNUAL)
+  defaultDaysPerYear Int            @default(14)
+  isPaid             Boolean        @default(true)
+  description        String?
+
+  balances           LeaveBalance[]
+  requests           LeaveRequest[]
+  policy             LeavePolicy?
+
+  @@map("leave_types")
+}
+
+model LeaveBalance {
+  id            String    @id @default(uuid())
+  employeeId    String
+  leaveTypeId   String
+  year          Int
+  allocatedDays Decimal   @db.Decimal(5, 1)
+  usedDays      Decimal   @default(0) @db.Decimal(5, 1)
+  pendingDays   Decimal   @default(0) @db.Decimal(5, 1)
+  remainingDays Decimal   @db.Decimal(5, 1)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  employee      Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveType     LeaveType @relation(fields: [leaveTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, leaveTypeId, year])
+  @@index([employeeId, year])
+  @@map("leave_balances")
+}
+
+model LeaveRequest {
+  id          String          @id @default(uuid())
+  employeeId  String
+  leaveTypeId String
+  startDate   DateTime        @db.Date
+  endDate     DateTime        @db.Date
+  totalDays   Decimal         @db.Decimal(5, 1)
+  reason      String
+  status      LeaveStatus     @default(PENDING)
+  halfDay       Boolean @default(false) // Phase 2 item 6: half-day requests
+  halfDayPeriod String? // "AM" | "PM" when halfDay
+  approvalChain Json?   // Phase 2 item 6: ordered approver steps
+  currentStep   Int     @default(0)
+  entityId    String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  employee    Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveType   LeaveType       @relation(fields: [leaveTypeId], references: [id])
+  entity      Entity?         @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  approvals   LeaveApproval[]
+
+  @@index([employeeId])
+  @@index([status])
+  @@index([entityId])
+  @@index([employeeId, startDate, endDate])
+  @@map("leave_requests")
+}
+
+model LeaveApproval {
+  id             String       @id @default(uuid())
+  leaveRequestId String
+  approverId     String
+  approverUserId String?      // B4: the approver's USER id (audit), not employee id
+  status         LeaveStatus
+  remarks        String?
+  actionDate     DateTime     @default(now())
+
+  leaveRequest   LeaveRequest @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
+  approver       Employee     @relation(fields: [approverId], references: [id])
+
+  @@index([leaveRequestId])
+  @@index([approverId])
+  @@map("leave_approvals")
+}
+
+// Leave Policies v2 (Phase 2, item 6): accrual & carry-over rules,
+// working-week patterns, max consecutive days, HR-approval requirement.
+model LeavePolicy {
+  id                 String   @id @default(uuid())
+  leaveTypeId        String   @unique
+  accrualPerMonth    Decimal? @db.Decimal(5, 2)
+  carryOverCap       Decimal? @db.Decimal(5, 1)
+  workingDays        Int[]    @default([1, 2, 3, 4, 5])
+  maxConsecutiveDays Int?
+  requiresHrApproval Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  leaveType LeaveType @relation(fields: [leaveTypeId], references: [id], onDelete: Cascade)
+
+  @@map("leave_policies")
+}
+
+model Holiday {
+  id          String   @id @default(uuid())
+  title       String
+  date        DateTime @db.Date
+  isRecurring Boolean  @default(false)
+  description String?
+  createdAt   DateTime @default(now())
+
+  @@unique([date])
+  @@map("holidays")
+}
+
+// -----------------------------------------------------------------------------
+// Payroll & Performance Models (Phase 5)
+// -----------------------------------------------------------------------------
+
+model SalaryStructure {
+  id          String                    @id @default(uuid())
+  name        String
+  description String?
+  currency    String                    @default("GBP")
+  isDefault   Boolean                   @default(false)
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+
+  components  SalaryComponent[]
+  employees   EmployeeSalaryStructure[]
+
+  @@map("salary_structures")
+}
+
+model SalaryComponent {
+  id                String              @id @default(uuid())
+  salaryStructureId String
+  name              String
+  type              SalaryComponentType // EARNING or DEDUCTION
+  calculationType   CalculationType     // FIXED, PERCENTAGE_OF_BASIC, PERCENTAGE_OF_GROSS
+  value             Decimal             @db.Decimal(10, 2)
+  isTaxable         Boolean             @default(true)
+
+  salaryStructure   SalaryStructure     @relation(fields: [salaryStructureId], references: [id], onDelete: Cascade)
+
+  @@index([salaryStructureId])
+  @@map("salary_components")
+}
+
+model EmployeeSalaryStructure {
+  id                String          @id @default(uuid())
+  employeeId        String
+  salaryStructureId String
+  baseSalary        Decimal         @db.Decimal(12, 2)
+  effectiveFrom     DateTime        @db.Date
+  isActive          Boolean         @default(true)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  employee          Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  salaryStructure   SalaryStructure @relation(fields: [salaryStructureId], references: [id])
+
+  @@index([employeeId, isActive])
+  @@map("employee_salary_structures")
+}
+
+model PayrollRun {
+  id              String        @id @default(uuid())
+  month           Int           // 1 - 12
+  year            Int           // e.g. 2026
+  departmentId    String?
+  status          PayrollStatus @default(DRAFT)
+  totalGross      Decimal       @default(0) @db.Decimal(14, 2)
+  totalNet        Decimal       @default(0) @db.Decimal(14, 2)
+  totalDeductions Decimal       @default(0) @db.Decimal(14, 2)
+  processedAt     DateTime?
+  approvedAt      DateTime?
+  // Maker/checker (F15): the approver is a real user FK, not free text.
+  // May only be set by the approve endpoint; disbursementDate on each
+  // Payslip may only be set by the disburse endpoint.
+  approvedById    String?
+  entityId        String?
+  currency        String? // Phase 3 item 1: entity reporting currency override
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  department      Department?   @relation(fields: [departmentId], references: [id])
+  entity          Entity?       @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  approvedBy      User?         @relation(fields: [approvedById], references: [id], onDelete: SetNull)
+  payslips        Payslip[]
+
+  @@unique([month, year, departmentId])
+  @@index([year, month])
+  @@index([status])
+  @@index([departmentId])
+  @@index([entityId])
+  @@index([approvedById])
+  @@map("payroll_runs")
+}
+
+model Payslip {
+  id              String        @id @default(uuid())
+  payrollRunId    String
+  employeeId      String
+  grossPay        Decimal       @db.Decimal(12, 2)
+  totalDeductions Decimal       @db.Decimal(12, 2)
+  netPay          Decimal       @db.Decimal(12, 2)
+  breakdown       Json          // detailed line-items: [{ component: string, type: 'EARNING'|'DEDUCTION', amount: number }]
+  status          PayrollStatus @default(DRAFT)
+  disbursementDate DateTime?    @db.Date
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  payrollRun      PayrollRun    @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  // F8: statutory payroll records must survive an employee hard-delete.
+  employee        Employee      @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([payrollRunId, employeeId])
+  @@index([employeeId])
+  @@map("payslips")
+}
+
+model PerformanceReviewCycle {
+  id          String              @id @default(uuid())
+  title       String
+  startDate   DateTime            @db.Date
+  endDate     DateTime            @db.Date
+  description String?
+  isActive    Boolean             @default(true)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  reviews     PerformanceReview[]
+
+  @@map("performance_review_cycles")
+}
+
+model PerformanceReview {
+  id                 String                 @id @default(uuid())
+  cycleId            String
+  employeeId         String
+  reviewerId         String?
+  selfRating         Decimal?               @db.Decimal(3, 1)
+  selfAchievements   String?
+  selfImprovements   String?
+  managerRating      Decimal?               @db.Decimal(3, 1)
+  managerFeedback    String?
+  finalScore         Decimal?               @db.Decimal(3, 1)
+  status             ReviewStatus           @default(DRAFT)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  cycle              PerformanceReviewCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  // F8: review records must survive an employee hard-delete (Restrict).
+  employee           Employee               @relation("EmployeeReviews", fields: [employeeId], references: [id], onDelete: Restrict)
+  reviewer           Employee?              @relation("ReviewerEvaluations", fields: [reviewerId], references: [id])
+
+  @@unique([cycleId, employeeId])
+  @@index([employeeId])
+  @@index([reviewerId])
+  @@map("performance_reviews")
+}
+
+// HR-managed review forms (Phase 2, item 9). Falls back to a built-in
+// default form when no active forms exist.
+model ReviewForm {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  sections    Json
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("review_forms")
+}
+
+model Goal {
+  id          String     @id @default(uuid())
+  employeeId  String
+  title       String
+  description String?
+  targetDate  DateTime   @db.Date
+  progress    Int        @default(0) // 0 - 100%
+  status      GoalStatus @default(NOT_STARTED)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  employee    Employee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@map("goals")
+}
+
+model Feedback {
+  id          String       @id @default(uuid())
+  senderId    String
+  recipientId String
+  type        FeedbackType @default(PEER)
+  comments    String
+  rating      Int?         // 1 - 5 optional
+  createdAt   DateTime     @default(now())
+
+  sender      Employee     @relation("FeedbackSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipient   Employee     @relation("FeedbackRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@index([recipientId])
+  @@index([senderId])
+  @@map("feedback")
+}
+
+// -----------------------------------------------------------------------------
+// Document & Notification Models
+// -----------------------------------------------------------------------------
+
+model Document {
+  id           String    @id @default(uuid())
+  employeeId   String?
+  title        String
+  fileName     String
+  fileKey      String?   // legacy MinIO/S3 object key (storageKey is canonical)
+  fileUrl      String?
+  mimeType     String
+  fileSize     Int
+  category     String    @default("GENERAL") // RESUME, CONTRACT, POLICY, CERTIFICATE
+  uploadedById String?
+  deletedAt    DateTime?
+  expiresAt    DateTime? // Phase 2 item 7: expiry dates + reminders
+  // Encrypted vault (SRS FR-DOC-001): storageKey is the server-generated
+  // object key (never client-supplied); encrypted/iv describe AES-256-GCM
+  // envelope encryption; checksum is SHA-256 of the plaintext for integrity.
+  storageKey   String?
+  encrypted    Boolean   @default(false)
+  iv           String?
+  checksum     String?
+  // Key-rotation support (Phase 1): identifies which encryption key envelope
+  // was used for this object.
+  keyId        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  employee     Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  acknowledgements DocumentAcknowledgement[]
+  onboardingTasks  OnboardingTask[]
+
+  @@index([employeeId])
+  @@index([category])
+  @@index([deletedAt])
+  @@map("documents")
+}
+
+model DocumentAcknowledgement {
+  id             String   @id @default(uuid())
+  documentId     String
+  employeeId     String
+  acknowledgedAt DateTime @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, employeeId])
+  @@index([employeeId])
+  @@map("document_acknowledgements")
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  recipientId String
+  title       String
+  message     String
+  isRead      Boolean  @default(false)
+  linkUrl     String?
+  createdAt   DateTime @default(now())
+
+  recipient   User     @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@index([recipientId, isRead])
+  @@map("notifications")
+}
+
+// -----------------------------------------------------------------------------
+// GDPR: erasure requests (UK GDPR right to erasure). Approval must anonymise,
+// never hard-delete: payroll/statutory rows are Restrict-protected, so the
+// worker performing erasure writes anonymised values instead of deleting.
+// -----------------------------------------------------------------------------
+model ErasureRequest {
+  id            String        @id @default(uuid())
+  employeeId    String
+  status        ErasureStatus @default(PENDING)
+  requestedById String
+  reviewedById  String?
+  reason        String?
+  evidence      Json?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  // Restrict: an erasure request must be resolved before its subject can be
+  // hard-deleted, otherwise the request loses its audit trail.
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  requestedBy User     @relation("ErasureRequestedBy", fields: [requestedById], references: [id])
+  reviewedBy  User?    @relation("ErasureReviewedBy", fields: [reviewedById], references: [id])
+
+  @@index([employeeId])
+  @@index([status])
+  @@index([requestedById])
+  @@map("erasure_requests")
+}
+
+// -----------------------------------------------------------------------------
+// Shift rostering (workforce scheduling; operational data, not statutory).
+// -----------------------------------------------------------------------------
+model RosterEntry {
+  id          String   @id @default(uuid())
+  employeeId  String
+  date        DateTime @db.Date
+  shiftName   String?
+  startTime   DateTime
+  endTime     DateTime
+  notes       String?
+  createdById String
+  entityId    String?
+  createdAt   DateTime @default(now())
+
+  employee  Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  createdBy User     @relation(fields: [createdById], references: [id])
+  entity    Entity?  @relation(fields: [entityId], references: [id], onDelete: SetNull)
+
+  @@index([employeeId, date])
+  @@index([date])
+  @@index([entityId])
+  @@map("roster_entries")
+}
+
+model AIRequestLog {
+  id               String   @id @default(uuid())
+  requestId        String   @unique
+  userId           String?
+  provider         String
+  model            String
+  prompt           String   @db.Text
+  response         String?  @db.Text
+  promptTokens     Int?
+  completionTokens Int?
+  totalTokens      Int?
+  latencyMs        Int
+  succeeded        Boolean
+  error            String?
+  metadata         Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([provider, createdAt])
+  @@index([userId, createdAt])
+  @@map("ai_request_logs")
+}
+
+// -----------------------------------------------------------------------------
+// Onboarding / Offboarding (Phase 3, item 6)
+// -----------------------------------------------------------------------------
+
+enum OnboardingKind {
+  ONBOARDING
+  OFFBOARDING
+}
+
+enum ChecklistStatus {
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  DONE
+  SKIPPED
+}
+
+model OnboardingChecklist {
+  id            String          @id @default(uuid())
+  employeeId    String
+  kind          OnboardingKind
+  status        ChecklistStatus @default(IN_PROGRESS)
+  referenceDate DateTime?
+  createdById   String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  employee Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  tasks    OnboardingTask[]
+
+  @@index([employeeId, kind])
+  @@map("onboarding_checklists")
+}
+
+model OnboardingTask {
+  id            String     @id @default(uuid())
+  checklistId   String
+  title         String
+  description   String?
+  ownerRole     String     @default("HR")
+  ownerUserId   String?
+  dueDate       DateTime?
+  status        TaskStatus @default(PENDING)
+  completedAt   DateTime?
+  completedById String?
+  note          String?
+  documentId    String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  checklist OnboardingChecklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  document  Document?           @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([checklistId, status])
+  @@map("onboarding_tasks")
+}
+
+// -----------------------------------------------------------------------------
+// Recruitment pipeline (Phase 3, item 8)
+// -----------------------------------------------------------------------------
+
+enum VacancyStatus {
+  OPEN
+  ON_HOLD
+  CLOSED
+}
+
+enum CandidateStage {
+  APPLIED
+  SCREENING
+  INTERVIEW
+  OFFER
+  HIRED
+  REJECTED
+}
+
+enum OfferStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  DECLINED
+  WITHDRAWN
+}
+
+model Vacancy {
+  id            String        @id @default(uuid())
+  title         String
+  description   String?
+  departmentId  String?
+  designationId String?
+  status        VacancyStatus @default(OPEN)
+  postedAt      DateTime      @default(now())
+  closedAt      DateTime?
+  createdById   String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  candidates Candidate[]
+
+  @@map("vacancies")
+}
+
+model Candidate {
+  id               String         @id @default(uuid())
+  vacancyId        String
+  firstName        String
+  lastName         String
+  email            String
+  phone            String?
+  resumeDocumentId String?
+  stage            CandidateStage @default(APPLIED)
+  notes            Json           @default("[]")
+  employeeId       String? // set when an offer is accepted and an employee is auto-created
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  vacancy  Vacancy    @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+  employee Employee?  @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  offers   Offer[]
+
+  @@index([vacancyId, stage])
+  @@map("candidates")
+}
+
+model Offer {
+  id           String      @id @default(uuid())
+  candidateId  String
+  status       OfferStatus @default(DRAFT)
+  startDate    DateTime?
+  salaryAmount Decimal?    @db.Decimal(14, 2)
+  terms        String?
+  sentAt       DateTime?
+  decidedAt    DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@map("offers")
+}
+
+// -----------------------------------------------------------------------------
+// Web-push subscriptions (Phase 3, item 7 — replaces the Redis interim store)
+// -----------------------------------------------------------------------------
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String
+  endpoint  String
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, endpoint])
+  @@map("push_subscriptions")
+}

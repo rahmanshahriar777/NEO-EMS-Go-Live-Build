@@ -1,0 +1,176 @@
+# ==============================================================================
+# Deploy to Production Kubernetes — Phase 1 item 5 (go-live hardening).
+#
+# GATING (deliberate): this workflow runs ONLY
+#   (a) after the "Monorepo CI Pipeline" workflow completes SUCCESSFULLY on
+#       main   (workflow_run → conclusion == 'success'), or
+#   (b) manually via workflow_dispatch (operator takes responsibility;
+#       CI is expected green on main before any manual prod deploy).
+# The old `release: published` trigger was REMOVED: publishing a release does
+# not run CI, so it could never gate on green CI.
+#
+# IMAGE TAGS: deploys pin the EXACT tags built by docker-build.yaml —
+# `sha-<short-sha>` (per-commit) or a semver tag. `:latest` is NEVER deployed
+# (it is built only as a developer convenience; see docker-build.yaml).
+#
+# Required secrets (GitHub environment `production`):
+#   PROD_DATABASE_URL, KUBECONFIG,
+#   BACKUP_S3_BUCKET, AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+#   (backup step — see scripts/backup-prod.sh for assumptions).
+# NOTE: k8s/secrets-template.yaml is intentionally NOT applied here — it is a
+# template full of REPLACE_WITH_* placeholders. The real `ems-secrets` Secret
+# is created out-of-band by the operator (or External Secrets Operator).
+# ==============================================================================
+name: Deploy to Production Kubernetes
+
+on:
+  workflow_run:
+    workflows: ["Monorepo CI Pipeline"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (default: sha-<short SHA of the CI head commit>)"
+        required: false
+        default: ""
+
+jobs:
+  deploy:
+    name: Production Deployment & DB Migrations
+    # CI gate: only deploy when the triggering CI run was green.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      IMAGE_REGISTRY: ghcr.io
+      # Must match the push target in docker-build.yaml:
+      #   ghcr.io/${{ github.repository }}/<service>
+      IMAGE_REPOSITORY: ${{ github.repository }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          # workflow_run checks out the default branch by default — pin the
+          # exact commit CI tested so the deploy matches the green run.
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Setup pnpm & Node.js
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10.5.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve image tag
+        id: image
+        run: |
+          INPUT_TAG="${{ inputs.image_tag }}"
+          HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+          if [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+          elif [ -n "$HEAD_SHA" ]; then
+            TAG="sha-${HEAD_SHA:0:7}"
+          else
+            TAG="sha-$(git rev-parse --short=7 HEAD)"
+          fi
+          echo "Deploying image tag: $TAG (registry: $IMAGE_REGISTRY/$IMAGE_REPOSITORY)"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      # Pre-migration backup (Phase 1 item 5): pg_dump custom format uploaded
+      # to object storage. Assumptions documented in scripts/backup-prod.sh.
+      # A failed migration is recovered by restoring this snapshot — the
+      # kubectl rollout undo below only rolls back the Deployments, NOT the DB.
+      - name: Pre-migration database backup
+        run: bash scripts/backup-prod.sh
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+          BACKUP_S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      # Phase 1 item 1: PostgreSQL forbids ALTER TYPE … ADD VALUE inside a
+      # transaction block, so the enum additions ship as a psql-applied step
+      # AFTER `prisma migrate deploy` (the enum TYPES are created by the
+      # baseline migration, so the step must run after — not before — the
+      # migrations; the values are only needed at runtime). The SQL file lives
+      # at scripts/apply-enum-values.sql — the deploy FAILS LOUDLY if it is
+      # missing (fail closed rather than boot into a DB missing enum values).
+      # Idempotent (IF NOT EXISTS): safe to re-run on every deploy.
+      - name: Run Prisma Production Migrations
+        run: pnpm --filter @ems/database prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+
+      - name: Apply enum values (ALTER TYPE … ADD VALUE)
+        run: |
+          if [ ! -f scripts/apply-enum-values.sql ]; then
+            echo "::error::scripts/apply-enum-values.sql is missing — Phase 1 item 1 must land it before deploy-prod can run."
+            exit 1
+          fi
+          # psql ships with the GitHub-hosted ubuntu runner (postgresql-client).
+          # NOT --single-transaction: each ALTER TYPE … ADD VALUE must
+          # auto-commit on its own (illegal inside a transaction block).
+          psql "$PROD_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/apply-enum-values.sql
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+
+      - name: Set Kubernetes Context
+        uses: azure/k8s-set-context@v3
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBECONFIG }}
+
+      # Render the ${IMAGE_REGISTRY}/${IMAGE_REPOSITORY}/<svc>:${IMAGE_TAG}
+      # placeholders in the Deployment manifests (envsubst — the smallest
+      # dependable substitution mechanism; no kustomize/helm needed).
+      # Manual `kubectl apply` of k8s/ WITHOUT envsubst will NOT resolve the
+      # image lines: export IMAGE_REGISTRY/IMAGE_REPOSITORY/IMAGE_TAG first
+      # (see the header comment in each *-deployment.yaml).
+      - name: Render manifests (registry/org/tag substitution)
+        run: |
+          command -v envsubst >/dev/null || sudo apt-get install -y -qq gettext-base
+          mkdir -p /tmp/k8s-rendered
+          export IMAGE_TAG="${{ steps.image.outputs.tag }}"
+          for f in k8s/api-deployment.yaml k8s/web-deployment.yaml k8s/worker-deployment.yaml; do
+            envsubst < "$f" > "/tmp/k8s-rendered/$(basename "$f")"
+          done
+          grep -h "^ *image:" /tmp/k8s-rendered/*.yaml
+
+      - name: Deploy Kubernetes Manifests
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/configmap.yaml
+          kubectl apply -f /tmp/k8s-rendered/api-deployment.yaml
+          kubectl apply -f /tmp/k8s-rendered/web-deployment.yaml
+          kubectl apply -f /tmp/k8s-rendered/worker-deployment.yaml
+          kubectl apply -f k8s/pdb.yaml
+          kubectl apply -f k8s/ingress.yaml
+
+      - name: Verify Rollout Status
+        run: |
+          kubectl rollout status deployment/ems-api -n ems-production --timeout=300s
+          kubectl rollout status deployment/ems-web -n ems-production --timeout=300s
+          kubectl rollout status deployment/ems-worker -n ems-production --timeout=300s
+
+      # Rollback (Phase 1 item 5): if migration or rollout failed, roll the
+      # Deployments back to the previous ReplicaSet. This does NOT undo the
+      # database migration — restore the pre-migration backup (see the backup
+      # step) if the schema change itself must be reverted.
+      - name: Roll back Deployments on failure
+        if: failure()
+        run: |
+          kubectl rollout undo deployment/ems-api -n ems-production || true
+          kubectl rollout undo deployment/ems-web -n ems-production || true
+          kubectl rollout undo deployment/ems-worker -n ems-production || true
+          kubectl rollout status deployment/ems-api -n ems-production --timeout=300s || true
+          kubectl rollout status deployment/ems-web -n ems-production --timeout=300s || true
+          kubectl rollout status deployment/ems-worker -n ems-production --timeout=300s || true
