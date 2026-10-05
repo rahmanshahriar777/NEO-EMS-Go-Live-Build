@@ -1,6 +1,6 @@
-/* ─── SYSTEM COMPLIANCE & AUDIT TRAIL EDITORIAL THEME ─────────────── */
-
-.audit-editorial-wrapper {
+:root,
+.audit-editorial-wrapper,
+.audit-modal-overlay {
   --audit-bg: #f7f6f3;
   --audit-bg-warm: #f0eeea;
   --audit-surface: #ffffff;
@@ -37,7 +37,9 @@
   --audit-font-serif: 'Instrument Serif', Georgia, serif;
   --audit-transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --audit-transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
 
+.audit-editorial-wrapper {
   font-family: var(--audit-font-sans);
   background: var(--audit-bg);
   color: var(--audit-text-primary);
@@ -459,14 +461,20 @@
 }
 
 .audit-modal {
-  background: var(--audit-surface);
-  border: 1px solid var(--audit-border);
-  border-radius: var(--audit-radius-xl);
+  background: #ffffff;
+  background: var(--audit-surface, #ffffff);
+  border: 1px solid #e2dfda;
+  border: 1px solid var(--audit-border, #e2dfda);
+  border-radius: 18px;
+  border-radius: var(--audit-radius-xl, 18px);
   padding: 28px;
   max-width: 600px;
   width: 100%;
-  box-shadow: var(--audit-shadow-lg);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--audit-shadow-lg, 0 20px 25px -5px rgba(0, 0, 0, 0.15));
   animation: auditPop 0.25s ease forwards;
+  position: relative;
+  z-index: 1001;
 }
 
 .audit-modal-header {

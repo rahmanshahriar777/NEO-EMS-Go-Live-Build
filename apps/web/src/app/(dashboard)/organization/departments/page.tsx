@@ -475,10 +475,9 @@ export default function DepartmentsPage() {
             />
           </div>
         </div>
-      </div>
 
-      {/* Editorial Department Creation Modal */}
-      {showModal && (
+        {/* Editorial Department Creation Modal */}
+        {showModal && (
         <div className="dept-modal-overlay" onClick={() => setShowModal(false)}>
           <div className="dept-modal" onClick={(e) => e.stopPropagation()}>
             <div className="dept-modal-header">
@@ -565,6 +564,7 @@ export default function DepartmentsPage() {
           </div>
         </div>
       )}
+      </div>
     </DashboardLayout>
   );
 }

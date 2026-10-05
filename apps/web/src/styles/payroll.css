@@ -1,6 +1,6 @@
-/* ─── COMPENSATION & PAYROLL RUNS EDITORIAL THEME ─────────────────────────── */
-
-.payroll-editorial-wrapper {
+:root,
+.payroll-editorial-wrapper,
+.pay-modal-overlay {
   --pay-bg: #f7f6f3;
   --pay-bg-warm: #f0eeea;
   --pay-surface: #ffffff;
@@ -37,7 +37,9 @@
   --pay-font-serif: 'Instrument Serif', Georgia, serif;
   --pay-transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --pay-transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
 
+.payroll-editorial-wrapper {
   font-family: var(--pay-font-sans);
   background: var(--pay-bg);
   color: var(--pay-text-primary);
@@ -439,14 +441,20 @@
 }
 
 .pay-modal {
-  background: var(--pay-surface);
-  border: 1px solid var(--pay-border);
-  border-radius: var(--pay-radius-xl);
+  background: #ffffff;
+  background: var(--pay-surface, #ffffff);
+  border: 1px solid #e2dfda;
+  border: 1px solid var(--pay-border, #e2dfda);
+  border-radius: 18px;
+  border-radius: var(--pay-radius-xl, 18px);
   padding: 28px;
   max-width: 520px;
   width: 100%;
-  box-shadow: var(--pay-shadow-lg);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--pay-shadow-lg, 0 20px 25px -5px rgba(0, 0, 0, 0.15));
   animation: payPop 0.25s ease forwards;
+  position: relative;
+  z-index: 1001;
 }
 
 .pay-modal-header {

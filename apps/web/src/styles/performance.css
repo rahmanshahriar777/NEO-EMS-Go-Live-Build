@@ -1,6 +1,6 @@
-/* ─── PERFORMANCE & PROFESSIONAL DEVELOPMENT EDITORIAL THEME ───────── */
-
-.performance-editorial-wrapper {
+:root,
+.performance-editorial-wrapper,
+.perf-modal-overlay {
   --perf-bg: #f7f6f3;
   --perf-bg-warm: #f0eeea;
   --perf-surface: #ffffff;
@@ -37,7 +37,9 @@
   --perf-font-serif: 'Instrument Serif', Georgia, serif;
   --perf-transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --perf-transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
 
+.performance-editorial-wrapper {
   font-family: var(--perf-font-sans);
   background: var(--perf-bg);
   color: var(--perf-text-primary);
@@ -434,14 +436,20 @@
 }
 
 .perf-modal {
-  background: var(--perf-surface);
-  border: 1px solid var(--perf-border);
-  border-radius: var(--perf-radius-xl);
+  background: #ffffff;
+  background: var(--perf-surface, #ffffff);
+  border: 1px solid #e2dfda;
+  border: 1px solid var(--perf-border, #e2dfda);
+  border-radius: 18px;
+  border-radius: var(--perf-radius-xl, 18px);
   padding: 28px;
   max-width: 480px;
   width: 100%;
-  box-shadow: var(--perf-shadow-lg);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--perf-shadow-lg, 0 20px 25px -5px rgba(0, 0, 0, 0.15));
   animation: perfPop 0.25s ease forwards;
+  position: relative;
+  z-index: 1001;
 }
 
 .perf-modal-header {

@@ -1,6 +1,6 @@
-/* ─── CALENDAR MODULE EDITORIAL THEME ─────────────────────────── */
-
-.calendar-editorial-wrapper {
+:root,
+.calendar-editorial-wrapper,
+.cal-modal-overlay {
   --cal-bg: #f7f6f3;
   --cal-bg-warm: #f0eeea;
   --cal-surface: #ffffff;
@@ -56,7 +56,9 @@
   --cal-font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   --cal-font-mono: 'DM Mono', 'SF Mono', 'Fira Code', monospace;
   --cal-font-serif: 'Instrument Serif', Georgia, serif;
+}
 
+.calendar-editorial-wrapper {
   font-family: var(--cal-font-sans);
   background: var(--cal-bg);
   color: var(--cal-text-primary);
@@ -958,14 +960,20 @@
 }
 
 .cal-modal-card {
-  background: var(--cal-surface);
-  border: 1px solid var(--cal-border);
-  border-radius: var(--cal-radius-lg);
-  box-shadow: var(--cal-shadow-lg);
+  background: #ffffff;
+  background: var(--cal-surface, #ffffff);
+  border: 1px solid #e2dfda;
+  border: 1px solid var(--cal-border, #e2dfda);
+  border-radius: 14px;
+  border-radius: var(--cal-radius-lg, 14px);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--cal-shadow-lg, 0 20px 25px -5px rgba(0, 0, 0, 0.15));
   width: 100%;
   max-width: 520px;
   overflow: hidden;
   animation: calSlideUp 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  z-index: 10000;
 }
 
 @keyframes calSlideUp {
