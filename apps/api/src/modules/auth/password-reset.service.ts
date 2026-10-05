@@ -69,7 +69,7 @@ export class PasswordResetService {
       userId: user.id,
       template: 'password-reset',
       data: {
-        actionUrl: `${frontendUrl}/reset-password?token=${token}`,
+        actionUrl: `${frontendUrl}/reset-password/confirm?token=${token}`,
         expiresNote: `${ttlMinutes} minutes`,
       },
       idempotencyKey: `password-reset:${tokenHash}`,

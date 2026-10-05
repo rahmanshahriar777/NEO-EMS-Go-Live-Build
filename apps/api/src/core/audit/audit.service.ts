@@ -1,7 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuditAction, createPaginatedResponse } from '@ems/shared';
+import {
+  AuditAction,
+  createPaginatedResponse,
+  RETENTION_SIGNOFF_ENV,
+  isRetentionSignedOff,
+} from '@ems/shared';
 
 export interface RecordAuditParams {
   actorId?: string;
@@ -104,6 +109,61 @@ export function canonicalize(value: any): string {
 
 export function computeAuditHash(prevHash: string, canonicalPayload: string): string {
   return createHash('sha256').update(prevHash + canonicalPayload, 'utf8').digest('hex');
+}
+
+/**
+ * Fields of the ONE hash-payload schema for the audit chain.
+ * `createdAt` is an ISO-8601 string (not a Date) so the bytes being hashed
+ * are identical at write time and at verification time.
+ */
+export interface AuditPayloadFields {
+  actorId?: string | null;
+  actorEmail?: string | null;
+  action: string;
+  entityType: string;
+  entityId: string;
+  beforeState?: any;
+  afterState?: any;
+  ipAddress?: string | null;
+  createdAt: string;
+}
+
+/**
+ * CHECKPOINT SCHEMA (finding #6, release/v4-fixes — CHOSEN: option (b)).
+ *
+ * There is exactly ONE hash-payload schema for the whole chain: the 9
+ * fields below, canonicalized by `canonicalize()`. Checkpoint rows (the
+ * v1→v2 scheme transition emitted by insertV2, and the retention-truncation
+ * checkpoints emitted by purgeExpiredAuditLogs) are ORDINARY rows hashed
+ * in this SAME form — they carry no special hashing schema. A checkpoint
+ * is recognizable by entityType='AUDIT_CHAIN' (entityId
+ * 'scheme-v2-checkpoint' / 'retention-truncation'); the checkpoint
+ * details live in afterState.
+ *
+ * Why (b) and not (a): the old special checkpoint schema had fields
+ * (previousHeadSequence, emittedAt, checkpoint: '…') that are NOT all
+ * stored in columns, so a verifier reproducing it would have to re-derive
+ * them from fragile assumptions (sequence arithmetic, column re-reads).
+ * One schema for writes AND verification removes that failure mode: every
+ * writer below goes through this function, and both verifyChainV1/V2
+ * recompute through it too.
+ *
+ * Any future checkpoint writer MUST build its payload through this
+ * function, storing exactly the columns it hashed — otherwise verification
+ * breaks at the checkpoint row.
+ */
+export function canonicalAuditPayload(fields: AuditPayloadFields): string {
+  return canonicalize({
+    actorId: fields.actorId ?? null,
+    actorEmail: fields.actorEmail ?? null,
+    action: fields.action,
+    entityType: fields.entityType,
+    entityId: fields.entityId,
+    beforeState: fields.beforeState ?? null,
+    afterState: fields.afterState ?? null,
+    ipAddress: fields.ipAddress ?? null,
+    createdAt: fields.createdAt,
+  });
 }
 
 function piiMaskKeys(): string[] {
@@ -238,15 +298,15 @@ export class AuditService {
       }
     }
 
-    const canonicalPayload = canonicalize({
-      actorId: params.actorId ?? null,
-      actorEmail: params.actorEmail ?? null,
+    const canonicalPayload = canonicalAuditPayload({
+      actorId: params.actorId,
+      actorEmail: params.actorEmail,
       action: params.action,
       entityType: params.entityType,
       entityId: params.entityId,
       beforeState,
       afterState,
-      ipAddress: params.ipAddress ?? null,
+      ipAddress: params.ipAddress,
       createdAt: createdAt.toISOString(),
     });
 
@@ -308,14 +368,25 @@ export class AuditService {
       nextSequence = (head.sequence ?? 0) + 1;
 
       // First v2 write after v1 history: emit the checkpoint row so the
-      // scheme transition is itself part of the chain.
+      // scheme transition is itself part of the chain. The checkpoint is
+      // hashed in the canonical payload form (see canonicalAuditPayload —
+      // finding #6), NOT in a special checkpoint schema, so verification
+      // recomputes the identical hash from the stored columns. The
+      // transition details are carried in afterState; entityType
+      // 'AUDIT_CHAIN' marks the row as a checkpoint.
       if ((head.schemeVersion ?? 1) < CURRENT_SCHEME_VERSION) {
-        const checkpointPayload = canonicalize({
-          checkpoint: 'AUDIT_CHAIN_SCHEME_V2',
-          previousSchemeVersion: head.schemeVersion ?? 1,
+        const checkpointAfterState = {
+          schemeVersion: CURRENT_SCHEME_VERSION,
           previousHeadHash: prevHash,
-          previousHeadSequence: head.sequence ?? null,
-          emittedAt: row.createdAt.toISOString(),
+        };
+        const checkpointPayload = canonicalAuditPayload({
+          action: AuditAction.UPDATE,
+          entityType: 'AUDIT_CHAIN',
+          entityId: 'scheme-v2-checkpoint',
+          beforeState: null,
+          afterState: checkpointAfterState,
+          ipAddress: null,
+          createdAt: row.createdAt.toISOString(),
         });
         const checkpointHash = computeAuditHash(prevHash, checkpointPayload);
         const checkpointSequence = nextSequence;
@@ -325,7 +396,7 @@ export class AuditService {
              "prevHash", hash, "createdAt", "sequence", "schemeVersion")
           VALUES (
             'AUDIT_CHAIN', ${`scheme-v2-checkpoint`}, 'UPDATE'::"AuditAction",
-            NULL, ${JSON.stringify({ schemeVersion: CURRENT_SCHEME_VERSION, previousHeadHash: prevHash })}::jsonb,
+            NULL, ${JSON.stringify(checkpointAfterState)}::jsonb,
             ${prevHash}, ${checkpointHash}, ${row.createdAt.toISOString()},
             ${checkpointSequence}, ${CURRENT_SCHEME_VERSION}
           )
@@ -509,15 +580,15 @@ export class AuditService {
             };
           }
         }
-        const canonicalPayload = canonicalize({
-          actorId: row.actorId ?? null,
-          actorEmail: row.actorEmail ?? null,
+        const canonicalPayload = canonicalAuditPayload({
+          actorId: row.actorId,
+          actorEmail: row.actorEmail,
           action: row.action,
           entityType: row.entityType,
           entityId: row.entityId,
-          beforeState: row.beforeState ?? null,
-          afterState: row.afterState ?? null,
-          ipAddress: row.ipAddress ?? null,
+          beforeState: row.beforeState,
+          afterState: row.afterState,
+          ipAddress: row.ipAddress,
           createdAt: new Date(row.createdAt).toISOString(),
         });
         const expected = computeAuditHash(row.prevHash!, canonicalPayload);
@@ -588,15 +659,15 @@ export class AuditService {
             },
           };
         }
-        const canonicalPayload = canonicalize({
-          actorId: row.actorId ?? null,
-          actorEmail: row.actorEmail ?? null,
+        const canonicalPayload = canonicalAuditPayload({
+          actorId: row.actorId,
+          actorEmail: row.actorEmail,
           action: row.action,
           entityType: row.entityType,
           entityId: row.entityId,
-          beforeState: row.beforeState ?? null,
-          afterState: row.afterState ?? null,
-          ipAddress: row.ipAddress ?? null,
+          beforeState: row.beforeState,
+          afterState: row.afterState,
+          ipAddress: row.ipAddress,
           createdAt: row.createdAt.toISOString(),
         });
         const expected = computeAuditHash(row.prevHash!, canonicalPayload);
@@ -647,14 +718,41 @@ export class AuditService {
    * rows could be purged sooner — that policy needs counsel sign-off before
    * this runs on a schedule.
    *
+   * DRY-RUN BY DEFAULT — the same ONE gate as the GDPR multi-entity purge
+   * and the worker AI-log purge (@ems/shared `retention.ts`): a real delete
+   * happens only when BOTH hold:
+   *   1. counsel sign-off is recorded (`GDPR_RETENTION_SIGNED_OFF=true`), AND
+   *   2. the caller explicitly passes `{ dryRun: false }`.
+   * An explicit `dryRun: false` without sign-off is forced back to dry-run
+   * and logged loudly — audit rows must never be deleted on placeholder
+   * retention windows. In dry-run mode nothing is deleted AND no truncation
+   * checkpoint is written (the chain is untouched, so no re-anchoring is
+   * needed); the run only counts + logs what it would delete.
+   *
    * The chain head is never deleted. After deleting expired rows a truncation
    * checkpoint is written so verifyChain({ allowTruncation: true }) stays
    * green; without the flag, verification correctly reports the break.
    * Wire to a worker cron (reported as follow-up for worker 1).
    */
-  async purgeExpiredAuditLogs(): Promise<{ deleted: number; checkpointId: string | null }> {
+  async purgeExpiredAuditLogs(opts?: {
+    dryRun?: boolean;
+  }): Promise<{ deleted: number; matched: number; dryRun: boolean; signedOff: boolean; checkpointId: string | null }> {
+    const signedOff = isRetentionSignedOff();
+    const dryRun = !(signedOff && opts?.dryRun === false);
+    if (opts?.dryRun === false && !signedOff) {
+      this.logger.warn(
+        'Audit purge requested with dryRun:false but counsel sign-off is not recorded ' +
+          `(${RETENTION_SIGNOFF_ENV}!=true) — forcing DRY-RUN.`,
+      );
+    }
+    const mode = dryRun ? 'DRY-RUN — no rows deleted' : 'LIVE DELETE';
+
     const days = parseInt(process.env.AUDIT_RETENTION_DAYS || String(DEFAULT_RETENTION_DAYS), 10);
     const cutoff = new Date(Date.now() - days * 86400_000);
+    this.logger.log(
+      `Audit retention purge [${mode}]: retention window ${days}d, cutoff ${cutoff.toISOString()}, ` +
+        `signedOff=${signedOff}, dryRun=${dryRun}`,
+    );
 
     return this.prisma.$transaction(async (tx) => {
       const client = tx as unknown as AuditTxClient;
@@ -662,27 +760,55 @@ export class AuditService {
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         select: { id: true },
       });
-      if (!newest) return { deleted: 0, checkpointId: null };
+      if (!newest) {
+        this.logger.log(`Audit retention purge [${mode}]: no audit rows — nothing to do`);
+        return { deleted: 0, matched: 0, dryRun, signedOff, checkpointId: null };
+      }
 
       const doomed = await client.$queryRaw<Array<{ id: string; hash: string | null }>>`
         SELECT id, hash FROM audit_logs
         WHERE "createdAt" < ${cutoff.toISOString()} AND id <> ${newest.id}
         ORDER BY "createdAt" ASC
       `;
-      if (doomed.length === 0) return { deleted: 0, checkpointId: null };
+      if (doomed.length === 0) {
+        this.logger.log(
+          `Audit retention purge [${mode}]: no rows older than ${cutoff.toISOString()} — nothing to do`,
+        );
+        return { deleted: 0, matched: 0, dryRun, signedOff, checkpointId: null };
+      }
 
+      if (dryRun) {
+        // DRY-RUN: count + log only. No DELETE and no truncation
+        // checkpoint — the chain is untouched.
+        this.logger.log(
+          `Audit retention purge [DRY-RUN]: would delete ${doomed.length} audit rows ` +
+            `older than ${cutoff.toISOString()} — no rows deleted`,
+        );
+        return { deleted: 0, matched: doomed.length, dryRun, signedOff, checkpointId: null };
+      }
+
+      // LIVE DELETE path.
       const deletedThroughHash = doomed[doomed.length - 1].hash ?? GENESIS_HASH;
       await client.$queryRaw`
         DELETE FROM audit_logs WHERE id = ANY(${doomed.map((d) => d.id)})
       `;
 
       const createdAt = new Date();
-      const checkpointPayload = canonicalize({
-        checkpoint: 'AUDIT_CHAIN_TRUNCATION',
+      // The truncation checkpoint is hashed in the canonical payload form
+      // (see canonicalAuditPayload — finding #6) so verifyChain recomputes
+      // the identical hash from the stored columns.
+      const checkpointAfterState = {
         deletedRows: doomed.length,
         deletedThroughHash,
-        cutoff: cutoff.toISOString(),
-        emittedAt: createdAt.toISOString(),
+      };
+      const checkpointPayload = canonicalAuditPayload({
+        action: AuditAction.UPDATE,
+        entityType: 'AUDIT_CHAIN',
+        entityId: 'retention-truncation',
+        beforeState: null,
+        afterState: checkpointAfterState,
+        ipAddress: null,
+        createdAt: createdAt.toISOString(),
       });
 
       let checkpointId: string | null = null;
@@ -704,7 +830,7 @@ export class AuditService {
              "prevHash", hash, "createdAt", "sequence", "schemeVersion")
           VALUES (
             'AUDIT_CHAIN', 'retention-truncation', 'UPDATE'::"AuditAction",
-            ${JSON.stringify({ deletedRows: doomed.length, deletedThroughHash })}::jsonb,
+            ${JSON.stringify(checkpointAfterState)}::jsonb,
             ${prevHash}, ${hash}, ${createdAt.toISOString()},
             ${sequence}, ${CURRENT_SCHEME_VERSION}
           )
@@ -713,15 +839,21 @@ export class AuditService {
         checkpointId = inserted[0]?.id ?? null;
       } catch (error) {
         if (!isMissingColumnError(error)) throw error;
-        // Pre-migration: checkpoint without sequence/schemeVersion.
+        // Pre-migration: checkpoint without sequence/schemeVersion, linked
+        // to the real chain head (not GENESIS).
+        const head = await client.auditLog.findFirst({
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          select: { hash: true },
+        });
+        const prevHash = head?.hash ?? GENESIS_HASH;
         const created = await client.auditLog.create({
           data: {
             entityType: 'AUDIT_CHAIN',
             entityId: 'retention-truncation',
             action: AuditAction.UPDATE,
-            afterState: { deletedRows: doomed.length, deletedThroughHash },
-            prevHash: GENESIS_HASH,
-            hash: computeAuditHash(GENESIS_HASH, checkpointPayload),
+            afterState: checkpointAfterState,
+            prevHash,
+            hash: computeAuditHash(prevHash, checkpointPayload),
             createdAt,
           },
         });
@@ -729,7 +861,7 @@ export class AuditService {
       }
 
       this.logger.log(`Purged ${doomed.length} audit rows older than ${cutoff.toISOString()}`);
-      return { deleted: doomed.length, checkpointId };
+      return { deleted: doomed.length, matched: doomed.length, dryRun, signedOff, checkpointId };
     });
   }
 }

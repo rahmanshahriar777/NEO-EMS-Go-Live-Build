@@ -367,3 +367,31 @@
   background: var(--sidebar-rose-bg);
   color: var(--sidebar-rose);
 }
+
+/* Sign-out failure banner: shown when the API logout could not be confirmed
+ * (the session is still valid, so the user stays signed in). */
+.sidebar-logout-error {
+  margin: 8px 12px 0;
+  padding: 8px 10px;
+  border-radius: var(--sidebar-radius-sm);
+  background: var(--sidebar-rose-bg);
+  color: var(--sidebar-rose);
+  font-size: 12px;
+  line-height: 1.4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sidebar-logout-retry {
+  background: none;
+  border: 1px solid currentColor;
+  border-radius: var(--sidebar-radius-sm);
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  padding: 2px 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+}

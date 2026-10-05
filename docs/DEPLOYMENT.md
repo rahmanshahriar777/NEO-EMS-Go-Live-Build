@@ -119,6 +119,44 @@ Consequence of build-time baking: **one web image = one API URL.** If two
 environments need different API origins, build a separate `ems-web` image per
 environment (the image tags are per-commit anyway — see "Image tags" below).
 
+### Web → API server-side rewrite target (`API_INTERNAL_URL`, build time)
+
+`next.config.mjs` rewrites browser `/api/*` calls to
+`process.env.API_INTERNAL_URL` — and that value is resolved when the image is
+**built** (`next build` bakes the rewrite destination into the routes
+manifest). Setting `API_INTERNAL_URL` as a runtime env var (compose
+`environment:`, k8s pod env) has **no effect on rewrites** — exactly the
+in-cluster DNS failure fixed by #5-infra: the image CI pushed to GHCR was
+built without the build-arg, so the Dockerfile fallback
+`http://api:4000/api/:path*` (a docker-compose service name) was baked in and
+did not resolve inside the cluster.
+
+`API_INTERNAL_URL` is a Docker `ARG` in `apps/web/Dockerfile` (builder
+stage), wired through every image build:
+
+| Build path | Value passed | Override |
+|---|---|---|
+| CI publish (`docker-build.yaml`) | `vars.API_INTERNAL_URL` or default `http://ems-api-service:4000/api/:path*` (k8s ClusterIP Service DNS — these images deploy to k8s) | repository/org Variable `API_INTERNAL_URL` |
+| Compose (`docker-compose.prod.yml`) | `http://api:4000/api/:path*` (compose service name) | `args` in the compose file |
+| Manual | your `--build-arg` | — |
+
+Changing it requires **rebuilding** the `ems-web` image. Manual
+verification of a baked value (no k8s needed):
+
+```bash
+# Build the builder stage and inspect the baked routes manifest:
+docker build --target builder \
+  --build-arg API_INTERNAL_URL=http://ems-api-service:4000/api/:path* \
+  -f apps/web/Dockerfile -t ems-web:check .
+docker run --rm --entrypoint cat ems-web:check \
+  /app/apps/web/.next/routes-manifest.json | grep -o '"destination":"[^"]*api[^"]*"'
+# Expect: "destination":"http://ems-api-service:4000/api/:path*"
+```
+
+`scripts/check-docker-build-args.sh` (run in CI) fails the build if any
+`ARG` declared in `apps/web/Dockerfile` is not passed as a build-arg in
+`docker-build.yaml`, so this class of omission is caught before publish.
+
 ## 3. Migrate (release pipeline step)
 
 > ⚠️ **FRESH INSTALLS: apply the enum values AFTER `migrate deploy`.**

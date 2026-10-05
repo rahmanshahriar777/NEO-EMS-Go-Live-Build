@@ -83,11 +83,26 @@ describe('PasswordResetService', () => {
       const emailed = emailService.sendTemplated.mock.calls[0][0];
       expect(emailed.to).toBe('jane@ems.local');
       expect(emailed.template).toBe('password-reset');
-      expect(emailed.data.actionUrl).toContain('http://localhost:3000/reset-password?token=');
+      expect(emailed.data.actionUrl).toContain('http://localhost:3000/reset-password/confirm?token=');
       expect(emailed.idempotencyKey).toBe(`password-reset:${created.tokenHash}`);
       // the raw token in the URL must hash to the stored tokenHash
       const rawFromUrl = emailed.data.actionUrl.split('token=')[1];
       expect(crypto.createHash('sha256').update(rawFromUrl).digest('hex')).toBe(created.tokenHash);
+    });
+
+    it('emailed reset link targets the real /reset-password/confirm web route', async () => {
+      // Regression: the service once emailed /reset-password?token=…, a
+      // page that never reads the token — the reset could not complete
+      // from email. The token-reading page is
+      // app/(auth)/reset-password/confirm.
+      userService.findByEmail.mockResolvedValue({ id: 'user-1', email: 'jane@ems.local' });
+
+      await service.requestPasswordReset('jane@ems.local');
+
+      const emailed = emailService.sendTemplated.mock.calls[0][0];
+      const url = new URL(emailed.data.actionUrl);
+      expect(url.pathname).toBe('/reset-password/confirm');
+      expect(url.searchParams.get('token')).toBeTruthy();
     });
   });
 

@@ -2,7 +2,6 @@ import { requireApiBaseUrl } from './env';
 
 export interface RequestOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined>;
-  silentAuth?: boolean;
 }
 
 /** Paginated list envelope returned by the API for list endpoints. */
@@ -26,6 +25,54 @@ export class ApiError extends Error {
 const REQUEST_TIMEOUT_MS = 30_000;
 const MAX_GET_RETRIES = 2; // initial attempt + 2 retries on GET only
 const RETRY_BASE_DELAY_MS = 300;
+
+/**
+ * Double-submit CSRF contract with the API (`CsrfGuard`):
+ * the API sets a non-httpOnly `csrf` cookie on login/refresh
+ * (`security.csrfCookieName`, default `csrf`), and every
+ * cookie-authenticated mutation (POST/PUT/PATCH/DELETE sent with the
+ * `ems_at` cookie) must echo that value back in the `x-csrf-token` header.
+ * The guard skips token validation when no `ems_at` cookie is present, so
+ * sending the header unconditionally on mutations is safe — it protects the
+ * request the moment the cookies arrive (e.g. the login response itself
+ * issues `ems_at` + `csrf` together).
+ */
+const CSRF_COOKIE_NAME = 'csrf';
+const CSRF_HEADER_NAME = 'x-csrf-token';
+
+/**
+ * Read the non-httpOnly `csrf` cookie value. Returns `null` outside the
+ * browser or when the cookie is absent (e.g. before login).
+ */
+export function readCsrfCookieValue(): string | null {
+  if (typeof document === 'undefined') return null;
+  const cookies = document.cookie ? document.cookie.split(';') : [];
+  for (const part of cookies) {
+    const eq = part.indexOf('=');
+    if (eq < 0) continue;
+    if (part.slice(0, eq).trim() !== CSRF_COOKIE_NAME) continue;
+    const raw = part.slice(eq + 1).trim();
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      return raw;
+    }
+  }
+  return null;
+}
+
+/** Header names (any casing) that already carry the CSRF token. */
+function hasCsrfHeader(headers: Record<string, string>): boolean {
+  return Object.keys(headers).some((k) => k.toLowerCase() === CSRF_HEADER_NAME);
+}
+
+/**
+ * The `x-csrf-token` value to attach to a mutation, or `null` when there is
+ * no CSRF cookie to echo (e.g. before login). Exported for unit tests.
+ */
+export function csrfTokenForMutation(): string | null {
+  return readCsrfCookieValue();
+}
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -85,11 +132,20 @@ class ApiClient {
     if (!this.refreshPromise) {
       const attempt = (async (): Promise<void> => {
         const { signal, cancel } = withTimeout();
+        // POST /auth/refresh is a cookie-authenticated mutation: echo the
+        // CSRF double-submit token like every other mutation (the guard
+        // ignores it on this cookie-issuing route, which instead enforces
+        // Origin/Referer — but sending it keeps the contract uniform).
+        const csrfToken = csrfTokenForMutation();
         try {
           const res = await fetch(`${requireApiBaseUrl()}/auth/refresh`, {
             method: 'POST',
             credentials: 'include',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+              ...(csrfToken ? { [CSRF_HEADER_NAME]: csrfToken } : {}),
+            },
             // Cookie-based: the API reads the ems_rt httpOnly cookie; no body needed.
             body: JSON.stringify({}),
             signal,
@@ -120,16 +176,7 @@ class ApiClient {
   private handleSessionExpired(): never {
     this.sessionExpired = true;
     if (typeof window !== 'undefined') {
-      const path = window.location.pathname;
-      const isPublicPath =
-        path === '/login' ||
-        path === '/' ||
-        path.startsWith('/register') ||
-        path.startsWith('/reset-password') ||
-        path.startsWith('/verify-email');
-      if (!isPublicPath) {
-        window.location.href = '/login';
-      }
+      window.location.href = '/login';
     }
     throw new ApiError('Session expired — please sign in again.', 401);
   }
@@ -161,6 +208,15 @@ class ApiClient {
     const { params: _params, ...fetchOptions } = options;
     if (fetchOptions.body !== undefined && !headers['Content-Type']) {
       headers['Content-Type'] = 'application/json';
+    }
+    // CSRF double-submit (see CSRF_HEADER_NAME above): every mutation echoes
+    // the `csrf` cookie in the `x-csrf-token` header. Safe methods are exempt
+    // per the guard, and a caller-supplied header is never overwritten.
+    if (!isGet && !hasCsrfHeader(headers)) {
+      const csrfToken = csrfTokenForMutation();
+      if (csrfToken) {
+        headers[CSRF_HEADER_NAME] = csrfToken;
+      }
     }
 
     const init: RequestInit = { ...fetchOptions, method, headers };
@@ -194,9 +250,6 @@ class ApiClient {
     // If refresh fails, every pending request REJECTS (no hanging) and the
     // user is sent back to /login.
     if (response.status === 401 && !this.isAuthEndpoint(endpoint)) {
-      if (options.silentAuth) {
-        throw new ApiError('Not authenticated', 401);
-      }
       try {
         await this.doRefresh();
       } catch {

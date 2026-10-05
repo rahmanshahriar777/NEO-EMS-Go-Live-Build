@@ -222,7 +222,7 @@ describe('PayrollService', () => {
       });
       expect(prismaService.payrollRun.update).toHaveBeenCalledWith({
         where: { id: 'run-1' },
-        data: { totalGross: 0, totalDeductions: 0, totalNet: 0, processedAt: null },
+        data: { totalGross: 0, totalDeductions: 0, totalNet: 0, processedAt: null, warnings: [] },
       });
       expect(queues.enqueuePayrollRun).toHaveBeenCalledWith('run-1', expect.any(String));
       expect(auditService.log).toHaveBeenCalledWith(
@@ -317,7 +317,9 @@ describe('PayrollService', () => {
       prismaService.payrollRun.findUnique.mockResolvedValue({
         id: 'run-1',
         status: PayrollStatus.DRAFT,
+        processedAt: new Date(),
       });
+      prismaService.payslip.count.mockResolvedValue(3);
       prismaService.auditLog.findFirst.mockResolvedValue(null);
 
       await expect(service.approvePayrollRun('run-1', 'checker-1')).rejects.toThrow(
@@ -329,7 +331,9 @@ describe('PayrollService', () => {
       prismaService.payrollRun.findUnique.mockResolvedValue({
         id: 'run-1',
         status: PayrollStatus.DRAFT,
+        processedAt: new Date(),
       });
+      prismaService.payslip.count.mockResolvedValue(3);
       prismaService.auditLog.findFirst.mockResolvedValue({ actorId: 'maker-1' });
 
       await expect(service.approvePayrollRun('run-1', 'maker-1')).rejects.toThrow(
@@ -341,7 +345,9 @@ describe('PayrollService', () => {
       prismaService.payrollRun.findUnique.mockResolvedValue({
         id: 'run-1',
         status: PayrollStatus.DRAFT,
+        processedAt: new Date(),
       });
+      prismaService.payslip.count.mockResolvedValue(3);
       prismaService.auditLog.findFirst.mockResolvedValue({ actorId: 'maker-1' });
       prismaService.payrollRun.update.mockImplementation(({ data }: any) => ({
         id: 'run-1',
@@ -369,6 +375,44 @@ describe('PayrollService', () => {
         expect.objectContaining({ action: AuditAction.APPROVE, entityId: 'run-1' }),
       );
       expect(run.status).toBe(PayrollStatus.APPROVED);
+    });
+
+    it('rejects (409) when the worker has not finished computing the run', async () => {
+      // Approve-before-compute race: processedAt is stamped by the worker
+      // only after it commits the payslip rows. A run without it must not
+      // be approvable, even by a valid checker.
+      prismaService.payrollRun.findUnique.mockResolvedValue({
+        id: 'run-1',
+        status: PayrollStatus.DRAFT,
+        processedAt: null,
+      });
+      prismaService.auditLog.findFirst.mockResolvedValue({ actorId: 'maker-1' });
+
+      await expect(service.approvePayrollRun('run-1', 'checker-1')).rejects.toThrow(
+        ConflictException,
+      );
+      await expect(service.approvePayrollRun('run-1', 'checker-1')).rejects.toThrow(
+        /not finished computing/,
+      );
+      expect(prismaService.payrollRun.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects (409) when the run computed zero payslips', async () => {
+      prismaService.payrollRun.findUnique.mockResolvedValue({
+        id: 'run-1',
+        status: PayrollStatus.DRAFT,
+        processedAt: new Date(),
+      });
+      prismaService.payslip.count.mockResolvedValue(0);
+      prismaService.auditLog.findFirst.mockResolvedValue({ actorId: 'maker-1' });
+
+      await expect(service.approvePayrollRun('run-1', 'checker-1')).rejects.toThrow(
+        ConflictException,
+      );
+      await expect(service.approvePayrollRun('run-1', 'checker-1')).rejects.toThrow(
+        /no computed payslips/,
+      );
+      expect(prismaService.payrollRun.update).not.toHaveBeenCalled();
     });
   });
 

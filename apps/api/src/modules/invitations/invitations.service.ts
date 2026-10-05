@@ -156,7 +156,7 @@ export class InvitationsService {
       userId: createdById,
       template: 'invitation',
       data: {
-        actionUrl: `${frontendUrl}/accept-invitation?token=${token}`,
+        actionUrl: `${frontendUrl}/invitation-accept?token=${token}`,
         role,
         expiresNote: `${ttlHours} hours`,
       },
@@ -260,9 +260,12 @@ export class InvitationsService {
       } else {
         // Scaffold an employee profile with a sequence-backed number
         // (go-live Phase 1 item 6 — never count()+1, race-safe).
+        // v4 fix #9: contractStart = joiningDate (single clock read) so a
+        // mid-month joiner is prorated, not paid a full month.
         const employeeNumber = await nextEmployeeNumber((sql: string) =>
           tx.$queryRawUnsafe(sql),
         );
+        const joinedAt = new Date();
         await tx.employee.create({
           data: {
             employeeNumber,
@@ -270,6 +273,8 @@ export class InvitationsService {
             firstName: dto.firstName,
             lastName: dto.lastName,
             email: invitation.email,
+            joiningDate: joinedAt,
+            contractStart: joinedAt,
           },
         });
       }

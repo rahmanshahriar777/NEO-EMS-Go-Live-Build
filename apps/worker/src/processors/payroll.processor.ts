@@ -36,16 +36,19 @@ import { log } from '../logger.js';
  *      so a retried job — including one resuming a crashed PROCESSING run —
  *      converges instead of double-paying.
  *
- * Eligibility (go-live Phase 1 item 2): non-deleted employees whose
- * employment status is payable — FULL_TIME, PART_TIME, CONTRACT, PROBATION,
- * INTERN — with an active salary structure. TERMINATED / RESIGNED are
- * excluded. Runs scoped to a department only cover that department;
- * company-wide runs (departmentId null) cover everyone.
+ * Eligibility (go-live Phase 1 item 2; v4 fix #8): non-deleted employees
+ * whose employment status is payable — FULL_TIME, PART_TIME, CONTRACT,
+ * PROBATION, INTERN — with an active salary structure. TERMINATED / RESIGNED
+ * employees are ALSO fetched: those whose exit date (contractEnd or
+ * terminationDate) falls inside the pay month are paid pro-rata for days
+ * worked (final pay); exited employees outside the pay month, or with no
+ * exit date at all, are excluded with a LOUD warning (never silently).
+ * Runs scoped to a department only cover that department; company-wide runs
+ * (departmentId null) cover everyone.
  */
 
 /**
- * Employment statuses that earn pay. Everything else (TERMINATED, RESIGNED,
- * …) is excluded from payroll runs. Exported for unit tests.
+ * Employment statuses that earn pay. Exported for unit tests.
  */
 export const PAYABLE_EMPLOYMENT_STATUSES = [
   'FULL_TIME',
@@ -55,13 +58,112 @@ export const PAYABLE_EMPLOYMENT_STATUSES = [
   'INTERN',
 ] as const;
 
+/**
+ * Exit statuses. Not "payable" in the ongoing sense, but a leaver whose
+ * exit date falls inside the pay month is owed pro-rata final pay (v4 #8).
+ * Exported for unit tests.
+ */
+export const EXITED_EMPLOYMENT_STATUSES = ['TERMINATED', 'RESIGNED'] as const;
+
 /** Prisma `where` for payroll eligibility — pure, unit-tested. */
 export function buildEligibilityWhere(run: { departmentId?: string | null }) {
   return {
     deletedAt: null,
-    status: { in: [...PAYABLE_EMPLOYMENT_STATUSES] },
+    status: { in: [...PAYABLE_EMPLOYMENT_STATUSES, ...EXITED_EMPLOYMENT_STATUSES] },
     ...(run.departmentId ? { departmentId: run.departmentId } : {}),
     salaryStructures: { some: { isActive: true } },
+  };
+}
+
+/** UTC bounds of a pay month: [start of day 1, end of last day]. */
+export function payMonthBounds(year: number, month: number): { start: Date; end: Date } {
+  const dim = daysInMonth(year, month);
+  return {
+    start: new Date(Date.UTC(year, month - 1, 1)),
+    end: new Date(Date.UTC(year, month - 1, dim, 23, 59, 59, 999)),
+  };
+}
+
+export type ExclusionCode =
+  | 'TERMINATED_BEFORE_PERIOD'
+  | 'TERMINATION_DATE_MISSING'
+  | 'NOT_EMPLOYED_IN_PERIOD'
+  | 'STATUS_NOT_PAYABLE';
+
+/** One employee excluded from a run — persisted on the run, never silent. */
+export interface PayrollExclusionWarning {
+  code: ExclusionCode;
+  employeeId: string;
+  employeeNumber?: string | null;
+  email?: string | null;
+  reason: string;
+}
+
+type ClassifiableEmployee = {
+  status: string;
+  contractStart?: Date | null;
+  contractEnd?: Date | null;
+  terminationDate?: Date | null;
+};
+
+/**
+ * Decide whether a fetched employee is paid in this run (v4 fix #8).
+ * Pure and unit-tested.
+ *
+ * - Payable statuses → always eligible; joiner proration happens later via
+ *   daysPresentInMonth.
+ * - TERMINATED / RESIGNED → eligible only when the exit date (contractEnd
+ *   or terminationDate) falls inside the pay month, so mid-month leavers
+ *   get pro-rata final pay. Leavers who exited before the month, or whose
+ *   exit date was never recorded, are excluded with a loud reason.
+ * - Anything else → excluded.
+ */
+export function classifyEligibility(
+  emp: ClassifiableEmployee,
+  year: number,
+  month: number,
+): { eligible: boolean; code?: ExclusionCode; reason?: string } {
+  if ((PAYABLE_EMPLOYMENT_STATUSES as readonly string[]).includes(emp.status)) {
+    return { eligible: true };
+  }
+  if ((EXITED_EMPLOYMENT_STATUSES as readonly string[]).includes(emp.status)) {
+    const { start, end } = payMonthBounds(year, month);
+    // Plain boolean (not a type predicate): narrowing a `d is Date` guard on
+    // these property reads would collapse the later ?? chain to `never`.
+    const inMonth = (d: Date | null | undefined): boolean =>
+      d instanceof Date && d >= start && d <= end;
+    if (inMonth(emp.contractEnd) || inMonth(emp.terminationDate)) {
+      return { eligible: true };
+    }
+    const exitDate: Date | null = emp.contractEnd ?? emp.terminationDate ?? null;
+    if (!exitDate) {
+      return {
+        eligible: false,
+        code: 'TERMINATION_DATE_MISSING',
+        reason:
+          `status is ${emp.status} but neither contractEnd nor terminationDate is set — ` +
+          `final pay cannot be computed. Set the termination date and re-run.`,
+      };
+    }
+    if (exitDate < start) {
+      return {
+        eligible: false,
+        code: 'TERMINATED_BEFORE_PERIOD',
+        reason:
+          `status is ${emp.status} with exit date ${exitDate.toISOString().slice(0, 10)}, ` +
+          `before the pay period`,
+      };
+    }
+    return {
+      eligible: false,
+      code: 'NOT_EMPLOYED_IN_PERIOD',
+      reason: `exit date is after the pay period; contract does not cover the pay month`,
+    };
+  }
+  return {
+    eligible: false,
+    code: 'STATUS_NOT_PAYABLE',
+    reason: `status ${emp.status} is not payable`,
   };
 }
 
@@ -185,11 +287,36 @@ export async function fetchUnpaidLeaveDays(
   return days;
 }
 
+type PayrollDbClient = EmployeeQueryClient &
+  LeaveQueryClient & {
+    payrollRun: {
+      findUnique: (args: any) => Promise<any>;
+      findUniqueOrThrow: (args: any) => Promise<any>;
+      update: (args: any) => Promise<any>;
+    };
+    payslip: { upsert: (args: any) => any };
+    $transaction: (ops: any[]) => Promise<any>;
+  };
+
+/**
+ * BullMQ entry point: delegates to computePayrollRun with the real Prisma
+ * singleton. (Kept as a one-arg function so it stays assignable to BullMQ's
+ * `Processor` type; tests target computePayrollRun with a mock client.)
+ */
 export async function processPayroll(job: Job<PayrollJobPayload>) {
+  return computePayrollRun(job, prisma as unknown as PayrollDbClient);
+}
+
+/**
+ * The full compute, parameterised by DB client. Production passes the real
+ * Prisma singleton via processPayroll; tests inject a mock. Every DB touch
+ * in the compute goes through `db`.
+ */
+export async function computePayrollRun(job: Job<PayrollJobPayload>, db: PayrollDbClient) {
   const { payrollRunId, correlationId } = job.data;
   log.info('payroll.compute.start', { jobId: job.id, payrollRunId, correlationId });
 
-  const run = await prisma.payrollRun.findUnique({ where: { id: payrollRunId } });
+  const run = await db.payrollRun.findUnique({ where: { id: payrollRunId } });
   if (!run) {
     throw new Error(`Payroll run ${payrollRunId} not found; refusing to compute phantom payslips.`);
   }
@@ -208,7 +335,7 @@ export async function processPayroll(job: Job<PayrollJobPayload>) {
   // after marking PROCESSING but before committing. The upserts below
   // converge on retry, so resume is safe and prevents runs stuck forever.
   if (run.status === 'DRAFT') {
-    await prisma.payrollRun.update({
+    await db.payrollRun.update({
       where: { id: payrollRunId },
       data: { status: 'PROCESSING' },
     });
@@ -216,21 +343,55 @@ export async function processPayroll(job: Job<PayrollJobPayload>) {
     log.info('payroll.compute.resume', { jobId: job.id, payrollRunId, status: run.status });
   }
 
-  const employees = await fetchEligibleEmployees(prisma, run);
-
-  if (employees.length === 0) {
-    await prisma.payrollRun.update({
-      where: { id: payrollRunId },
-      data: { status: 'DRAFT' },
-    });
-    throw new Error(`No eligible employees with active salary structures for run ${payrollRunId}.`);
-  }
-
   // Minor-unit exact totals (currency-aware — correct for JPY/KWD, not just
   // 2-decimal currencies). No `Math.round(x * 100)` float boundary.
   const currency = (run as { currency?: string | null }).currency ?? 'GBP';
   const { year, month } = run;
   const dim = daysInMonth(year, month);
+
+  // v4 fix #8: the fetch includes TERMINATED/RESIGNED (see
+  // buildEligibilityWhere). Each fetched employee is classified; anyone not
+  // payable in this month is EXCLUDED LOUDLY — a structured warn log AND a
+  // warning row persisted on the run (surfaced via GET /payroll/runs/:id).
+  // Never silent: a mid-month leaver with no exit date recorded is a data
+  // problem HR must fix, not a $0 payslip.
+  const fetched = await fetchEligibleEmployees(db, run);
+  const warnings: PayrollExclusionWarning[] = [];
+  const exclude = (emp: any, code: ExclusionCode, reason: string): void => {
+    const warning: PayrollExclusionWarning = {
+      code,
+      employeeId: emp.id,
+      employeeNumber: emp.employeeNumber ?? null,
+      email: emp.email ?? null,
+      reason,
+    };
+    warnings.push(warning);
+    log.warn('payroll.compute.excluded', { jobId: job.id, payrollRunId, ...warning });
+  };
+
+  const employees: any[] = [];
+  for (const emp of fetched) {
+    const decision = classifyEligibility(emp, year, month);
+    if (!decision.eligible) {
+      exclude(emp, decision.code as ExclusionCode, decision.reason as string);
+      continue;
+    }
+    employees.push(emp);
+  }
+
+  if (employees.length === 0) {
+    await db.payrollRun.update({
+      where: { id: payrollRunId },
+      data: { status: 'DRAFT', warnings, processedAt: new Date() },
+    });
+    const summary =
+      warnings.map((w) => `${w.employeeNumber ?? w.employeeId}: ${w.reason}`).join(' | ') ||
+      'none fetched';
+    throw new Error(
+      `No eligible employees with active salary structures for run ${payrollRunId}. ` +
+        `Excluded (${warnings.length}): ${summary}`,
+    );
+  }
 
   let totalGrossMinor = 0;
   let totalDeductionsMinor = 0;
@@ -241,25 +402,26 @@ export async function processPayroll(job: Job<PayrollJobPayload>) {
   // run totals) in a single transaction: either the run is fully computed or
   // nothing lands — no half-computed runs on crash. Upserts keep the retry
   // path idempotent inside the transaction as well.
-  const payslipWrites: Array<Parameters<typeof prisma.payslip.upsert>[0]> = [];
+  const payslipWrites: Array<Parameters<PayrollDbClient['payslip']['upsert']>[0]> = [];
 
   for (const emp of employees) {
     const assignment = emp.salaryStructures[0];
     if (!assignment) continue; // guarded by the query above; defensive only
 
-    // Joiner/leaver proration (Phase 2 item 4): the monthly base salary is
-    // scaled by calendar days present. Assumption: FIXED components are NOT
-    // prorated (period allowances); percentage components scale automatically
-    // because they compute off the (prorated) base. Employees with zero days
-    // in the month are skipped loudly, not paid zero.
-    const present = daysPresentInMonth(emp.contractStart ?? null, emp.contractEnd ?? null, year, month);
+    // Joiner/leaver proration (Phase 2 item 4; v4 fix #8 extends it to
+    // mid-month leavers): the monthly base salary is scaled by calendar days
+    // present. Assumption: FIXED components are NOT prorated (period
+    // allowances); percentage components scale automatically because they
+    // compute off the (prorated) base. Employees with zero days in the month
+    // are excluded loudly, never paid zero.
+    // Effective contract end for proration: contractEnd is the payroll-
+    // driving "last paid day" (stamped on every exit transition); it falls
+    // back to terminationDate for rows where only the exit event was
+    // recorded (e.g. legacy/backfilled exits).
+    const effectiveEnd = emp.contractEnd ?? emp.terminationDate ?? null;
+    const present = daysPresentInMonth(emp.contractStart ?? null, effectiveEnd, year, month);
     if (present === 0) {
-      log.info('payroll.compute.skip-not-employed', {
-        jobId: job.id,
-        payrollRunId,
-        employeeId: emp.id,
-        reason: 'contract does not cover the pay month',
-      });
+      exclude(emp, 'NOT_EMPLOYED_IN_PERIOD', 'contract does not cover the pay month');
       continue;
     }
     // Decimal end-to-end: the Prisma Decimal's canonical STRING crosses
@@ -293,7 +455,7 @@ export async function processPayroll(job: Job<PayrollJobPayload>) {
     // Unpaid-leave deduction (Phase 2 item 4): approved leave in the month
     // on a LeaveType with isPaid=false deducts at the daily rate
     // (prorated base ÷ calendar days in the month — documented assumption).
-    const unpaidDays = await fetchUnpaidLeaveDays(prisma, emp.id, year, month);
+    const unpaidDays = await fetchUnpaidLeaveDays(db, emp.id, year, month);
     if (unpaidDays > 0) {
       const baseMinor = toMinorUnits(baseSalaryInput, currency);
       const deductionMinor = Math.round(Math.round(baseMinor / dim) * unpaidDays);
@@ -342,28 +504,32 @@ export async function processPayroll(job: Job<PayrollJobPayload>) {
     await job.updateProgress(Math.round((computed / employees.length) * 90));
   }
 
-  await prisma.$transaction([
-    ...payslipWrites.map((args) => prisma.payslip.upsert(args)),
-    prisma.payrollRun.update({
+  await db.$transaction([
+    ...payslipWrites.map((args) => db.payslip.upsert(args)),
+    db.payrollRun.update({
       where: { id: payrollRunId },
       data: {
         status: 'DRAFT',
         totalGross: fromMinorUnits(totalGrossMinor, currency),
         totalDeductions: fromMinorUnits(totalDeductionsMinor, currency),
         totalNet: fromMinorUnits(totalNetMinor, currency),
+        // v4 fix #8: exclusion warnings are part of the run record, surfaced
+        // via the payroll-runs API alongside the payslips.
+        warnings,
         processedAt: new Date(),
       },
     }),
   ]);
   // Re-read the committed run for the response (the transaction array's last
   // element is the run update, but its union type is awkward to narrow).
-  const updated = await prisma.payrollRun.findUniqueOrThrow({ where: { id: payrollRunId } });
+  const updated = await db.payrollRun.findUniqueOrThrow({ where: { id: payrollRunId } });
 
   await job.updateProgress(100);
   log.info('payroll.compute.done', {
     jobId: job.id,
     payrollRunId,
     payslips: computed,
+    excluded: warnings.length,
     totalGross: Number(updated.totalGross),
     totalNet: Number(updated.totalNet),
     correlationId,
@@ -373,6 +539,7 @@ export async function processPayroll(job: Job<PayrollJobPayload>) {
     success: true,
     payrollRunId,
     payslipsComputed: computed,
+    warnings,
     totalGross: Number(updated.totalGross),
     totalDeductions: Number(updated.totalDeductions),
     totalNet: Number(updated.totalNet),

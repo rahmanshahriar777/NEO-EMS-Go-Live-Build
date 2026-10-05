@@ -55,6 +55,12 @@ export interface JwtPayload {
   employeeId?: UUID;
   iat?: number;
   exp?: number;
+  /**
+   * Present only on non-session JWTs (e.g. 'mfa-challenge'). Session access
+   * tokens NEVER carry this claim; JwtStrategy.validate() rejects any
+   * Bearer token that does (V4-1 MFA bypass fix).
+   */
+  purpose?: string;
 }
 
 export interface TokensResponse {

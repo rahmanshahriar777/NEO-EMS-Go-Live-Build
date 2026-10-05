@@ -855,13 +855,29 @@ export class LeavesService {
             )
           : {};
 
-      const updatedRequest = await tx.leaveRequest.update({
-        where: { id: requestId },
-        data: {
-          status: nextStatus,
-          ...stepUpdate,
-        } as any,
-      });
+      // v6 fix #1 — optimistic concurrency: the status transition only matches
+      // while the row is STILL PENDING. Two concurrent approvers race here;
+      // the loser gets P2025 and its whole transaction (including the balance
+      // moves above) rolls back, so balances move exactly once. (The `as any`
+      // is deliberate: Prisma's generated WhereUniqueInput type only declares
+      // unique fields, but the query engine applies the whole filter —
+      // `WHERE id AND status` — and throws P2025 when no row matches. Same
+      // pattern as the payroll disburse guard.)
+      let updatedRequest: any;
+      try {
+        updatedRequest = await tx.leaveRequest.update({
+          where: { id: requestId, status: LeaveStatus.PENDING } as any,
+          data: {
+            status: nextStatus,
+            ...stepUpdate,
+          } as any,
+        });
+      } catch (e: any) {
+        if (e?.code !== 'P2025') throw e;
+        throw new ConflictException(
+          'Leave request was already processed by another approver — please refresh and try again',
+        );
+      }
 
       const approvalExtra = await pickKnownColumns(
         tx,
@@ -1021,10 +1037,23 @@ export class LeavesService {
         }
       }
 
-      const updated = await tx.leaveRequest.update({
-        where: { id: requestId },
-        data: { status: LeaveStatus.CANCELLED as any },
-      });
+      // v6 fix #1 — optimistic concurrency: match the status observed at read
+      // time (PENDING or APPROVED, validated above). A concurrent approve or
+      // cancel that changed the row makes this update miss (P2025) and the
+      // whole transaction — including the balance moves above — rolls back,
+      // so balances are restored exactly once.
+      let updated: any;
+      try {
+        updated = await tx.leaveRequest.update({
+          where: { id: requestId, status: req.status as any } as any,
+          data: { status: LeaveStatus.CANCELLED as any },
+        });
+      } catch (e: any) {
+        if (e?.code !== 'P2025') throw e;
+        throw new ConflictException(
+          'Leave request was already processed by another action — please refresh and try again',
+        );
+      }
 
       await this.audit.log(
         {

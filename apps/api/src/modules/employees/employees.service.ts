@@ -80,6 +80,52 @@ function buildExtendedProfileData(dto: CreateEmployeeDto | UpdateEmployeeDto): R
   return data;
 }
 
+const EXIT_STATUSES = ['TERMINATED', 'RESIGNED'] as const;
+
+/**
+ * Extended-profile data for updates, plus the v4 exit/joiner rules.
+ *
+ * v4 fix #8 — exit stamping: when an update transitions an employee INTO a
+ * TERMINATED/RESIGNED status, the exit is timestamped so payroll can compute
+ * pro-rata final pay:
+ * - `terminationDate` = the exit event; stamped once (never overwritten —
+ *   re-terminating an already-exited employee keeps the original date).
+ * - `contractEnd` = last paid day; an explicit value in this update wins
+ *   (e.g. HR paying through a notice period), otherwise it is stamped with
+ *   the exit moment. Assumption: a plain status flip means "gone now", so a
+ *   previously recorded FUTURE contractEnd is superseded — the before-state
+ *   is preserved in the audit log.
+ *
+ * v4 fix #9 — joiner default: when joiningDate is (re)set and no contract
+ * start exists anywhere (neither this update nor the stored row),
+ * contractStart defaults to joiningDate, so mid-month joiners are prorated
+ * instead of paid a full month. This also covers the recruitment
+ * auto-create path: HR completes onboarding via update(), setting the real
+ * joiningDate here.
+ */
+function buildExitAndContractData(
+  dto: CreateEmployeeDto | UpdateEmployeeDto,
+  existing: { status?: string | null; contractStart?: Date | null; contractEnd?: Date | null; terminationDate?: Date | null },
+): Record<string, any> {
+  const data = buildExtendedProfileData(dto);
+
+  if (dto.joiningDate && !data.contractStart && !existing.contractStart) {
+    data.contractStart = new Date(dto.joiningDate);
+  }
+
+  const exiting =
+    !!dto.status &&
+    (EXIT_STATUSES as readonly string[]).includes(dto.status as string) &&
+    !(EXIT_STATUSES as readonly string[]).includes(existing.status ?? '');
+  if (exiting) {
+    const now = new Date();
+    if (!data.contractEnd) data.contractEnd = now;
+    data.terminationDate = existing.terminationDate ?? now;
+  }
+
+  return data;
+}
+
 @Injectable()
 export class EmployeesService {
   private readonly logger = new Logger(EmployeesService.name);
@@ -129,13 +175,8 @@ export class EmployeesService {
     }
 
     const result = await this.findAll(scopedQuery);
-    const rawItems: any[] = Array.isArray((result as any).data?.items)
-      ? (result as any).data.items
-      : Array.isArray((result as any).data)
-      ? (result as any).data
-      : [];
     const items = await Promise.all(
-      rawItems.map(async (e: any) => {
+      (result as any).data.map(async (e: any) => {
         const sanitized = sanitizeEmployee(e, viewer.roles);
         if (sanitized && typeof sanitized === 'object' && 'avatarUrl' in sanitized) {
           sanitized.avatarUrl = await this.resolveAvatarUrl((sanitized as any).avatarUrl);
@@ -143,9 +184,6 @@ export class EmployeesService {
         return sanitized;
       }),
     );
-    if ((result as any).data?.items) {
-      return { ...result, data: { ...(result as any).data, items } };
-    }
     return { ...(result as any), data: items };
   }
 
@@ -393,6 +431,10 @@ export class EmployeesService {
           avatarUrl: null,
           status: 'TERMINATED',
           deletedAt: anonymizedAt,
+          // NOTE (v4 #8): no contractEnd/terminationDate stamping here.
+          // Erasure is a data-hygiene event, not an employment event —
+          // stamping "now" would fabricate an exit date. Exit dates are
+          // stamped by update()'s exit transition and remove().
           ...extendedClear,
         } as any,
       });
@@ -589,10 +631,18 @@ export class EmployeesService {
 
     // Phase 2 item 3 — extended profile (columns via worker 4 migration;
     // unmigrated columns are skipped, not fatal).
+    // v4 fix #9: contractStart defaults to joiningDate when unset — without
+    // it, daysPresentInMonth sees no start bound and mid-month joiners are
+    // paid a full month. joiningDate is the single source for the default.
+    const joiningDate = dto.joiningDate ? new Date(dto.joiningDate) : new Date();
+    const extendedProfileData = buildExtendedProfileData(dto);
+    if (!extendedProfileData.contractStart) {
+      extendedProfileData.contractStart = joiningDate;
+    }
     const extended = await pickKnownColumns(
       this.prisma,
       'employees',
-      buildExtendedProfileData(dto),
+      extendedProfileData,
       'EmployeesService.create',
     );
 
@@ -609,7 +659,7 @@ export class EmployeesService {
         departmentId: dto.departmentId,
         designationId: dto.designationId,
         managerId: dto.managerId,
-        joiningDate: dto.joiningDate ? new Date(dto.joiningDate) : new Date(),
+        joiningDate,
         status: (dto.status as any) || 'FULL_TIME',
         profileSummary: dto.profileSummary,
         avatarUrl: dto.avatarUrl,
@@ -701,7 +751,7 @@ export class EmployeesService {
         ...(await pickKnownColumns(
           this.prisma,
           'employees',
-          buildExtendedProfileData(dto),
+          buildExitAndContractData(dto, existing),
           'EmployeesService.update',
         )),
       } as any,
@@ -724,9 +774,20 @@ export class EmployeesService {
     const existing = await this.findOne(id);
 
     await this.prisma.$transaction(async (tx) => {
+      // v4 fix #8: deactivation is an exit — stamp contractEnd/terminationDate
+      // with the exit moment so the employment record stays truthful (the row
+      // is soft-deleted, so payroll's deletedAt:null filter still excludes
+      // it; final pay for mid-month leavers goes through the status-change
+      // exit path, not deletion).
+      const now = new Date();
       await tx.employee.update({
         where: { id },
-        data: { deletedAt: new Date(), status: 'TERMINATED' },
+        data: {
+          deletedAt: now,
+          status: 'TERMINATED',
+          contractEnd: existing.contractEnd ?? now,
+          terminationDate: existing.terminationDate ?? now,
+        },
       });
 
       if (existing.userId) {

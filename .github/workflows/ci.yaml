@@ -93,6 +93,13 @@ jobs:
       - name: Env docs completeness check
         run: bash scripts/check-env-docs.sh
 
+      # #5-infra: every ARG declared in apps/web/Dockerfile must be passed
+      # as a build-arg in docker-build.yaml (build-time values such as
+      # API_INTERNAL_URL are baked into the published image; a silent
+      # Dockerfile default broke in-cluster DNS).
+      - name: Web Docker build-args completeness check
+        run: bash scripts/check-docker-build-args.sh
+
       - name: Prisma Generate Client
         run: pnpm --filter @ems/database db:generate
         env:

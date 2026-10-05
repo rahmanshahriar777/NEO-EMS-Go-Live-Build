@@ -2,12 +2,15 @@
  * MfaController + SessionsController wiring tests.
  * Guard behavior is covered by common/guards/access-matrix.spec.ts.
  */
+import 'reflect-metadata';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
+import { SystemRole } from '@ems/shared';
 import { MfaController } from './mfa.controller';
 import { SessionsController } from './sessions.controller';
 import { MfaService } from './mfa.service';
 import { setAuthCookies } from '../../common/cookies/auth-cookies';
+import { ROLES_KEY } from '../../common/decorators/roles.decorator';
 
 // auth-cookies pulls an ESM-only chain (via jwt.strategy) that ts-jest cannot
 // parse; the established pattern (auth.controller.spec.ts) is to mock it.
@@ -68,6 +71,28 @@ describe('MfaController', () => {
     mfaService.disableMfa.mockResolvedValue(undefined);
     const res = await controller.disable(user, { password: 'pw' } as any);
     expect(mfaService.disableMfa).toHaveBeenCalledWith('user-1', 'pw');
+    expect(res).toEqual({ success: true, message: 'MFA disabled' });
+  });
+
+  it('disable carries @Roles() metadata excluding read-only AUDITOR (V4-1)', () => {
+    const roles = Reflect.getMetadata(ROLES_KEY, (MfaController.prototype as any).disable);
+    expect(roles).toEqual([
+      SystemRole.SUPER_ADMIN,
+      SystemRole.HR_ADMIN,
+      SystemRole.MANAGER,
+      SystemRole.EMPLOYEE,
+    ]);
+    expect(roles).not.toContain(SystemRole.AUDITOR);
+  });
+
+  it('disable is self-scoped: it always targets the caller, never a request-supplied user id', async () => {
+    mfaService.disableMfa.mockResolvedValue(undefined);
+    // The DTO carries no target user id — only the current password.
+    const res = await controller.disable(
+      { sub: 'user-9', email: 'other@ems.local', roles: [SystemRole.EMPLOYEE], permissions: [] },
+      { password: 'pw' } as any,
+    );
+    expect(mfaService.disableMfa).toHaveBeenCalledWith('user-9', 'pw');
     expect(res).toEqual({ success: true, message: 'MFA disabled' });
   });
 

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { MonitorSmartphone, LogOut, RefreshCw } from 'lucide-react';
 import { DashboardLayout } from '../../../../components/layout/dashboard-layout';
 import { api } from '../../../../lib/api-client';
+import { useAuth } from '../../../../context/auth-context';
 import { ErrorBanner } from '../../../../components/ui/error-banner';
 import '../../../../styles/security.css';
 
@@ -27,6 +28,7 @@ interface Session {
  * and the client then drops local state via /auth/logout.
  */
 export default function SessionsPage() {
+  const { logout } = useAuth();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -53,11 +55,16 @@ export default function SessionsPage() {
 
   const revoke = async (session: Session) => {
     if (session.current) {
-      // The current session is ended via logout, not revocation.
+      // The current session is ended via the shared honest-logout flow:
+      // it retries transient failures and only navigates once the API has
+      // confirmed the logout (or the session is already dead server-side).
+      // On failure we surface the error and stay on this page — navigating
+      // to /login would lie to the user while the refresh token may be live.
+      setError(null);
       try {
-        await api.post('/auth/logout', {});
-      } finally {
-        window.location.href = '/login';
+        await logout();
+      } catch (err: any) {
+        setError(err?.message || 'Sign out failed. You are still signed in — please try again.');
       }
       return;
     }

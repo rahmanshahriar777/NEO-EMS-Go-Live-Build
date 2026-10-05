@@ -104,6 +104,11 @@ export class UserService {
       const employeeNumber = await nextEmployeeNumber((sql: string) =>
         tx.$queryRawUnsafe(sql),
       );
+      // v4 fix #9: scaffolded profiles get contractStart = joiningDate so a
+      // mid-month joiner is prorated, not paid a full month. joiningDate has
+      // a DB default of now(); both are stamped explicitly from one clock
+      // read so they agree exactly.
+      const joinedAt = new Date();
       const employee = await tx.employee.create({
         data: {
           employeeNumber,
@@ -111,6 +116,8 @@ export class UserService {
           firstName,
           lastName,
           email: email.toLowerCase(),
+          joiningDate: joinedAt,
+          contractStart: joinedAt,
         },
       });
 

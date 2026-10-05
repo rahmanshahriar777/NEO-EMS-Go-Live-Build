@@ -19,9 +19,10 @@ import {
   MfaDisableDto,
 } from '../auth/dto/auth.dto';
 import { Public } from '../../common/decorators/public.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { SetsAuthCookies } from '../../common/decorators/sets-auth-cookies.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { JwtPayload } from '@ems/shared';
+import { JwtPayload, SystemRole } from '@ems/shared';
 import { setAuthCookies } from '../../common/cookies/auth-cookies';
 
 /**
@@ -66,6 +67,14 @@ export class MfaController {
     };
   }
 
+  // V4-1: role metadata so the global RolesGuard enforces membership.
+  // Read-only AUDITOR is excluded — MFA management is not a read action.
+  // Ownership is structural, not parameterised: the endpoint accepts no
+  // target user id and always disables MFA for the caller's own account
+  // (user.sub), so a caller can never disable another user's MFA here.
+  // (An admin-on-behalf-of disable would need a target-user parameter;
+  // that capability does not exist on this endpoint.)
+  @Roles(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN, SystemRole.MANAGER, SystemRole.EMPLOYEE)
   @Post('totp/disable')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()

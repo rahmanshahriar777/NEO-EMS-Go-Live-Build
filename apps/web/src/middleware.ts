@@ -17,14 +17,35 @@ import type { NextRequest } from 'next/server';
  * component). `style-src` keeps 'unsafe-inline' because React inline style
  * props are used pervasively across the UI.
  *
- * KNOWN LIMITATION (documented, not silently worked around): the App Router
- * emits its own inline bootstrap scripts for flight data without carrying the
- * middleware nonce, so a strict nonce-only script-src can block hydration
- * until framework nonce propagation is wired (Next 15.5.27 is installed; the
- * middleware already propagates the nonce via the x-ems-csp-nonce request
- * header for use with Next <Script nonce={...}>). If staging shows hydration
- * breakage, the fix is the framework upgrade path — not re-adding
- * 'unsafe-inline'.
+ * NONCE PROPAGATION (Next 15): the App Router emits its own inline bootstrap
+ * scripts (flight-data streams, preinit scripts). Next 15's app-render reads
+ * the `Content-Security-Policy` *request* header, extracts the first
+ * 'nonce-…' source from `script-src` (see
+ * next/dist/server/app-render/get-script-nonce-from-header.js), and stamps
+ * that nonce onto every framework-emitted inline script. The middleware
+ * therefore sets the CSP value as a REQUEST header (in addition to the
+ * response header that enforces the policy) — this is the documented
+ * framework mechanism, not a workaround. Authored scripts can additionally
+ * read the nonce from the `x-ems-csp-nonce` request header (Next
+ * <Script nonce={…}>).
+ *
+ * LOCATION (critical): this file MUST live at src/middleware.ts — i.e. at the
+ * same level as the `app/` directory ("inside src if applicable", per the
+ * Next.js middleware convention). Next 15 detects middleware by scanning the
+ * parent of the app dir; a middleware.ts at the project root is silently
+ * IGNORED (empty middleware manifest, no headers, no redirects). It previously
+ * sat at the project root and never ran.
+ *
+ * RENDERING MODE (critical): every route in this app is force-dynamic (see
+ * `export const dynamic = 'force-dynamic'` in app/layout.tsx). Static
+ * prerendering is incompatible with per-request nonces: prerendered HTML is
+ * baked at build time, so the middleware's fresh nonce can never be stamped
+ * into its inline flight scripts, and a nonce-only script-src would block
+ * them (hydration dies — the login form would not submit). If a route is ever
+ * made static again, re-verify with `next build` (route table must show ƒ, not
+ * ○) and `next start` (curl the page: every inline <script> must carry
+ * nonce="<value>" matching the response's Content-Security-Policy header, and
+ * the nonce must differ between requests).
  */
 const AUTH_COOKIE = 'ems_at';
 const NONCE_HEADER = 'x-ems-csp-nonce';
@@ -48,7 +69,7 @@ const PROTECTED_PATHS = [
 ];
 
 // Public auth pages that an already-signed-in user should skip.
-const AUTH_PAGES = ['/login', '/register', '/invitation-accept', '/reset-password'];
+const AUTH_PAGES = ['/login', '/register', '/invitation-accept', '/reset-password', '/mfa-challenge'];
 
 // Routes where the Web Speech API is used (ai-assistant voice input).
 const MICROPHONE_PATHS = ['/ai-assistant'];
@@ -140,14 +161,22 @@ export function middleware(req: NextRequest) {
   const nonceBytes = new Uint8Array(16);
   crypto.getRandomValues(nonceBytes);
   const nonce = Buffer.from(nonceBytes).toString('base64');
+  const csp = buildCsp(nonce);
 
+  const requestHeaders = new Headers(req.headers);
   // Propagate the nonce to server components via a request header so any
   // future inline script we author can carry it (Next <Script nonce={...}>).
-  const requestHeaders = new Headers(req.headers);
   requestHeaders.set(NONCE_HEADER, nonce);
+  // Propagate the CSP value itself as a REQUEST header: Next 15's app-render
+  // (getScriptNonceFromHeader) parses the first 'nonce-…' from script-src out
+  // of the incoming request's Content-Security-Policy header and stamps it on
+  // every inline script the framework emits (flight data, bootstrap,
+  // preinit). Without this, a nonce-only script-src blocks hydration.
+  requestHeaders.set('Content-Security-Policy', csp);
 
   const res = NextResponse.next({ request: { headers: requestHeaders } });
-  res.headers.set('Content-Security-Policy', buildCsp(nonce));
+  // Enforcement: the response header is what the browser actually applies.
+  res.headers.set('Content-Security-Policy', csp);
   res.headers.set('Permissions-Policy', buildPermissionsPolicy(pathname));
   // Debug affordance: the active nonce is inspectable in devtools.
   res.headers.set(NONCE_HEADER, nonce);

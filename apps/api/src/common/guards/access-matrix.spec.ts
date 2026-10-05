@@ -60,6 +60,7 @@ import { AuditController } from '../../core/audit/audit.controller';
 import { HealthController } from '../../core/health/health.controller';
 import { RolesController } from '../../modules/roles/roles.controller';
 import { UsersController } from '../../modules/auth/users.controller';
+import { MfaController } from '../../modules/mfa/mfa.controller';
 
 // ---------------------------------------------------------------------------
 // Route introspection over real decorator metadata
@@ -87,6 +88,7 @@ const CONTROLLERS = [
   HealthController,
   RolesController,
   UsersController,
+  MfaController,
 ] as const;
 
 const HTTP_METHOD_NAMES: Record<number, string> = {
@@ -174,6 +176,15 @@ jest.mock('../../common/cookies/auth-cookies', () => ({
   ACCESS_TOKEN_COOKIE: 'ems_at',
   REFRESH_TOKEN_COOKIE: 'ems_rt',
 }));
+// mfa.controller.ts's transitive import of mfa.service.ts pulls 'otplib',
+// which (via @scure/base) is ESM-only and cannot be parsed by ts-jest —
+// the same stub pattern used in mfa.controller.spec.ts. Decorator metadata
+// under test is unaffected.
+jest.mock('otplib', () => ({
+  generateSecret: jest.fn(),
+  generateURI: jest.fn(),
+  verifySync: jest.fn(),
+}));
 
 /**
  * Declared global APP_GUARD wiring, parsed from the AppModule source.
@@ -199,6 +210,7 @@ function makeCtx(handler: object, user: any): ExecutionContext {
 const employeeUser = { sub: 'u-emp', roles: [SystemRole.EMPLOYEE], permissions: [] };
 const hrUser = { sub: 'u-hr', roles: [SystemRole.HR_ADMIN], permissions: [] };
 const managerUser = { sub: 'u-mgr', roles: [SystemRole.MANAGER], permissions: [] };
+const auditorUser = { sub: 'u-aud', roles: [SystemRole.AUDITOR], permissions: [] };
 
 describe('access matrix: global guard registration (B1)', () => {
   it('registers RolesGuard and PermissionsGuard as global APP_GUARDs', () => {
@@ -330,6 +342,21 @@ describe('access matrix: explicit route expectations', () => {
     }
   });
 
+  it('POST /mfa/totp/disable requires SUPER_ADMIN, HR_ADMIN, MANAGER or EMPLOYEE (V4-1)', () => {
+    const r = find('MfaController', 'disable');
+    expect(r.httpMethod).toBe('POST');
+    expect(r.path).toBe('/mfa/totp/disable');
+    expect(r.isPublic).toBe(false);
+    // Self-service endpoint (ownership is structural: it always acts on the
+    // caller's own account); read-only AUDITOR is excluded.
+    expect(r.roles).toEqual([
+      SystemRole.SUPER_ADMIN,
+      SystemRole.HR_ADMIN,
+      SystemRole.MANAGER,
+      SystemRole.EMPLOYEE,
+    ]);
+  });
+
   it('health endpoints are explicitly @Public() (B1: public by marker, not by absence)', () => {
     const health = routes.filter((r) => r.controller === 'HealthController');
     expect(health.length).toBeGreaterThan(0);
@@ -396,6 +423,15 @@ describe('access matrix: guard-chain behavior on real metadata', () => {
 
     expect(() => guard.canActivate(makeCtx(handler, employeeUser))).toThrow(ForbiddenException);
     expect(guard.canActivate(makeCtx(handler, managerUser))).toBe(true);
+    expect(guard.canActivate(makeCtx(handler, hrUser))).toBe(true);
+  });
+
+  it('wrong role on POST /mfa/totp/disable -> 403 for AUDITOR, pass for EMPLOYEE/HR_ADMIN (V4-1)', () => {
+    const guard = new RolesGuard(reflector);
+    const handler = (MfaController.prototype as any).disable;
+
+    expect(() => guard.canActivate(makeCtx(handler, auditorUser))).toThrow(ForbiddenException);
+    expect(guard.canActivate(makeCtx(handler, employeeUser))).toBe(true);
     expect(guard.canActivate(makeCtx(handler, hrUser))).toBe(true);
   });
 

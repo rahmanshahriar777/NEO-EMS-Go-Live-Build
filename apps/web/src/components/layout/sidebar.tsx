@@ -44,6 +44,25 @@ export const Sidebar: React.FC = () => {
   const pathname = usePathname();
   const { user, logout, hasRole } = useAuth();
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
+  // Sign-out failure: the auth context only throws when the API logout could
+  // not be confirmed (bounded retries exhausted) — the session is then still
+  // valid, so the error is shown inline with a retry affordance instead of
+  // pretending the user is signed out.
+  const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const handleLogout = async () => {
+    setLogoutError(null);
+    setLoggingOut(true);
+    try {
+      await logout();
+      // Success navigates to /login inside the auth context.
+    } catch (err: any) {
+      setLogoutError(err?.message || 'Sign out failed. You are still signed in — please try again.');
+    } finally {
+      setLoggingOut(false);
+    }
+  };
 
   const navSections: NavSection[] = [
     {
@@ -211,13 +230,22 @@ export const Sidebar: React.FC = () => {
           </button>
 
           <button
-            onClick={() => logout()}
+            onClick={handleLogout}
+            disabled={loggingOut}
             title="Sign Out"
             className="sidebar-logout-btn"
           >
             <LogOut size={15} />
           </button>
         </div>
+        {logoutError && (
+          <div className="sidebar-logout-error" role="alert">
+            <span>{logoutError}</span>
+            <button type="button" onClick={handleLogout} className="sidebar-logout-retry">
+              Retry
+            </button>
+          </div>
+        )}
       </div>
 
       <AvatarModal

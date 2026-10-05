@@ -93,9 +93,27 @@ describe('InvitationsService', () => {
       const emailed = emailService.sendTemplated.mock.calls[0][0];
       expect(emailed.to).toBe('new.hire@ems.local');
       expect(emailed.template).toBe('invitation');
-      expect(emailed.data.actionUrl).toContain('http://localhost:3000/accept-invitation?token=');
+      expect(emailed.data.actionUrl).toContain('http://localhost:3000/invitation-accept?token=');
       const rawFromUrl = emailed.data.actionUrl.split('token=')[1];
       expect(crypto.createHash('sha256').update(rawFromUrl).digest('hex')).toBe(stored.tokenHash);
+    });
+
+    it('emailed invitation link targets the real /invitation-accept web route', async () => {
+      // Regression: the service once emailed /accept-invitation, a page
+      // that does not exist — every invitation 404'd. The only accept page
+      // in the web app is app/(auth)/invitation-accept.
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.invitation.findFirst.mockResolvedValue(null);
+
+      await service.createInvitation('hr-1', {
+        email: 'New.Hire@ems.local',
+        role: 'employee',
+      });
+
+      const emailed = emailService.sendTemplated.mock.calls[0][0];
+      const url = new URL(emailed.data.actionUrl);
+      expect(url.pathname).toBe('/invitation-accept');
+      expect(url.searchParams.get('token')).toBeTruthy();
     });
 
     it('rejects when a user already exists for the email', async () => {

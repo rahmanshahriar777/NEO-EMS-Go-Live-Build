@@ -71,6 +71,25 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
    * a null cache entry means "unknown", never "active".
    */
   async validate(payload: JwtPayload): Promise<JwtPayload> {
+    // V4-1 (CRITICAL): this strategy validates *session* Bearer tokens only.
+    // MFA challenge JWTs are signed with the same access-token secret, so
+    // signature verification alone cannot tell a challenge token from a
+    // session token. Challenge tokens carry `purpose: 'mfa-challenge'`;
+    // session access tokens NEVER carry a `purpose` claim (see
+    // TokenService.generateTokens). Rejecting any purpose-carrying JWT here
+    // guarantees a challenge token can never authenticate as a Bearer
+    // session token — without this, an attacker who knows only the victim's
+    // password could present the challenge token as a Bearer token and skip
+    // the second factor entirely. Challenge tokens are accepted only by
+    // POST /mfa/challenge via TokenService.verifyMfaChallengeToken, which
+    // additionally enforces the purpose value, jti single-use (Redis SET NX)
+    // and the short challenge TTL.
+    if (payload.purpose !== undefined) {
+      throw new UnauthorizedException(
+        'Token purpose not accepted for session authentication',
+      );
+    }
+
     // Fast path: cached isActive flag (60s TTL).
     const cachedActive = await this.cache.getUserActive(payload.sub);
     if (cachedActive !== null) {

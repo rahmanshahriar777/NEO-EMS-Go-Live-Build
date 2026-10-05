@@ -264,6 +264,11 @@ export class RecruitmentService {
       // Auto-create the employee record from candidate details.
       const candidate = offer.candidate;
       const employeeNumber = await this.generateEmployeeNumber(tx);
+      // v4 fix #9: the offer's startDate is the joining date — default
+      // contractStart from it so a mid-month joiner is prorated, not paid a
+      // full month, once HR activates the record. One clock read so both
+      // dates always agree.
+      const startDate = offer.startDate ?? new Date();
       const employee = await tx.employee.create({
         data: await pickKnownColumns(
           tx,
@@ -275,6 +280,8 @@ export class RecruitmentService {
             phone: candidate.phone ?? null,
             employeeNumber,
             status: 'PENDING',
+            joiningDate: startDate,
+            contractStart: startDate,
           },
           'RecruitmentService.acceptOffer',
         ),

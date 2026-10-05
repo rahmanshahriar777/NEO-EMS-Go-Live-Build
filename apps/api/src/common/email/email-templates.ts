@@ -25,7 +25,7 @@ export type EmailTemplateName =
   | 'payslip-ready';
 
 export interface InvitationEmailData {
-  /** Fully-qualified accept-invitation URL (built by the API from FRONTEND_URL). */
+  /** Fully-qualified invitation-accept URL (built by the API from FRONTEND_URL). */
   actionUrl: string;
   role: string;
   /** Human expiry note, e.g. '72 hours'. Rendered by the worker template. */

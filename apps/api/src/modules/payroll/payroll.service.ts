@@ -364,7 +364,9 @@ export class PayrollService {
       await tx.payslip.deleteMany({ where: { payrollRunId: id } });
       await tx.payrollRun.update({
         where: { id },
-        data: { totalGross: 0, totalDeductions: 0, totalNet: 0, processedAt: null },
+        // v4 fix #8: warnings belong to a compute — recalculating clears them
+        // so stale exclusions can't linger on a fresh run.
+        data: { totalGross: 0, totalDeductions: 0, totalNet: 0, processedAt: null, warnings: [] },
       });
     });
 
@@ -394,6 +396,25 @@ export class PayrollService {
     if (run.status !== PayrollStatus.DRAFT) {
       throw new BadRequestException(
         `Only DRAFT payroll runs can be approved (current status: ${run.status})`,
+      );
+    }
+
+    // Approve-before-compute race (v5): the worker computes payslips
+    // asynchronously after run creation. Approving before compute finishes
+    // would let the run disburse as PAID with zero payslips (and
+    // recalculation is then blocked). Gate approval on compute completion:
+    // the worker stamps processedAt when it commits the payslip rows.
+    if (!run.processedAt) {
+      throw new ConflictException(
+        'Payroll run has not finished computing yet. Wait for the worker to process it before approving.',
+      );
+    }
+    const payslipCount = await this.prisma.payslip.count({
+      where: { payrollRunId: id },
+    });
+    if (payslipCount === 0) {
+      throw new ConflictException(
+        'Payroll run has no computed payslips. Approval requires at least one computed payslip.',
       );
     }
 

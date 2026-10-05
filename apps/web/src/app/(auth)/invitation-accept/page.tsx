@@ -11,12 +11,15 @@ import '../../../styles/login.css';
  * Invitation accept (Phase 1 B2: invitation-based onboarding).
  *
  * Flow: HR creates an invitation → the invitee opens the emailed link with
- * `?token=…` → sets a password here → POST /auth/invitations/accept
- * creates the user, links the employee record, and the page signs them in.
+ * `?token=…` → provides their name and sets a password here →
+ * POST /auth/invitations/accept activates the account, and the page sends
+ * them to the sign-in page.
  *
- * API contract (worker 1): POST /auth/invitations/accept { token, password }
- * → { user: { email, … }, message? }. A missing/expired token is surfaced
- * loudly; nothing is fabricated.
+ * API contract (worker 1): POST /auth/invitations/accept
+ * { token, password, firstName, lastName } → { user: { email, … }, message? }.
+ * The API activates the account (no session is issued); the page then sends
+ * the user to sign in. A missing/expired token is surfaced loudly; nothing
+ * is fabricated.
  */
 export default function InvitationAcceptPage() {
   const searchParams = useSearchParams();
@@ -25,6 +28,8 @@ export default function InvitationAcceptPage() {
 
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -33,6 +38,10 @@ export default function InvitationAcceptPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (!firstName.trim() || !lastName.trim()) {
+      setError('Please enter your first and last name.');
+      return;
+    }
     if (password.length < 12) {
       setError('Password must be at least 12 characters (platform password policy).');
       return;
@@ -43,7 +52,12 @@ export default function InvitationAcceptPage() {
     }
     setLoading(true);
     try {
-      await api.post('/auth/invitations/accept', { token, password });
+      await api.post('/auth/invitations/accept', {
+        token,
+        password,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+      });
       setDone(true);
       // Give the reader a beat, then land on the sign-in page.
       setTimeout(() => router.push('/login'), 2500);
@@ -103,6 +117,40 @@ export default function InvitationAcceptPage() {
                     <span>{error}</span>
                   </div>
                 )}
+                <div className="login-form-group">
+                  <label htmlFor="invite-first-name" className="login-label">
+                    First Name
+                  </label>
+                  <div className="login-input-wrapper">
+                    <input
+                      id="invite-first-name"
+                      type="text"
+                      required
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      placeholder="Jane"
+                      className="login-input"
+                      autoComplete="given-name"
+                    />
+                  </div>
+                </div>
+                <div className="login-form-group">
+                  <label htmlFor="invite-last-name" className="login-label">
+                    Last Name
+                  </label>
+                  <div className="login-input-wrapper">
+                    <input
+                      id="invite-last-name"
+                      type="text"
+                      required
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      placeholder="Smith"
+                      className="login-input"
+                      autoComplete="family-name"
+                    />
+                  </div>
+                </div>
                 <div className="login-form-group">
                   <label htmlFor="invite-password" className="login-label">
                     New Password (min. 12 characters)

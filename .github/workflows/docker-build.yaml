@@ -74,7 +74,18 @@ jobs:
           # Changing any value requires rebuilding the ems-web image; see
           # docs/DEPLOYMENT.md. Only the web Dockerfile declares these ARGs;
           # the api/worker builds ignore unknown build-args.
+          #
+          # #5-infra: API_INTERNAL_URL is NOT a client var — it is the
+          # server-side /api/* rewrite destination in next.config.mjs, which
+          # is resolved when the image is BUILT (the baked routes manifest
+          # does not re-read the env var at runtime). A runtime env entry
+          # has no effect on rewrites, so it must arrive as a build-arg.
+          # Default is the in-cluster k8s DNS name (these images deploy to
+          # k8s); override with the vars.API_INTERNAL_URL repository/org
+          # Variable for other topologies, e.g. http://api:4000/api/:path*
+          # for docker-compose. Rebuild the web image to change it.
           build-args: |
+            API_INTERNAL_URL=${{ vars.API_INTERNAL_URL || 'http://ems-api-service:4000/api/:path*' }}
             NEXT_PUBLIC_API_BASE_URL=${{ vars.NEXT_PUBLIC_API_BASE_URL || '/api/v1' }}
             NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || '' }}
             NEXT_PUBLIC_TIMEZONE=${{ vars.NEXT_PUBLIC_TIMEZONE || 'Europe/London' }}

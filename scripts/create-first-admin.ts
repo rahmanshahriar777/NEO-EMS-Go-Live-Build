@@ -31,6 +31,9 @@ const apiRequire = createRequire(path.join(__dirname, '..', 'apps', 'api', 'pack
 const argon2 = apiRequire('argon2');
 const dotenv = apiRequire('dotenv');
 const { PrismaClient } = apiRequire('@prisma/client');
+// v6 fix #2 — employee numbers come from the shared sequence helper, the
+// same path as employees.service and recruitment offer-accept.
+const { nextEmployeeNumber } = apiRequire('@ems/shared');
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 dotenv.config({ path: path.join(__dirname, '..', 'apps', 'api', '.env') });
@@ -93,8 +96,15 @@ async function main() {
       },
     });
 
-    const count = await prisma.employee.count();
-    const employeeNumber = `EMP-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
+    // v6 fix #2 — the admin's employee number comes from the
+    // employee_number_seq Postgres sequence via the shared helper (same as
+    // employees.service and recruitment offer-accept). The old count()+1
+    // scheme collides with seeded (EMP-YYYY-0001..0020) and app-created
+    // numbers, and races under concurrency. nextEmployeeNumber throws
+    // (never fabricates) when the sequence migration has not been applied.
+    const employeeNumber = await nextEmployeeNumber((sql: string) =>
+      prisma.$queryRawUnsafe(sql),
+    );
     await prisma.employee.create({
       data: {
         employeeNumber,

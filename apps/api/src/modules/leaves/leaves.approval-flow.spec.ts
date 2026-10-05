@@ -13,7 +13,7 @@
  */
 import { Test, TestingModule } from '@nestjs/testing';
 import { Reflector } from '@nestjs/core';
-import { ForbiddenException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { LeavesService } from './leaves.service';
 import { LeavesController } from './leaves.controller';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -245,5 +245,94 @@ describe('leave approval flow', () => {
     expect(balance.pendingDays).toBe(0);
     expect(balance.usedDays).toBe(0);
     expect(balance.remainingDays).toBe(25);
+  });
+
+  describe('approve/cancel concurrency (v6 fix #1)', () => {
+    /**
+     * Plays the database's role in a race: the first conditional status
+     * update wins, the second misses and throws P2025 — exactly what
+     * Postgres does for `UPDATE ... WHERE id AND status` once the row has
+     * moved. Also asserts the guard is actually applied: an unconditional
+     * `where: { id }` would let both racers through.
+     */
+    function mockRacyStatusUpdate() {
+      let calls = 0;
+      prisma.leaveRequest.update.mockImplementation(({ where, data }: any) => {
+        expect(where).toMatchObject({ id: 'req-1', status: LeaveStatus.PENDING });
+        calls += 1;
+        if (calls > 1) {
+          const err: any = new Error('Record to update not found.');
+          err.code = 'P2025';
+          throw err;
+        }
+        return { id: 'req-1', ...data };
+      });
+    }
+
+    it('concurrent approve pair: exactly one wins, loser gets 409, side effects happen once', async () => {
+      await requestLeave(); // reserves 3 pending days
+      mockPendingRequestForApproval();
+      mockRacyStatusUpdate();
+
+      const approved = await service.approveOrReject(
+        'req-1',
+        MGR_ID,
+        { status: LeaveStatus.APPROVED } as any,
+        'mgr@ems.local',
+        undefined,
+        [SystemRole.MANAGER],
+      );
+      expect(approved.status).toBe(LeaveStatus.APPROVED);
+      // Balances moved exactly once by the winner.
+      expect(balance.pendingDays).toBe(0);
+      expect(balance.usedDays).toBe(3);
+      expect(balance.remainingDays).toBe(22);
+
+      // The concurrent second approval loses the race: P2025 -> 409.
+      // (In production the loser's whole transaction — including its
+      // balance moves — rolls back; the mock has no rollback, so the
+      // balance assertions above are taken after the winner only.)
+      await expect(
+        service.approveOrReject(
+          'req-1',
+          'hr-2',
+          { status: LeaveStatus.APPROVED } as any,
+          'hr2@ems.local',
+          'user-hr2',
+          [SystemRole.HR_ADMIN],
+        ),
+      ).rejects.toThrow(ConflictException);
+
+      // Exactly one winner: a single approval row, a single audit entry,
+      // and notifications only for the winning attempt (requester + winner).
+      expect(prisma.leaveApproval.create).toHaveBeenCalledTimes(1);
+      expect(audit.log).toHaveBeenCalledTimes(1);
+      expect(notifications.createNotification).toHaveBeenCalledTimes(2);
+    });
+
+    it('concurrent cancel pair: exactly one wins, loser gets 409', async () => {
+      installBalanceMocks();
+      prisma.leaveRequest.findUnique.mockResolvedValue({
+        id: 'req-1',
+        employeeId: EMP_ID,
+        leaveTypeId: LT_ID,
+        startDate: new Date('2026-10-12T00:00:00Z'),
+        endDate: new Date('2026-10-14T00:00:00Z'),
+        totalDays: 3,
+        status: LeaveStatus.PENDING,
+        employee: { managerId: MGR_ID },
+      });
+      mockRacyStatusUpdate();
+
+      const cancelled = await service.cancelLeave('req-1', EMP_ID, { userId: EMP_USER_ID });
+      expect(cancelled.status).toBe(LeaveStatus.CANCELLED);
+
+      await expect(service.cancelLeave('req-1', EMP_ID, { userId: EMP_USER_ID })).rejects.toThrow(
+        ConflictException,
+      );
+
+      // The loser's transaction rolled back: no second audit entry.
+      expect(audit.log).toHaveBeenCalledTimes(1);
+    });
   });
 });

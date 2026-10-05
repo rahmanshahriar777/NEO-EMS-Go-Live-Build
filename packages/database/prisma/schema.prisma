@@ -783,6 +783,11 @@ model PayrollRun {
   approvedById    String?
   entityId        String?
   currency        String? // Phase 3 item 1: entity reporting currency override
+  // v4 fix #8: employees excluded from the compute (leavers outside the pay
+  // month, missing termination dates, zero days present) are recorded here
+  // as [{ code, employeeId, employeeNumber, email, reason }], surfaced via
+  // the payroll-runs API. Exclusions are never silent.
+  warnings        Json?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 

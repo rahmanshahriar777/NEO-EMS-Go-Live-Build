@@ -10,7 +10,7 @@ import '../../../../styles/login.css';
 /**
  * Password-reset confirmation (follows the emailed `?token=…` link).
  *
- * API contract (worker 1): POST /auth/password-reset/confirm { token, password }.
+ * API contract (worker 1): POST /auth/password-reset/confirm { token, newPassword }.
  * Expired/used tokens fail loudly — the user must request a fresh link.
  */
 export default function ResetPasswordConfirmPage() {
@@ -38,7 +38,7 @@ export default function ResetPasswordConfirmPage() {
     }
     setLoading(true);
     try {
-      await api.post('/auth/password-reset/confirm', { token, password });
+      await api.post('/auth/password-reset/confirm', { token, newPassword: password });
       setDone(true);
       setTimeout(() => router.push('/login'), 2500);
     } catch (err: any) {

@@ -31,6 +31,22 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
+/**
+ * Force dynamic rendering for every route (CSP nonce support).
+ *
+ * The middleware issues a per-request CSP nonce and Next 15 stamps it onto
+ * the framework's inline scripts (flight data, bootstrap) — but only for
+ * pages rendered per request. Statically prerendered HTML is baked at build
+ * time and can never carry the fresh nonce, so a nonce-only `script-src`
+ * would block its inline scripts and kill hydration. This app is an
+ * authenticated enterprise portal (no anonymous CDN-cachable pages), so
+ * per-request SSR is the correct trade-off. If a route is ever made static
+ * again, re-verify with `next build` (route table must show ƒ, not ○) and
+ * `next start` (curl: every inline <script> must carry a nonce matching the
+ * response CSP header).
+ */
+export const dynamic = 'force-dynamic';
+
 export default function RootLayout({
   children,
 }: {

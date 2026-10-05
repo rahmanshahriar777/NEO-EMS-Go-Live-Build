@@ -64,9 +64,10 @@ describe('payroll concurrency', () => {
 
   it('sequential double-approve: the second approval is rejected (only DRAFT)', async () => {
     prisma.payrollRun.findUnique
-      .mockResolvedValueOnce({ id: 'run-1', status: PayrollStatus.DRAFT })
+      .mockResolvedValueOnce({ id: 'run-1', status: PayrollStatus.DRAFT, processedAt: new Date() })
       .mockResolvedValueOnce({ id: 'run-1', status: PayrollStatus.APPROVED });
     prisma.auditLog.findFirst.mockResolvedValue({ actorId: 'maker-1' });
+    prisma.payslip.count.mockResolvedValue(1);
     prisma.payrollRun.update.mockImplementation(({ data }: any) => ({ id: 'run-1', ...data }));
 
     const first = await service.approvePayrollRun('run-1', 'checker-1');
@@ -212,8 +213,9 @@ describe('payroll concurrency', () => {
     // Regression: approval must resolve the creator from the RUN_PAYROLL
     // audit row; here the audit row names a DIFFERENT user than the caller,
     // so approval proceeds and stamps approvedById with the caller.
-    prisma.payrollRun.findUnique.mockResolvedValue({ id: 'run-1', status: PayrollStatus.DRAFT });
+    prisma.payrollRun.findUnique.mockResolvedValue({ id: 'run-1', status: PayrollStatus.DRAFT, processedAt: new Date() });
     prisma.auditLog.findFirst.mockResolvedValue({ actorId: 'maker-1', action: AuditAction.RUN_PAYROLL });
+    prisma.payslip.count.mockResolvedValue(1);
     prisma.payrollRun.update.mockImplementation(({ data }: any) => ({ id: 'run-1', ...data }));
 
     const run = await service.approvePayrollRun('run-1', 'checker-9');
