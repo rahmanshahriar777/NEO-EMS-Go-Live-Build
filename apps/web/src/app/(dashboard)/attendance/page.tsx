@@ -16,6 +16,7 @@ import { useAuth } from '../../../context/auth-context';
 import { SystemRole } from '@ems/shared';
 import { ErrorBanner } from '../../../components/ui/error-banner';
 import { PaginationControls } from '../../../components/ui/pagination';
+import { SkeletonTable } from '../../../components/ui/skeleton';
 import { formatAppTime, timezoneLabel } from '../../../lib/date-utils';
 import '../../../styles/attendance.css';
 
@@ -587,10 +588,7 @@ export default function AttendancePage() {
                 </div>
               )}
               {correctionsLoading ? (
-                <div className="att-loading-state">
-                  <div className="att-spinner" />
-                  <span>Loading correction requests...</span>
-                </div>
+                <SkeletonTable rows={5} columns={5} />
               ) : corrections.length === 0 && !correctionsError ? (
                 <div className="att-loading-state" style={{ padding: '48px 20px' }}>
                   <span>No pending correction requests.</span>
@@ -656,10 +654,7 @@ export default function AttendancePage() {
               )}
             </div>
           ) : loading ? (
-            <div className="att-loading-state">
-              <div className="att-spinner" />
-              <span>Loading attendance records...</span>
-            </div>
+            <SkeletonTable rows={6} columns={6} />
           ) : filteredList.length === 0 ? (
             <div
               style={{

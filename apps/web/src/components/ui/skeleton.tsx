@@ -24,6 +24,8 @@ export function Skeleton({ className = '', style, label }: SkeletonProps) {
     <span
       className={`ems-skeleton ${className}`}
       style={style}
+      role={label ? 'status' : undefined}
+      aria-live={label ? 'polite' : undefined}
       aria-hidden={label ? undefined : true}
       aria-label={label}
       data-testid="skeleton"

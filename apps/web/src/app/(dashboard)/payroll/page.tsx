@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Banknote,
   Plus,
@@ -15,7 +15,9 @@ import { DashboardLayout } from '../../../components/layout/dashboard-layout';
 import { api } from '../../../lib/api-client';
 import { ErrorBanner } from '../../../components/ui/error-banner';
 import { PaginationControls } from '../../../components/ui/pagination';
+import { SkeletonTable } from '../../../components/ui/skeleton';
 import { useAuth } from '../../../context/auth-context';
+import { useFocusTrap } from '../../../hooks/use-focus-trap';
 import { formatCurrency, currencyLabel } from '../../../lib/date-utils';
 import { SystemRole } from '@ems/shared';
 import '../../../styles/payroll.css';
@@ -89,6 +91,15 @@ export default function PayrollPage() {
   const [correctReason, setCorrectReason] = useState('');
   const [correctBusy, setCorrectBusy] = useState(false);
   const [correctError, setCorrectError] = useState<string | null>(null);
+
+  const payslipModalRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(payslipModalRef, { isActive: Boolean(selectedPayslip), onEscape: () => setSelectedPayslip(null) });
+
+  const correctModalRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(correctModalRef, { isActive: Boolean(correctSlip), onEscape: () => setCorrectSlip(null) });
+
+  const runModalRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(runModalRef, { isActive: showRunModal, onEscape: () => setShowRunModal(false) });
 
   const fetchPayroll = useCallback(async (pageToLoad: number) => {
     setLoading(true);
@@ -489,10 +500,7 @@ useEffect(() => {
 
           {/* Table View */}
           {loading ? (
-            <div className="pay-loading-state">
-              <div className="pay-spinner" />
-              <span>Loading payroll records...</span>
-            </div>
+            <SkeletonTable rows={8} columns={6} />
           ) : filteredPayslips.length === 0 ? (
             <div style={{
               padding: '64px 20px',
@@ -626,17 +634,25 @@ useEffect(() => {
       {/* Official Payslip Modal */}
       {selectedPayslip && (
         <div className="pay-modal-overlay" onClick={() => setSelectedPayslip(null)}>
-          <div className="pay-modal" onClick={(e) => e.stopPropagation()}>
+          <div
+            ref={payslipModalRef}
+            className="pay-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pay-modal-title"
+          >
             <div className="pay-modal-header">
               <div className="pay-brand-header">
                 <div className="pay-brand-box">N</div>
                 <div>
-                  <h4 className="pay-modal-title">Neoteric Digital</h4>
+                  <h4 className="pay-modal-title" id="pay-modal-title">Neoteric Digital</h4>
                   <p className="pay-modal-sub">Official Salary Disbursement Statement</p>
                 </div>
               </div>
               <button
                 onClick={() => setSelectedPayslip(null)}
+                aria-label="Close payslip dialog"
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--pay-text-tertiary)' }}
               >
                 <X className="w-4 h-4" />
@@ -715,10 +731,17 @@ useEffect(() => {
       {/* Correction request modal */}
       {correctSlip && (
         <div className="pay-modal-overlay" onClick={() => setCorrectSlip(null)}>
-          <div className="pay-modal" onClick={(e) => e.stopPropagation()}>
+          <div
+            ref={correctModalRef}
+            className="pay-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="correction-modal-title"
+          >
             <div className="pay-modal-header">
               <div>
-                <h4 className="pay-modal-title">Request payroll correction</h4>
+                <h4 className="pay-modal-title" id="correction-modal-title">Request payroll correction</h4>
                 <p className="pay-modal-sub">
                   {correctSlip.employee?.firstName} {correctSlip.employee?.lastName} —{' '}
                   Month {correctSlip.periodMonth}, {correctSlip.periodYear} —{' '}
@@ -727,6 +750,7 @@ useEffect(() => {
               </div>
               <button
                 onClick={() => setCorrectSlip(null)}
+                aria-label="Close correction request dialog"
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--pay-text-tertiary)' }}
               >
                 <X className="w-4 h-4" />
@@ -795,13 +819,21 @@ useEffect(() => {
       {/* Run Payroll Cycle Modal */}
       {showRunModal && (
         <div className="pay-modal-overlay" onClick={() => setShowRunModal(false)}>
-          <div className="pay-modal" onClick={(e) => e.stopPropagation()}>
+          <div
+            ref={runModalRef}
+            className="pay-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="run-modal-title"
+          >
             <div className="pay-modal-header">
-              <h3 style={{ fontFamily: 'var(--pay-font-serif)', fontSize: '22px', color: 'var(--pay-text-primary)' }}>
+              <h3 id="run-modal-title" style={{ fontFamily: 'var(--pay-font-serif)', fontSize: '22px', color: 'var(--pay-text-primary)' }}>
                 Run Payroll Cycle
               </h3>
               <button
                 onClick={() => setShowRunModal(false)}
+                aria-label="Close run payroll dialog"
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--pay-text-tertiary)' }}
               >
                 <X className="w-4 h-4" />

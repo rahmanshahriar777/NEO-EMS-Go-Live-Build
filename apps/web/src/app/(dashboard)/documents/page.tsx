@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { FileText, Upload, Download, Trash2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { DashboardLayout } from '../../../components/layout/dashboard-layout';
 import { api } from '../../../lib/api-client';
@@ -9,6 +9,7 @@ import { ErrorBanner } from '../../../components/ui/error-banner';
 import { SkeletonCardGrid } from '../../../components/ui/skeleton';
 import { PaginationControls } from '../../../components/ui/pagination';
 import { useAuth } from '../../../context/auth-context';
+import { useFocusTrap } from '../../../hooks/use-focus-trap';
 import { SystemRole } from '@ems/shared';
 import '../../../styles/documents.css';
 
@@ -88,6 +89,9 @@ export default function DocumentsPage() {
 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  const uploadModalRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(uploadModalRef, { isActive: showUpload, onEscape: () => setShowUpload(false) });
 
   const fetchDocs = useCallback(async (pageToLoad: number, cat: string) => {
     setLoading(true);
@@ -392,13 +396,14 @@ export default function DocumentsPage() {
         {showUpload && (
           <div className="doc-modal-backdrop" onClick={() => setShowUpload(false)}>
             <div
+              ref={uploadModalRef}
               className="doc-modal"
               onClick={(e) => e.stopPropagation()}
               role="dialog"
               aria-modal="true"
-              aria-label="Upload document"
+              aria-labelledby="upload-modal-title"
             >
-              <h3>Upload document</h3>
+              <h3 id="upload-modal-title">Upload document</h3>
               <p className="doc-modal-sub">
                 Files are encrypted server-side (AES-256-GCM) before storage.
               </p>

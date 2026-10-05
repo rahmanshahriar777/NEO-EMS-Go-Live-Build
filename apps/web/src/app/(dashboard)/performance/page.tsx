@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   TrendingUp,
   Target,
@@ -18,7 +18,9 @@ import { DashboardLayout } from '../../../components/layout/dashboard-layout';
 import { api } from '../../../lib/api-client';
 import { ErrorBanner } from '../../../components/ui/error-banner';
 import { PaginationControls } from '../../../components/ui/pagination';
+import { SkeletonTable } from '../../../components/ui/skeleton';
 import { useAuth } from '../../../context/auth-context';
+import { useFocusTrap } from '../../../hooks/use-focus-trap';
 import { SystemRole, ReviewStatus } from '@ems/shared';
 import '../../../styles/performance.css';
 
@@ -138,6 +140,18 @@ export default function PerformancePage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const goalModalRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(goalModalRef, { isActive: showGoalModal, onEscape: () => setShowGoalModal(false) });
+
+  const cycleModalRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(cycleModalRef, { isActive: showCycleModal, onEscape: () => setShowCycleModal(false) });
+
+  const reviewModalRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(reviewModalRef, { isActive: Boolean(selectedReview), onEscape: () => { setSelectedReview(null); setReviewForm(null); } });
+
+  const feedbackModalRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(feedbackModalRef, { isActive: showFeedbackModal, onEscape: () => setShowFeedbackModal(false) });
 
   const GOAL_PAGE_SIZE = 10;
   const REVIEW_PAGE_SIZE = 10;
@@ -441,7 +455,7 @@ export default function PerformancePage() {
 
               <div className="perf-goals-list">
                 {loading ? (
-                  <div className="perf-empty"><RefreshCw className="w-4 h-4 animate-spin mx-auto mb-2" />Loading goals…</div>
+                  <SkeletonTable rows={4} columns={3} />
                 ) : filteredGoals.length === 0 ? (
                   <div className="perf-empty">No objectives match your filters.</div>
                 ) : (
@@ -512,7 +526,7 @@ export default function PerformancePage() {
               )}
 
               {cyclesLoading ? (
-                <div className="perf-empty"><RefreshCw className="w-4 h-4 animate-spin mx-auto mb-2" />Loading cycles…</div>
+                <SkeletonTable rows={3} columns={3} />
               ) : cycles.length === 0 && !cyclesError ? (
                 <div className="perf-empty">
                   No review cycles yet. {isHr ? 'Create the first cycle to start appraisals.' : 'Ask HR to open a review cycle.'}
@@ -558,7 +572,7 @@ export default function PerformancePage() {
               </p>
 
               {reviewsLoading ? (
-                <div className="perf-empty"><RefreshCw className="w-4 h-4 animate-spin mx-auto mb-2" />Loading reviews…</div>
+                <SkeletonTable rows={5} columns={4} />
               ) : reviews.length === 0 ? (
                 <div className="perf-empty">No reviews found.</div>
               ) : (
@@ -654,7 +668,7 @@ export default function PerformancePage() {
               </div>
 
               {feedbackLoading ? (
-                <div className="perf-empty"><RefreshCw className="w-4 h-4 animate-spin mx-auto mb-2" />Loading feedback…</div>
+                <SkeletonTable rows={4} columns={3} />
               ) : feedback.length === 0 ? (
                 <div className="perf-empty">No feedback yet. Be the first to recognize a colleague.</div>
               ) : (
@@ -691,10 +705,21 @@ export default function PerformancePage() {
       {/* Create Goal Modal */}
       {showGoalModal && (
         <div className="perf-modal-overlay" onClick={() => setShowGoalModal(false)}>
-          <div className="perf-modal" onClick={(e) => e.stopPropagation()}>
+          <div
+            ref={goalModalRef}
+            className="perf-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="goal-modal-title"
+          >
             <div className="perf-modal-header">
-              <h3 className="perf-modal-title">Set Performance Target / OKR</h3>
-              <button onClick={() => setShowGoalModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--perf-text-tertiary)' }}>
+              <h3 className="perf-modal-title" id="goal-modal-title">Set Performance Target / OKR</h3>
+              <button
+                onClick={() => setShowGoalModal(false)}
+                aria-label="Close goal dialog"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--perf-text-tertiary)' }}
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -732,10 +757,21 @@ export default function PerformancePage() {
       {/* Create Cycle Modal */}
       {showCycleModal && (
         <div className="perf-modal-overlay" onClick={() => setShowCycleModal(false)}>
-          <div className="perf-modal" onClick={(e) => e.stopPropagation()}>
+          <div
+            ref={cycleModalRef}
+            className="perf-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cycle-modal-title"
+          >
             <div className="perf-modal-header">
-              <h3 className="perf-modal-title">New Review Cycle</h3>
-              <button onClick={() => setShowCycleModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--perf-text-tertiary)' }}>
+              <h3 className="perf-modal-title" id="cycle-modal-title">New Review Cycle</h3>
+              <button
+                onClick={() => setShowCycleModal(false)}
+                aria-label="Close cycle dialog"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--perf-text-tertiary)' }}
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -779,10 +815,18 @@ export default function PerformancePage() {
       {/* Review detail / review form modal */}
       {selectedReview && (
         <div className="perf-modal-overlay" onClick={() => { setSelectedReview(null); setReviewForm(null); }}>
-          <div className="perf-modal" style={{ maxWidth: '640px' }} onClick={(e) => e.stopPropagation()}>
+          <div
+            ref={reviewModalRef}
+            className="perf-modal"
+            style={{ maxWidth: '640px' }}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="review-modal-title"
+          >
             <div className="perf-modal-header">
               <div>
-                <h3 className="perf-modal-title">
+                <h3 className="perf-modal-title" id="review-modal-title">
                   {selectedReview.employee ? `${selectedReview.employee.firstName} ${selectedReview.employee.lastName}` : 'Review'}
                 </h3>
                 <p style={{ fontSize: '12px', color: 'var(--perf-text-tertiary)' }}>
@@ -790,7 +834,11 @@ export default function PerformancePage() {
                   {isCompleted(selectedReview) && ' · READ-ONLY'}
                 </p>
               </div>
-              <button onClick={() => { setSelectedReview(null); setReviewForm(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--perf-text-tertiary)' }}>
+              <button
+                onClick={() => { setSelectedReview(null); setReviewForm(null); }}
+                aria-label="Close review dialog"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--perf-text-tertiary)' }}
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -887,10 +935,21 @@ export default function PerformancePage() {
       {/* Give feedback modal */}
       {showFeedbackModal && (
         <div className="perf-modal-overlay" onClick={() => setShowFeedbackModal(false)}>
-          <div className="perf-modal" onClick={(e) => e.stopPropagation()}>
+          <div
+            ref={feedbackModalRef}
+            className="perf-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="feedback-modal-title"
+          >
             <div className="perf-modal-header">
-              <h3 className="perf-modal-title">Give Feedback</h3>
-              <button onClick={() => setShowFeedbackModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--perf-text-tertiary)' }}>
+              <h3 className="perf-modal-title" id="feedback-modal-title">Give Feedback</h3>
+              <button
+                onClick={() => setShowFeedbackModal(false)}
+                aria-label="Close feedback dialog"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--perf-text-tertiary)' }}
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>

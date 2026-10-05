@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import {
   Building2,
@@ -26,7 +26,9 @@ import { DashboardLayout } from '../../../../components/layout/dashboard-layout'
 import { api } from '../../../../lib/api-client';
 import { ErrorBanner } from '../../../../components/ui/error-banner';
 import { PaginationControls } from '../../../../components/ui/pagination';
+import { SkeletonCardGrid, SkeletonTable } from '../../../../components/ui/skeleton';
 import { useAuth } from '../../../../context/auth-context';
+import { useFocusTrap } from '../../../../hooks/use-focus-trap';
 import { SystemRole } from '@ems/shared';
 import '../../../../styles/departments.css';
 
@@ -53,6 +55,8 @@ export default function DepartmentsPage() {
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [formError, setFormError] = useState<string | null>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(modalRef, { isActive: showModal, onEscape: () => setShowModal(false) });
 
   const PAGE_SIZE = 12;
 
@@ -312,10 +316,11 @@ export default function DepartmentsPage() {
 
           {/* Directory Content */}
           {loading ? (
-            <div className="dept-loading-state">
-              <div className="dept-spinner" />
-              <span>Querying organizational structure...</span>
-            </div>
+            viewMode === 'grid' ? (
+              <SkeletonCardGrid cards={6} />
+            ) : (
+              <SkeletonTable rows={6} columns={5} />
+            )
           ) : filteredDepartments.length === 0 ? (
             <div style={{
               padding: '64px 20px',
@@ -479,10 +484,21 @@ export default function DepartmentsPage() {
         {/* Editorial Department Creation Modal */}
         {showModal && (
         <div className="dept-modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="dept-modal" onClick={(e) => e.stopPropagation()}>
+          <div
+            ref={modalRef}
+            className="dept-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="dept-modal-title"
+          >
             <div className="dept-modal-header">
-              <h3 className="dept-modal-title">New Department</h3>
-              <button onClick={() => setShowModal(false)} className="dept-modal-close">
+              <h3 className="dept-modal-title" id="dept-modal-title">New Department</h3>
+              <button
+                onClick={() => setShowModal(false)}
+                className="dept-modal-close"
+                aria-label="Close new department dialog"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>

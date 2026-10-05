@@ -5,6 +5,7 @@ import { ClipboardList, RefreshCw, Users } from 'lucide-react';
 import { DashboardLayout } from '../../../components/layout/dashboard-layout';
 import { api } from '../../../lib/api-client';
 import { ErrorBanner } from '../../../components/ui/error-banner';
+import { SkeletonCardGrid } from '../../../components/ui/skeleton';
 import { formatAppDate } from '../../../lib/date-utils';
 import '../../../styles/rostering.css';
 
@@ -142,10 +143,7 @@ export default function RosteringPage() {
         )}
 
         {loading ? (
-          <div className="roster-loading">
-            <RefreshCw size={20} className="animate-spin" />
-            <span>Loading roster...</span>
-          </div>
+          <SkeletonCardGrid cards={7} />
         ) : entries.length === 0 && !error ? (
           <div className="roster-empty">
             <Users className="w-8 h-8 mx-auto text-slate-400 mb-2" />

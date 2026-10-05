@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Suspense, useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { CheckCircle2, XCircle, Loader2, MailCheck } from 'lucide-react';
@@ -25,6 +25,7 @@ function VerifyEmailContent() {
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<'pending' | 'success' | 'error'>('pending');
   const [message, setMessage] = useState<string>('Verifying your email…');
+  const executedTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     const token = searchParams.get('token');
@@ -33,22 +34,25 @@ function VerifyEmailContent() {
       setMessage('No verification token was provided. Please use the link from your registration email.');
       return;
     }
-    let cancelled = false;
+
+    // Under React StrictMode, effects run twice in development. Since verification
+    // tokens are single-use, prevent double-firing and consuming the token.
+    if (executedTokenRef.current === token) return;
+    executedTokenRef.current = token;
+
     api
       .post<{ message?: string }>('/auth/verify-email', { token })
       .then((res) => {
-        if (cancelled) return;
         setStatus('success');
         setMessage(res?.message || 'Email verified successfully. You can now log in.');
       })
       .catch((err: any) => {
-        if (cancelled) return;
         setStatus('error');
-        setMessage(err?.message || 'Verification failed. The link may have expired — try registering again or request a new link.');
+        setMessage(
+          err?.message ||
+            'Verification failed. The link may have expired — try registering again or request a new link.',
+        );
       });
-    return () => {
-      cancelled = true;
-    };
   }, [searchParams]);
 
   return (

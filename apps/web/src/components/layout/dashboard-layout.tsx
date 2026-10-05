@@ -15,7 +15,11 @@ export const DashboardLayout: React.FC<{
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      router.push('/login');
+      const currentPath = typeof window !== 'undefined' ? window.location.pathname + window.location.search : '';
+      const target = currentPath && !currentPath.startsWith('/login')
+        ? `/login?next=${encodeURIComponent(currentPath)}`
+        : '/login';
+      router.push(target);
     }
   }, [isLoading, isAuthenticated, router]);
 

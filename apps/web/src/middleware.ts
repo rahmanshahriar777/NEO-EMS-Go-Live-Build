@@ -152,7 +152,9 @@ export function middleware(req: NextRequest) {
   if (matches(pathname, PROTECTED_PATHS) && !hasSessionCookie) {
     const url = req.nextUrl.clone();
     url.pathname = '/login';
-    url.searchParams.set('next', pathname);
+    url.search = '';
+    const fullPath = req.nextUrl.search ? `${pathname}${req.nextUrl.search}` : pathname;
+    url.searchParams.set('next', fullPath);
     return NextResponse.redirect(url);
   }
 

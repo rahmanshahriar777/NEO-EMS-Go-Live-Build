@@ -25,6 +25,8 @@ interface Notification {
 export const NotificationBell: React.FC = () => {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [serverUnreadCount, setServerUnreadCount] = useState<number | null>(null);
+  const [hasLoadedNotifications, setHasLoadedNotifications] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [markingAll, setMarkingAll] = useState(false);
@@ -34,8 +36,18 @@ export const NotificationBell: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.get<Notification[] | { items: Notification[] }>('/notifications');
-      setNotifications(Array.isArray(res) ? res : res?.items || []);
+      const res = await api.get<Notification[] | { items: Notification[]; unreadCount?: number }>(
+        '/notifications',
+      );
+      if (Array.isArray(res)) {
+        setNotifications(res);
+        setServerUnreadCount(res.filter((n) => !n.isRead).length);
+      } else {
+        const items = res?.items || [];
+        setNotifications(items);
+        setServerUnreadCount(res?.unreadCount ?? items.filter((n) => !n.isRead).length);
+      }
+      setHasLoadedNotifications(true);
     } catch (err: any) {
       setError(err?.message || 'Could not load notifications.');
       setNotifications([]);
@@ -45,15 +57,18 @@ export const NotificationBell: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    // Unread count on mount (cheap, silent — failures just hide the dot).
+    // Unread count badge on mount: cheap dedicated count endpoint, zero payload overhead
     api
-      .get<Notification[] | { items: Notification[] }>('/notifications')
-      .then((res) => setNotifications(Array.isArray(res) ? res : res?.items || []))
+      .get<{ unreadCount: number }>('/notifications/unread-count')
+      .then((res) => setServerUnreadCount(res?.unreadCount ?? 0))
       .catch(() => {});
   }, []);
 
   useEffect(() => {
-    if (open) fetchNotifications();
+    // Only fetch full notification payload when the dropdown is opened
+    if (open) {
+      fetchNotifications();
+    }
   }, [open, fetchNotifications]);
 
   useEffect(() => {
@@ -71,38 +86,31 @@ export const NotificationBell: React.FC = () => {
     };
   }, []);
 
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
+  const unreadCount = hasLoadedNotifications
+    ? notifications.filter((n) => !n.isRead).length
+    : (serverUnreadCount ?? 0);
 
   const markOneRead = async (id: string) => {
     try {
       await api.patch(`/notifications/${id}/read`, {});
       setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
+      setServerUnreadCount((prev) => Math.max(0, (prev ?? 1) - 1));
     } catch {
       // Keep the item unread on failure — the count must stay truthful.
     }
   };
 
   const markAllRead = async () => {
-    const unread = notifications.filter((n) => !n.isRead);
-    if (unread.length === 0) return;
+    if (unreadCount === 0) return;
     setMarkingAll(true);
     setError(null);
     try {
-      // No bulk endpoint on the API yet: settle each PATCH individually and
-      // only flip the ones the server confirmed.
-      const results = await Promise.allSettled(
-        unread.map((n) => api.patch(`/notifications/${n.id}/read`, {})),
-      );
-      const confirmed = new Set(
-        unread.filter((_, i) => results[i].status === 'fulfilled').map((n) => n.id),
-      );
-      setNotifications((prev) =>
-        prev.map((n) => (confirmed.has(n.id) ? { ...n, isRead: true } : n)),
-      );
-      const failed = unread.length - confirmed.size;
-      if (failed > 0) {
-        setError(`${failed} notification${failed === 1 ? '' : 's'} could not be marked as read.`);
-      }
+      // Use the API's bulk mark-all-read endpoint
+      await api.post('/notifications/mark-all-read', {});
+      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+      setServerUnreadCount(0);
+    } catch (err: any) {
+      setError(err?.message || 'Could not mark notifications as read.');
     } finally {
       setMarkingAll(false);
     }

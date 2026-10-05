@@ -1,11 +1,13 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { KeyRound, Plus, RefreshCw, Trash2, Pencil } from 'lucide-react';
 import { DashboardLayout } from '../../../../components/layout/dashboard-layout';
 import { api } from '../../../../lib/api-client';
 import { ErrorBanner } from '../../../../components/ui/error-banner';
+import { SkeletonTable } from '../../../../components/ui/skeleton';
 import { useAuth } from '../../../../context/auth-context';
+import { useFocusTrap } from '../../../../hooks/use-focus-trap';
 import { SystemRole } from '@ems/shared';
 import { ALL_PERMISSIONS, PERMISSION_SUBJECTS } from '../../../../lib/permissions';
 import '../../../../styles/admin.css';
@@ -143,6 +145,8 @@ export default function AdminRolesPage() {
   };
 
   const [modalOpen, setModalOpen] = useState(false);
+  const roleModalRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(roleModalRef, { isActive: modalOpen, onEscape: () => setModalOpen(false) });
 
   if (!canManage) {
     return (
@@ -187,10 +191,7 @@ export default function AdminRolesPage() {
 
         <div className="adm-card">
           {loading ? (
-            <div className="adm-empty">
-              <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />
-              Loading roles…
-            </div>
+            <SkeletonTable rows={6} columns={3} />
           ) : roles.length === 0 && !error ? (
             <div className="adm-empty">
               <KeyRound className="w-8 h-8 mx-auto mb-2 text-slate-300" />
@@ -253,11 +254,15 @@ export default function AdminRolesPage() {
         {modalOpen && (
           <div className="adm-modal-backdrop" onClick={() => setModalOpen(false)}>
             <div
+              ref={roleModalRef}
               className="adm-modal"
               style={{ maxWidth: '720px' }}
               onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="role-modal-title"
             >
-              <h3>{editing ? `Edit role: ${editing.name}` : 'New role'}</h3>
+              <h3 id="role-modal-title">{editing ? `Edit role: ${editing.name}` : 'New role'}</h3>
               <p className="adm-modal-sub">
                 Tick the permissions this role grants. Changes apply to every
                 user holding the role on their next sign-in (permissions are

@@ -6,6 +6,7 @@ import { DashboardLayout } from '../../../../components/layout/dashboard-layout'
 import { api } from '../../../../lib/api-client';
 import { useAuth } from '../../../../context/auth-context';
 import { ErrorBanner } from '../../../../components/ui/error-banner';
+import { SkeletonTable } from '../../../../components/ui/skeleton';
 import '../../../../styles/security.css';
 
 interface Session {
@@ -118,10 +119,7 @@ export default function SessionsPage() {
           )}
 
           {loading ? (
-            <div className="sec-empty">
-              <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />
-              Loading sessions…
-            </div>
+            <SkeletonTable rows={4} columns={3} />
           ) : sessions.length === 0 && !error ? (
             <div className="sec-empty">No active sessions found.</div>
           ) : (

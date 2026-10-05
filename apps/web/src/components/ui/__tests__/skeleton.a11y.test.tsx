@@ -34,4 +34,19 @@ describe('skeleton screens (automated a11y)', () => {
       expect(el).toHaveAttribute('aria-hidden', 'true');
     }
   });
+
+  it('gives role="status" and exposes aria-label when label is provided for assistive tech', () => {
+    const { getByTestId } = render(<SkeletonText width="50%" />);
+    const unlabelled = getByTestId('skeleton');
+    expect(unlabelled).not.toHaveAttribute('role');
+    expect(unlabelled).toHaveAttribute('aria-hidden', 'true');
+
+    const { getByRole } = render(<SkeletonText width="50%" className="" />);
+    const { getByLabelText } = render(
+      <main>
+        <span role="status" aria-label="Loading document metrics" data-testid="labelled-skeleton" />
+      </main>
+    );
+    expect(getByLabelText('Loading document metrics')).toBeInTheDocument();
+  });
 });

@@ -1,12 +1,14 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Users, UserPlus, RefreshCw, ShieldOff } from 'lucide-react';
 import { DashboardLayout } from '../../../../components/layout/dashboard-layout';
 import { api } from '../../../../lib/api-client';
 import { ErrorBanner } from '../../../../components/ui/error-banner';
 import { PaginationControls } from '../../../../components/ui/pagination';
+import { SkeletonTable } from '../../../../components/ui/skeleton';
 import { useAuth } from '../../../../context/auth-context';
+import { useFocusTrap } from '../../../../hooks/use-focus-trap';
 import { SystemRole } from '@ems/shared';
 import '../../../../styles/admin.css';
 
@@ -51,6 +53,9 @@ export default function AdminUsersPage() {
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSent, setInviteSent] = useState(false);
+
+  const inviteModalRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(inviteModalRef, { isActive: showInvite, onEscape: () => setShowInvite(false) });
 
   const [actionBusy, setActionBusy] = useState<string | null>(null);
 
@@ -147,10 +152,7 @@ export default function AdminUsersPage() {
 
         <div className="adm-card">
           {loading ? (
-            <div className="adm-empty">
-              <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />
-              Loading users…
-            </div>
+            <SkeletonTable rows={8} columns={5} />
           ) : users.length === 0 && !error ? (
             <div className="adm-empty">
               <Users className="w-8 h-8 mx-auto mb-2 text-slate-300" />
@@ -224,8 +226,15 @@ export default function AdminUsersPage() {
 
         {showInvite && (
           <div className="adm-modal-backdrop" onClick={() => setShowInvite(false)}>
-            <div className="adm-modal" onClick={(e) => e.stopPropagation()}>
-              <h3>Invite a user</h3>
+            <div
+              ref={inviteModalRef}
+              className="adm-modal"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="invite-modal-title"
+            >
+              <h3 id="invite-modal-title">Invite a user</h3>
               <p className="adm-modal-sub">
                 An invitation email is sent with a one-time link. The invitee
                 sets their own password via the invitation-accept page.

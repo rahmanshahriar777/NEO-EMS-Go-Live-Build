@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, CalendarDays, RefreshCw } from 'lucide-react
 import { DashboardLayout } from '../../../components/layout/dashboard-layout';
 import { api } from '../../../lib/api-client';
 import { ErrorBanner } from '../../../components/ui/error-banner';
+import { Skeleton } from '../../../components/ui/skeleton';
 import { formatAppDate } from '../../../lib/date-utils';
 import '../../../styles/calendar.css';
 
@@ -193,9 +194,19 @@ export default function CalendarPage() {
             {/* Month grid */}
             <div className="cal-grid-card">
               {loading ? (
-                <div className="cal-loading">
-                  <RefreshCw size={20} className="animate-spin" />
-                  <span>Loading calendar...</span>
+                <div className="cal-grid" aria-busy="true">
+                  {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
+                    <div key={d} className="cal-weekday">
+                      {d}
+                    </div>
+                  ))}
+                  {Array.from({ length: 35 }).map((_, i) => (
+                    <div key={i} className="cal-day" style={{ minHeight: '80px', opacity: 0.65 }}>
+                      <Skeleton className="w-6 h-4 mb-2" />
+                      {i % 3 === 0 && <Skeleton className="w-full h-3 mb-1" />}
+                      {i % 4 === 0 && <Skeleton className="w-3/4 h-3" />}
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <div className="cal-grid">

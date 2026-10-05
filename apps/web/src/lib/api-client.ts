@@ -176,7 +176,12 @@ class ApiClient {
   private handleSessionExpired(): never {
     this.sessionExpired = true;
     if (typeof window !== 'undefined') {
-      window.location.href = '/login';
+      const currentPath = window.location.pathname + window.location.search;
+      if (currentPath.startsWith('/login') || currentPath.startsWith('/register')) {
+        window.location.href = '/login';
+      } else {
+        window.location.href = `/login?next=${encodeURIComponent(currentPath)}`;
+      }
     }
     throw new ApiError('Session expired — please sign in again.', 401);
   }
@@ -336,10 +341,24 @@ class ApiClient {
     if (typeof window === 'undefined') {
       throw new ApiError('File downloads are only available in the browser.', 0);
     }
+    if (this.sessionExpired && !this.isAuthEndpoint(endpoint)) {
+      throw new ApiError('Session expired — please sign in again.', 401);
+    }
     const url = this.buildUrl(endpoint);
     const { signal, cancel } = withTimeout();
     try {
       const res = await fetch(url, { credentials: 'include', headers: { Accept: '*/*' }, signal });
+      if (res.status === 401) {
+        if (this.isAuthEndpoint(endpoint)) {
+          throw new ApiError('Authentication failed', 401);
+        }
+        try {
+          await this.doRefresh();
+        } catch {
+          this.handleSessionExpired();
+        }
+        return this.downloadFile(endpoint, filename);
+      }
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
         throw new ApiError(json.message || `Download failed with status ${res.status}`, res.status);

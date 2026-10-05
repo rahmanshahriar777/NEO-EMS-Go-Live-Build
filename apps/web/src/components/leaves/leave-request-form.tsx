@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { X } from 'lucide-react';
 import { api } from '../../lib/api-client';
 import { LeaveType } from '../../lib/queries';
 import { LeaveFormValues, validateLeaveRequest } from '../../lib/leave-validation';
+import { useFocusTrap } from '../../hooks/use-focus-trap';
 
 /**
  * Leave request form (go-live hardening, Phase 3 item 7).
@@ -24,6 +25,9 @@ export function LeaveRequestForm({
   onClose: () => void;
   onSubmitted: () => void;
 }) {
+  const modalRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(modalRef, { isActive: true, onEscape: onClose });
+
   const {
     register,
     handleSubmit,
@@ -56,6 +60,7 @@ export function LeaveRequestForm({
   return (
     <div className="leave-modal-overlay" onClick={onClose}>
       <div
+        ref={modalRef}
         className="leave-modal"
         onClick={(e) => e.stopPropagation()}
         role="dialog"

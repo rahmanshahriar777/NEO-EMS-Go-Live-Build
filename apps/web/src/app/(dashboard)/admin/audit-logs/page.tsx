@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   ShieldCheck,
   Search,
@@ -18,9 +18,11 @@ import {
 import { DashboardLayout } from '../../../../components/layout/dashboard-layout';
 import { api, Paginated } from '../../../../lib/api-client';
 import { useAuth } from '../../../../context/auth-context';
+import { useFocusTrap } from '../../../../hooks/use-focus-trap';
 import { SystemRole } from '@ems/shared';
 import { ErrorBanner } from '../../../../components/ui/error-banner';
 import { PaginationControls } from '../../../../components/ui/pagination';
+import { Skeleton } from '../../../../components/ui/skeleton';
 import '../../../../styles/audit.css';
 
 interface AuditLog {
@@ -56,6 +58,9 @@ export default function AuditLogsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'MUTATION' | 'PAYROLL' | 'SECURITY' | 'AI'>('ALL');
   const [copiedState, setCopiedState] = useState(false);
+
+  const auditModalRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(auditModalRef, { isActive: Boolean(selectedLog), onEscape: () => setSelectedLog(null) });
 
   const fetchLogs = useCallback(async (pageToLoad: number) => {
     setLoading(true);
@@ -361,14 +366,15 @@ export default function AuditLogsPage() {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr>
-                    <td colSpan={7} style={{ textAlign: 'center', padding: '40px' }}>
-                      <RefreshCw size={20} className="animate-spin" style={{ margin: '0 auto 10px', color: 'var(--audit-accent)' }} />
-                      <span style={{ fontSize: '13px', color: 'var(--audit-text-secondary)' }}>
-                        Querying audit records...
-                      </span>
-                    </td>
-                  </tr>
+                  Array.from({ length: 8 }).map((_, r) => (
+                    <tr key={r}>
+                      {Array.from({ length: 7 }).map((_, c) => (
+                        <td key={c} style={{ padding: '14px 16px' }}>
+                          <Skeleton className="h-4" style={{ width: `${55 + ((r * 13 + c * 23) % 40)}%` }} />
+                        </td>
+                      ))}
+                    </tr>
+                  ))
                 ) : filteredLogs.length === 0 ? (
                   <tr>
                     <td colSpan={7}>
@@ -491,7 +497,14 @@ export default function AuditLogsPage() {
         {/* Diff Inspector Modal */}
         {selectedLog && (
           <div className="audit-modal-backdrop" onClick={() => setSelectedLog(null)}>
-            <div className="audit-modal-dialog" onClick={(e) => e.stopPropagation()}>
+            <div
+              ref={auditModalRef}
+              className="audit-modal-dialog"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="audit-modal-title"
+            >
               <div className="audit-modal-header">
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -503,7 +516,7 @@ export default function AuditLogsPage() {
                       #{selectedLog.entityId}
                     </span>
                   </div>
-                  <h3 className="audit-modal-title" style={{ marginTop: '4px' }}>
+                  <h3 className="audit-modal-title" id="audit-modal-title" style={{ marginTop: '4px' }}>
                     Forensic Snapshot & State Transition
                   </h3>
                 </div>
