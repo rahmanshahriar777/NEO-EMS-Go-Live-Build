@@ -59,7 +59,10 @@ export async function setupRepeatableJobs(queues: Record<string, Queue>): Promis
 
   // Retention-purge scheduling hook — calls the existing purge service method
   // (processMaintenance 'purgeExpiredAiLogs'). Dry-run vs real delete is
-  // governed by the processor's env defaults (AI_PURGE_DRY_RUN).
+  // governed by the shared counsel sign-off gate (@ems/shared): DRY-RUN by
+  // default; a real delete needs GDPR_RETENTION_SIGNED_OFF=true AND an
+  // explicit dryRun:false on the job. This scheduled job passes neither, so
+  // it only ever counts + logs until counsel signs off.
   await maintenance.add(
     'retention-purge',
     { operation: 'purgeExpiredAiLogs', correlationId },

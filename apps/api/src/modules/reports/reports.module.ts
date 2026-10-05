@@ -8,8 +8,9 @@ import { NotificationsModule } from '../notifications/notifications.module';
  *
  * Scheduled delivery hook: worker 4's cron calls
  * ReportsService.runScheduledReports() (schedules from REPORT_SCHEDULES env;
- * ReportSchedule table is a schema-worker follow-up). The shared
- * EmailQueueProducer comes from NotificationsModule.
+ * ReportSchedule table is a schema-worker follow-up). Report emails go
+ * through the live `notifications` queue (channel 'email') via the @Global()
+ * QueueService — the old standalone `email` queue (no consumer) is deleted.
  */
 @Module({
   imports: [NotificationsModule],

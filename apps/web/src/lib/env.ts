@@ -16,42 +16,16 @@
  */
 
 function readPublicEnv(name: string): string | undefined {
-  let value: string | undefined;
-  switch (name) {
-    case 'NEXT_PUBLIC_API_BASE_URL':
-      value = process.env.NEXT_PUBLIC_API_BASE_URL;
-      break;
-    case 'NEXT_PUBLIC_API_URL':
-      value = process.env.NEXT_PUBLIC_API_URL;
-      break;
-    case 'NEXT_PUBLIC_ALLOW_PUBLIC_REGISTRATION':
-      value = process.env.NEXT_PUBLIC_ALLOW_PUBLIC_REGISTRATION;
-      break;
-    case 'NEXT_PUBLIC_TIMEZONE':
-      value = process.env.NEXT_PUBLIC_TIMEZONE;
-      break;
-    case 'NEXT_PUBLIC_LOCALE':
-      value = process.env.NEXT_PUBLIC_LOCALE;
-      break;
-    case 'NEXT_PUBLIC_CURRENCY':
-      value = process.env.NEXT_PUBLIC_CURRENCY;
-      break;
-    default:
-      value = process.env[name];
-  }
-  if (value === undefined) {
-    value = process.env[name];
-  }
+  const value = process.env[name];
   return value && value.trim().length > 0 ? value.trim() : undefined;
 }
 
 /** Base URL of the REST API, or `null` when it is not configured. */
 export function getApiBaseUrl(): string | null {
-  const primary = readPublicEnv('NEXT_PUBLIC_API_BASE_URL');
+  const primary = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || readPublicEnv('NEXT_PUBLIC_API_BASE_URL');
   if (primary) return primary.replace(/\/+$/, '');
-  const legacy = readPublicEnv('NEXT_PUBLIC_API_URL');
+  const legacy = process.env.NEXT_PUBLIC_API_URL?.trim() || readPublicEnv('NEXT_PUBLIC_API_URL');
   if (legacy) return legacy.replace(/\/+$/, '');
-  // Default to same-origin /api/v1 rewrite
   return '/api/v1';
 }
 
@@ -63,22 +37,29 @@ export function getApiBaseUrl(): string | null {
 export function requireApiBaseUrl(): string {
   const baseUrl = getApiBaseUrl();
   if (!baseUrl) {
-    throw new Error(
-      'API not configured: set NEXT_PUBLIC_API_BASE_URL (e.g. "/api/v1" for the ' +
-        'same-origin rewrite, or "https://api.example.com/api/v1"). Requests cannot be sent without it.',
-    );
+    return '/api/v1';
   }
   return baseUrl;
 }
 
 /** IANA timezone for displayed dates/times. Defaults to Europe/London. */
-export const APP_TIMEZONE: string = readPublicEnv('NEXT_PUBLIC_TIMEZONE') || 'Europe/London';
+export const APP_TIMEZONE: string =
+  process.env.NEXT_PUBLIC_TIMEZONE?.trim() ||
+  readPublicEnv('NEXT_PUBLIC_TIMEZONE') ||
+  'Europe/London';
 
 /** Locale for Intl formatting. Defaults to en-GB. */
-export const APP_LOCALE: string = readPublicEnv('NEXT_PUBLIC_LOCALE') || 'en-GB';
+export const APP_LOCALE: string =
+  process.env.NEXT_PUBLIC_LOCALE?.trim() ||
+  readPublicEnv('NEXT_PUBLIC_LOCALE') ||
+  'en-GB';
 
 /** ISO 4217 currency code for money formatting. Defaults to GBP. */
-export const APP_CURRENCY: string = (readPublicEnv('NEXT_PUBLIC_CURRENCY') || 'GBP').toUpperCase();
+export const APP_CURRENCY: string = (
+  process.env.NEXT_PUBLIC_CURRENCY?.trim() ||
+  readPublicEnv('NEXT_PUBLIC_CURRENCY') ||
+  'GBP'
+).toUpperCase();
 
 /**
  * Whether the public self-registration page is enabled (go-live Phase 1 item 8).
@@ -91,5 +72,8 @@ export const APP_CURRENCY: string = (readPublicEnv('NEXT_PUBLIC_CURRENCY') || 'G
  * controls what the UI shows.
  */
 export function isPublicRegistrationEnabled(): boolean {
-  return readPublicEnv('NEXT_PUBLIC_ALLOW_PUBLIC_REGISTRATION') === 'true';
+  const val =
+    process.env.NEXT_PUBLIC_ALLOW_PUBLIC_REGISTRATION?.trim() ||
+    readPublicEnv('NEXT_PUBLIC_ALLOW_PUBLIC_REGISTRATION');
+  return val === 'true';
 }

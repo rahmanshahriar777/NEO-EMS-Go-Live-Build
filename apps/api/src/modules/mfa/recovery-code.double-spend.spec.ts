@@ -111,7 +111,13 @@ describe('recovery-code double-spend race', () => {
         { provide: PasswordService, useValue: { verify: jest.fn() } },
         {
           provide: TokenService,
-          useValue: { verifyMfaChallengeToken: jest.fn().mockResolvedValue('user-1') },
+          useValue: {
+            verifyMfaChallengeToken: jest
+              .fn()
+              .mockResolvedValue({ userId: 'user-1', jti: 'jti-1' }),
+            consumeMfaChallengeToken: jest.fn().mockResolvedValue(undefined),
+            claimTotpTimeStep: jest.fn().mockResolvedValue(true),
+          },
         },
         { provide: AuthService, useValue: authService },
       ],

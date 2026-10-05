@@ -139,6 +139,21 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         API_INTERNAL_URL: http://api:4000/api/:path*
+        # F6: NEXT_PUBLIC_* is baked into the client bundle at BUILD time —
+        # runtime `environment:` entries would NOT reach browser code. Set
+        # these here (or in your shell/.env file) and REBUILD the image to
+        # change them. Defaults mirror apps/web/.env.example.
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api/v1}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+        NEXT_PUBLIC_TIMEZONE: ${NEXT_PUBLIC_TIMEZONE:-Europe/London}
+        NEXT_PUBLIC_LOCALE: ${NEXT_PUBLIC_LOCALE:-en-GB}
+        NEXT_PUBLIC_CURRENCY: ${NEXT_PUBLIC_CURRENCY:-GBP}
+        NEXT_PUBLIC_ALLOW_PUBLIC_REGISTRATION: ${NEXT_PUBLIC_ALLOW_PUBLIC_REGISTRATION:-false}
+        NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${NEXT_PUBLIC_VAPID_PUBLIC_KEY:-}
+        NEXT_PUBLIC_SITE_NAME: ${NEXT_PUBLIC_SITE_NAME:-}
+        NEXT_PUBLIC_SITE_LATITUDE: ${NEXT_PUBLIC_SITE_LATITUDE:-}
+        NEXT_PUBLIC_SITE_LONGITUDE: ${NEXT_PUBLIC_SITE_LONGITUDE:-}
+        NEXT_PUBLIC_SITE_RADIUS_METERS: ${NEXT_PUBLIC_SITE_RADIUS_METERS:-}
     image: ems-web:prod
     container_name: ems-prod-web
     restart: always

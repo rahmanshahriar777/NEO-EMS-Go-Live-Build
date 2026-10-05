@@ -18,8 +18,8 @@ role-scoped retrieval over company policies + the user's own HR records.
    salaries, NI numbers — widened per Phase 1) → provider call.
 2. Request/response metadata is written to AI audit logs
    (`ai-audit.service.ts`), retained `AI_LOG_RETENTION_DAYS` (default 90),
-   purged by the maintenance worker (`purgeExpiredAiLogs`; `AI_PURGE_DRY_RUN`
-   for safe rehearsal).
+   purged by the maintenance worker (`purgeExpiredAiLogs`; dry-run by
+   default until the `GDPR_RETENTION_SIGNED_OFF` counsel gate is armed).
 3. Failover: if the primary provider errors, the secondary is tried with the
    same redacted payload — both providers are therefore (sub)processors.
 

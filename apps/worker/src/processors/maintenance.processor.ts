@@ -3,6 +3,8 @@ import { prisma } from '@ems/database';
 import {
   QUEUE_NAMES,
   DEFAULT_JOB_OPTIONS,
+  RETENTION_SIGNOFF_ENV,
+  isRetentionSignedOff,
   type MaintenanceJobPayload,
 } from '@ems/shared';
 import { log } from '../logger.js';
@@ -85,7 +87,25 @@ export async function processMaintenance(job: Job<ExtendedMaintenanceJobPayload>
 export async function purgeExpiredAiLogs(job: Job<MaintenanceJobPayload>) {
   const retentionDays =
     job.data.retentionDays ?? Number(process.env.AI_LOG_RETENTION_DAYS || AI_LOG_RETENTION_DAYS_DEFAULT);
-  const dryRun = job.data.dryRun ?? process.env.AI_PURGE_DRY_RUN === 'true';
+
+  // ONE gate, shared with the API's GDPR multi-entity purge (@ems/shared):
+  // DRY-RUN BY DEFAULT. A real delete requires BOTH counsel sign-off
+  // (GDPR_RETENTION_SIGNED_OFF=true) AND an explicit dryRun:false on the
+  // job. An explicit dryRun:false without sign-off is forced back to
+  // dry-run and logged loudly — the scheduled repeatable job never passes
+  // dryRun, so it can never delete until counsel signs off.
+  const signedOff = isRetentionSignedOff();
+  const dryRun = !(signedOff && job.data.dryRun === false);
+  if (job.data.dryRun === false && !signedOff) {
+    log.warn('maintenance.purgeExpiredAiLogs.signoff-missing', {
+      jobId: job.id,
+      correlationId: job.data.correlationId,
+      reason:
+        `dryRun:false requested but counsel sign-off is not recorded ` +
+        `(${RETENTION_SIGNOFF_ENV}!=true) — forcing DRY-RUN`,
+    });
+  }
+  const mode = dryRun ? 'DRY-RUN — no rows deleted' : 'LIVE DELETE';
 
   if (!Number.isFinite(retentionDays) || retentionDays <= 0) {
     throw new Error(`Invalid retention window: ${retentionDays} days.`);
@@ -100,6 +120,8 @@ export async function purgeExpiredAiLogs(job: Job<MaintenanceJobPayload>) {
     cutoff: cutoff.toISOString(),
     matching,
     dryRun,
+    signedOff,
+    mode,
     correlationId: job.data.correlationId,
   });
 
@@ -114,9 +136,11 @@ export async function purgeExpiredAiLogs(job: Job<MaintenanceJobPayload>) {
     matched: matching,
     deleted,
     dryRun,
+    signedOff,
+    mode,
   });
 
-  return { operation: 'purgeExpiredAiLogs', retentionDays, dryRun, matched: matching, deleted };
+  return { operation: 'purgeExpiredAiLogs', retentionDays, dryRun, signedOff, matched: matching, deleted };
 }
 
 // ---------------------------------------------------------------------------

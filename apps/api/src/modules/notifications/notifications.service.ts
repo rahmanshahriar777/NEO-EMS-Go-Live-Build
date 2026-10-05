@@ -1,7 +1,8 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../core/prisma/prisma.service';
-import { EmailQueueProducer } from './email-queue.producer';
+import { QueueService } from '../../core/queues/queue.service';
 
 /**
  * Notification centre backend (Phase 2 item 2).
@@ -10,9 +11,18 @@ import { EmailQueueProducer } from './email-queue.producer';
  *  - The in-app `notifications` row is ALWAYS persisted first — it is the
  *    source of truth the bell dropdown reads.
  *  - An email copy is OPTIONAL per event: `notify({ emailCopy: true, ... })`
- *    enqueues to the `email` queue (consumer/provider owned by worker 1).
- *    Email enqueue is fail-open with a loud warning; the in-app record is
- *    never rolled back because the email copy failed.
+ *    enqueues onto the LIVE `notifications` queue (channel 'email'). The
+ *    worker persists the in-app row first, then delivers via its registered
+ *    email channel hook (fail-loud: hook failures throw so BullMQ retries
+ *    with backoff, then the job lands in the DLQ).
+ *
+ *    The old standalone `email` queue producer was DELETED (go-live HIGH
+ *    #2): it had no consumer, so every email copy enqueued onto it was
+ *    silently lost. There is exactly one email path now — the
+ *    `notifications` channel-'email' path.
+ *  - If the email enqueue itself fails (Redis down), notify() falls back to
+ *    persisting the in-app row directly — the guaranteed fallback — and
+ *    never throws (event emitters keep their fail-open contract).
  *
  * Event emitters (leave, payroll, reviews, documents) call `notify()` with a
  * stable `idempotencyKey` (e.g. `leave-approved:<requestId>`) so retried
@@ -47,7 +57,7 @@ export class NotificationsService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly emailQueue: EmailQueueProducer,
+    private readonly queueService: QueueService,
     private readonly configService: ConfigService,
   ) {}
 
@@ -109,10 +119,56 @@ export class NotificationsService {
   }
 
   /**
-   * Central event emitter. Persists the in-app notification, then optionally
-   * enqueues an email copy. Never throws for email failures.
+   * Central event emitter. Email copies go through the live `notifications`
+   * queue (channel 'email'); the worker persists the in-app row first, then
+   * delivers via the email channel hook. Never throws: if the enqueue
+   * itself fails, the in-app row is persisted here as the guaranteed
+   * fallback.
+   *
+   * Returns `notificationId: null` when the email was queued — the worker
+   * creates the in-app row in that path.
    */
-  async notify(input: NotifyInput): Promise<{ notificationId: string; emailQueued: boolean }> {
+  async notify(input: NotifyInput): Promise<{ notificationId: string | null; emailQueued: boolean }> {
+    if (input.emailCopy) {
+      if (!input.emailTo) {
+        this.logger.warn(
+          `notify: emailCopy requested for template '${input.template}' but no emailTo; skipping email`,
+        );
+      } else {
+        try {
+          // correlationId intentionally omitted: the queue service resolves
+          // the ambient request correlation (x-request-id via ALS) instead
+          // of minting a fresh UUID (go-live Phase 3 item 10).
+          const jobId = await this.queueService.enqueueNotification(
+            input.userId,
+            'email',
+            input.template,
+            {
+              // Recipient override: the worker's email hook prefers
+              // `data.email`, falling back to the user's account email.
+              email: input.emailTo,
+              subject: input.emailSubject ?? input.title,
+              title: input.title,
+              message: input.message,
+              linkUrl: input.linkUrl,
+            },
+            undefined,
+            input.idempotencyKey ?? `notify-email:${input.userId}:${Date.now()}:${randomUUID()}`,
+          );
+          return { notificationId: null, emailQueued: jobId != null };
+        } catch (err) {
+          // Fail-safe: the email job was NOT scheduled (e.g. Redis down).
+          // Fall through and persist the in-app row below — it is the
+          // guaranteed fallback, so event emitters keep their never-throws
+          // contract while the email is simply not sent this time.
+          this.logger.error(
+            `notify: email enqueue failed for user ${input.userId} (in-app fallback will be persisted)`,
+            err instanceof Error ? err.stack : String(err),
+          );
+        }
+      }
+    }
+
     const notification = await this.prisma.notification.create({
       data: {
         recipientId: input.userId,
@@ -122,43 +178,7 @@ export class NotificationsService {
       },
     });
 
-    let emailQueued = false;
-    if (input.emailCopy) {
-      if (!input.emailTo) {
-        this.logger.warn(
-          `notify: emailCopy requested for template '${input.template}' but no emailTo; skipping email`,
-        );
-      } else {
-        try {
-          // correlationId intentionally omitted: the producer resolves the
-          // ambient request correlation (x-request-id via ALS) instead of
-          // minting a fresh UUID (go-live Phase 3 item 10).
-          const jobId = await this.emailQueue.enqueueEmail(
-            {
-              to: input.emailTo,
-              subject: input.emailSubject ?? input.title,
-              text: `${input.title}\n\n${input.message}${input.linkUrl ? `\n\n${input.linkUrl}` : ''}`,
-              template: input.template,
-              data: { linkUrl: input.linkUrl },
-            },
-            undefined,
-            input.idempotencyKey ?? `notify-email:${notification.id}`,
-          );
-          emailQueued = jobId !== null;
-        } catch (err) {
-          // Fail-loud at the producer, fail-safe here: the in-app row above
-          // is the guaranteed fallback, so event emitters keep their
-          // never-throws contract while the email job is retried / visible.
-          this.logger.error(
-            `notify: email enqueue failed for notification ${notification.id} (in-app copy persisted)`,
-            err instanceof Error ? err.stack : String(err),
-          );
-          emailQueued = false;
-        }
-      }
-    }
-
-    return { notificationId: notification.id, emailQueued };
+    return { notificationId: notification.id, emailQueued: false };
   }
 
   // ---------------------------------------------------------------------------

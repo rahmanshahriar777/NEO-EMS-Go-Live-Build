@@ -19,6 +19,7 @@ import {
   MfaDisableDto,
 } from '../auth/dto/auth.dto';
 import { Public } from '../../common/decorators/public.decorator';
+import { SetsAuthCookies } from '../../common/decorators/sets-auth-cookies.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtPayload } from '@ems/shared';
 import { setAuthCookies } from '../../common/cookies/auth-cookies';
@@ -83,6 +84,7 @@ export class MfaController {
   }
 
   @Public()
+  @SetsAuthCookies()
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('challenge')
   @HttpCode(HttpStatus.OK)

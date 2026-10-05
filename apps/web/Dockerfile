@@ -28,6 +28,41 @@ COPY apps/web apps/web
 ARG API_INTERNAL_URL=http://api:4000/api/:path*
 ENV API_INTERNAL_URL=${API_INTERNAL_URL}
 
+# F6: every NEXT_PUBLIC_* var the app reads is inlined into the client bundle
+# at BUILD time — a runtime env var on the container has NO effect on browser
+# code (this bit every client-side API call when k8s set NEXT_PUBLIC_API_URL
+# only as a runtime env). Each var below must therefore arrive as a build-arg.
+# Defaults mirror apps/web/.env.example (complete inventory — grep the web app
+# for `NEXT_PUBLIC_` if you add a new one and extend this list).
+# Changing ANY of these values requires REBUILDING the web image; redeploying
+# the same image changes nothing client-side (see docs/DEPLOYMENT.md).
+ARG NEXT_PUBLIC_API_BASE_URL=/api/v1
+ARG NEXT_PUBLIC_API_URL=
+ARG NEXT_PUBLIC_TIMEZONE=Europe/London
+ARG NEXT_PUBLIC_LOCALE=en-GB
+ARG NEXT_PUBLIC_CURRENCY=GBP
+ARG NEXT_PUBLIC_ALLOW_PUBLIC_REGISTRATION=false
+# next.config.mjs also honours the API-named knob at build time, so accept it
+# as a build-arg too (it is mapped into NEXT_PUBLIC_ALLOW_PUBLIC_REGISTRATION).
+ARG ALLOW_PUBLIC_REGISTRATION=
+ARG NEXT_PUBLIC_VAPID_PUBLIC_KEY=
+ARG NEXT_PUBLIC_SITE_NAME=
+ARG NEXT_PUBLIC_SITE_LATITUDE=
+ARG NEXT_PUBLIC_SITE_LONGITUDE=
+ARG NEXT_PUBLIC_SITE_RADIUS_METERS=
+ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL} \
+    NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
+    NEXT_PUBLIC_TIMEZONE=${NEXT_PUBLIC_TIMEZONE} \
+    NEXT_PUBLIC_LOCALE=${NEXT_PUBLIC_LOCALE} \
+    NEXT_PUBLIC_CURRENCY=${NEXT_PUBLIC_CURRENCY} \
+    NEXT_PUBLIC_ALLOW_PUBLIC_REGISTRATION=${NEXT_PUBLIC_ALLOW_PUBLIC_REGISTRATION} \
+    ALLOW_PUBLIC_REGISTRATION=${ALLOW_PUBLIC_REGISTRATION} \
+    NEXT_PUBLIC_VAPID_PUBLIC_KEY=${NEXT_PUBLIC_VAPID_PUBLIC_KEY} \
+    NEXT_PUBLIC_SITE_NAME=${NEXT_PUBLIC_SITE_NAME} \
+    NEXT_PUBLIC_SITE_LATITUDE=${NEXT_PUBLIC_SITE_LATITUDE} \
+    NEXT_PUBLIC_SITE_LONGITUDE=${NEXT_PUBLIC_SITE_LONGITUDE} \
+    NEXT_PUBLIC_SITE_RADIUS_METERS=${NEXT_PUBLIC_SITE_RADIUS_METERS}
+
 # db:generate must precede the shared build — packages/shared asserts enum
 # parity against the generated Prisma types (type-only import).
 RUN pnpm --filter @ems/database db:generate

@@ -47,14 +47,13 @@ export interface RetentionRule {
   purgeable: boolean;
 }
 
-/** Env flag recording counsel sign-off of THIS schedule. Default: unset. */
-export const RETENTION_SIGNOFF_ENV = 'GDPR_RETENTION_SIGNED_OFF';
-
-export function isRetentionSignedOff(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
-  return (env[RETENTION_SIGNOFF_ENV] || '').toLowerCase() === 'true';
-}
+/**
+ * Counsel sign-off gate — the single shared implementation lives in
+ * `@ems/shared` (`packages/shared/src/retention.ts`) so the API's GDPR
+ * multi-entity purge and the worker's AI-log purge enforce IDENTICAL
+ * semantics. Re-exported here so existing importers keep working.
+ */
+export { RETENTION_SIGNOFF_ENV, isRetentionSignedOff } from '@ems/shared';
 
 export const RETENTION_SCHEDULE_VERSION = '2026-10-05/v1';
 

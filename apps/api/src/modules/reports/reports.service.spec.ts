@@ -2,12 +2,12 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { ReportsService } from './reports.service';
 import { PrismaService } from '../../core/prisma/prisma.service';
-import { EmailQueueProducer } from '../notifications/email-queue.producer';
+import { QueueService } from '../../core/queues/queue.service';
 
 describe('ReportsService', () => {
   let service: ReportsService;
   let prisma: any;
-  let emailQueue: any;
+  let queueService: any;
 
   beforeEach(async () => {
     prisma = {
@@ -16,14 +16,14 @@ describe('ReportsService', () => {
       attendanceRecord: { findMany: jest.fn().mockResolvedValue([]) },
       payrollRun: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    emailQueue = { enqueueEmail: jest.fn().mockResolvedValue('job-1') };
+    queueService = { enqueueNotification: jest.fn().mockResolvedValue('job-1') };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ReportsService,
         { provide: PrismaService, useValue: prisma },
         { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(undefined) } },
-        { provide: EmailQueueProducer, useValue: emailQueue },
+        { provide: QueueService, useValue: queueService },
       ],
     }).compile();
 
@@ -89,7 +89,7 @@ describe('ReportsService', () => {
             ),
           },
         },
-        { provide: EmailQueueProducer, useValue: emailQueue },
+        { provide: QueueService, useValue: queueService },
       ],
     }).compile();
     const svc = module.get<ReportsService>(ReportsService);
@@ -98,9 +98,16 @@ describe('ReportsService', () => {
     expect(result.ran).toBe(1);
     expect(result.emailed).toBe(2);
     expect(result.errors).toEqual([]);
-    const payload = emailQueue.enqueueEmail.mock.calls[0][0];
-    expect(payload.data.attachment.filename).toMatch(/\.csv$/);
-    expect(payload.data.attachment.contentBase64).toBeTruthy();
+    const call = queueService.enqueueNotification.mock.calls[0];
+    // user-less email-only job on the live notifications queue (channel email)
+    expect(call[0]).toBeUndefined();
+    expect(call[1]).toBe('email');
+    expect(call[2]).toBe('scheduled-report');
+    expect(call[3].email).toBe('a@x.com');
+    expect(call[3].attachment.filename).toMatch(/\.csv$/);
+    expect(call[3].attachment.contentBase64).toBeTruthy();
+    // stable idempotency key per recipient+day so retries never double-send
+    expect(call[5]).toMatch(/^scheduled-report:headcount:csv:a@x\.com:/);
   });
 
   it('runScheduledReports tolerates invalid REPORT_SCHEDULES JSON', async () => {
@@ -109,7 +116,7 @@ describe('ReportsService', () => {
         ReportsService,
         { provide: PrismaService, useValue: prisma },
         { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue('not-json') } },
-        { provide: EmailQueueProducer, useValue: emailQueue },
+        { provide: QueueService, useValue: queueService },
       ],
     }).compile();
     const svc = module.get<ReportsService>(ReportsService);

@@ -32,7 +32,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const restoreSession = async () => {
       try {
         // The API reads the ems_at cookie; a 401 here simply means "signed out".
-        const me = await api.get<AuthUserResponse>('/auth/me');
+        const me = await api.get<AuthUserResponse>('/auth/me', { silentAuth: true });
         if (!cancelled) setUser(me);
       } catch {
         if (!cancelled) setUser(null);

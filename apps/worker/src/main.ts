@@ -5,6 +5,8 @@ import {
   QUEUE_NAMES,
   MAINTENANCE_QUEUE,
   DEFAULT_JOB_OPTIONS,
+  RETENTION_SIGNOFF_ENV,
+  isRetentionSignedOff,
 } from '@ems/shared';
 import { processPayroll } from './processors/payroll.processor.js';
 import { processNotification, registerChannelHook } from './processors/notification.processor.js';
@@ -18,6 +20,7 @@ import { sendEmailChannelHook } from './processors/email.processor.js';
 // producer (QueueService.enqueueAi), the queue name, and the AiJobPayload
 // contract in @ems/shared all remain; re-adding a consumer is mechanical.
 import { processMaintenance } from './processors/maintenance.processor.js';
+import { setLeaveAccrualRedis } from './processors/leave-accrual.processor.js';
 import { setupRepeatableJobs } from './schedule.js';
 import { log, alertOps } from './logger.js';
 
@@ -126,6 +129,24 @@ async function bootstrap() {
   // shared nodemailer provider (@ems/shared mailer — single implementation
   // used by both the API and the worker).
   registerChannelHook('email', sendEmailChannelHook);
+
+  // HIGH #4: the leave-accrual processor reuses this shared connection.
+  // Its old module-local client used lazyConnect:true and never connected,
+  // so every monthly accrual run failed into the DLQ.
+  setLeaveAccrualRedis(connection);
+
+  // Retention gate state (HIGH #3, go-live hardening): the scheduled AI-log
+  // purge is DRY-RUN BY DEFAULT — it counts and logs but never deletes.
+  // Real deletes require counsel sign-off (GDPR_RETENTION_SIGNED_OFF=true)
+  // AND an explicit dryRun:false on the job. Same gate and semantics as the
+  // API's GDPR multi-entity purge (one gate, @ems/shared).
+  const retentionSignedOff = isRetentionSignedOff();
+  log.info('worker.retention.gate', {
+    signedOff: retentionSignedOff,
+    retentionPurgeMode: retentionSignedOff
+      ? 'ARMED — jobs with explicit dryRun:false will LIVE DELETE'
+      : `DRY-RUN — no rows deleted (set ${RETENTION_SIGNOFF_ENV}=true after counsel sign-off to arm)`,
+  });
 
   // Phases 2-3: repeatable jobs — nightly absence marking, retention purge,
   // and (once worker 3 registers its runner) scheduled reports.

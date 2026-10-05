@@ -24,6 +24,7 @@ import {
   ResendVerificationDto,
 } from './dto/auth.dto';
 import { Public } from '../../common/decorators/public.decorator';
+import { SetsAuthCookies } from '../../common/decorators/sets-auth-cookies.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtPayload } from '@ems/shared';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -45,6 +46,7 @@ export class AuthController {
   ) {}
 
   @Public()
+  @SetsAuthCookies()
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -118,6 +120,7 @@ export class AuthController {
   }
 
   @Public()
+  @SetsAuthCookies()
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('refresh')
   @HttpCode(HttpStatus.OK)

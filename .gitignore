@@ -9,7 +9,6 @@ build/
 out/
 *.tsbuildinfo
 
-
 # Environment files
 .env
 .env.local

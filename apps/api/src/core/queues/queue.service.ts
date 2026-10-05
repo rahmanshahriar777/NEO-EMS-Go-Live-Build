@@ -28,8 +28,10 @@ export { QueueUnavailableException } from './queue-unavailable.exception';
  * callers now see the failure and can react. Recovery:
  *   - payroll runs stuck DRAFT/PROCESSING are requeued by the worker's
  *     periodic sweep (`sweepStuckPayrollRuns`);
- *   - email copies are best-effort on top of an already-persisted in-app
- *     notification (NotificationsService.notify persists first).
+ *   - notification jobs (incl. channel 'email' copies) are persisted in-app
+ *     by the worker before the channel hook runs; if the enqueue itself
+ *     fails, NotificationsService.notify persists the in-app row directly
+ *     as the guaranteed fallback.
  *
  * Correlation: when the caller does not pass an explicit correlationId, the
  * ambient request correlation (inbound `x-request-id`, via AsyncLocalStorage)
@@ -108,17 +110,21 @@ export class QueueService implements OnModuleDestroy {
    * idempotency key (e.g. `payslip-ready:<payslipId>`) so retries never
    * double-notify.
    *
+   * `userId` may be omitted for email-only jobs to raw addresses (scheduled
+   * reports): the worker then skips the in-app persist and the email channel
+   * hook resolves the recipient from `data.email`.
+   *
    * @throws QueueUnavailableException when the enqueue fails (Redis down).
    */
   async enqueueNotification(
-    userId: string,
+    userId: string | undefined,
     channel: NotificationJobPayload['channel'],
     template: string,
     data: Record<string, any>,
     correlationId?: string,
     idempotencyKey?: string,
   ): Promise<string> {
-    const jobId = idempotencyKey ?? `notification:${userId}:${template}:${randomUUID()}`;
+    const jobId = idempotencyKey ?? `notification:${userId ?? 'email-only'}:${template}:${randomUUID()}`;
     const payload: NotificationJobPayload = {
       userId,
       channel,

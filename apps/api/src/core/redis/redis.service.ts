@@ -80,6 +80,31 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Atomically set a key only if it does not already exist (SET ... NX EX).
+   *
+   * Used for single-use / replay guards (MFA challenge jti consumption, TOTP
+   * time-step claims): returns true when this caller won the claim, false
+   * when the key already existed (replay). Two concurrent claimants: exactly
+   * one wins.
+   *
+   * Fail-open when Redis is unreachable (returns true), matching the
+   * throttler storage convention — the caller logs the degradation loudly.
+   */
+  async setIfAbsent(key: string, value: string, ttlSeconds: number): Promise<boolean> {
+    const client = this.getClient();
+    if (!client || !this.isConnected) {
+      return true;
+    }
+    try {
+      const res = await client.set(key, value, 'EX', ttlSeconds, 'NX');
+      return res === 'OK';
+    } catch (e) {
+      this.logger.warn(`Redis setIfAbsent error for ${key}: ${(e as Error).message}`);
+      return true;
+    }
+  }
+
   async del(key: string): Promise<void> {
     if (!this.client || !this.isConnected) return;
     try {

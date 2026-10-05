@@ -74,6 +74,12 @@ export class SmtpEmailProvider implements EmailProvider {
       text: message.text,
       html: message.html,
       replyTo: message.replyTo,
+      attachments: message.attachments?.map((a) => ({
+        filename: a.filename,
+        content: a.content,
+        contentType: a.contentType,
+        encoding: a.encoding,
+      })),
     });
   }
 

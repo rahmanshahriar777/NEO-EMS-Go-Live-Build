@@ -1,5 +1,6 @@
 import { prisma } from '@ems/database';
 import type { NotificationJobPayload } from '@ems/shared';
+import type { EmailAttachment } from '@ems/mailer';
 import { log } from '../logger.js';
 import { renderTemplate } from '../email/templates.js';
 import { resolveSmtpConfig, sendSmtp } from '../email/smtp-sender.js';
@@ -48,6 +49,27 @@ export const sendEmailChannelHook: ChannelHook = async (payload: NotificationJob
 
   const rendered = renderTemplate(template, { ...(data ?? {}), email: to });
 
+  // Attachments: scheduled-report jobs carry
+  // `data.attachment = { filename, contentBase64, contentType? }` (or an
+  // array under `data.attachments`). Decoded here so the single shared
+  // provider stays the only MIME builder.
+  const rawAttachments = data?.attachment ?? data?.attachments;
+  const attachmentList = (
+    Array.isArray(rawAttachments) ? rawAttachments : rawAttachments ? [rawAttachments] : []
+  );
+  const attachments: EmailAttachment[] = [];
+  for (const a of attachmentList) {
+    if (!a?.filename || !a?.contentBase64) {
+      log.warn('email.attachment.skipped', { to, template, correlationId });
+      continue;
+    }
+    attachments.push({
+      filename: String(a.filename),
+      content: Buffer.from(String(a.contentBase64), 'base64'),
+      contentType: a.contentType ? String(a.contentType) : undefined,
+    });
+  }
+
   const smtp = resolveSmtpConfig();
   if (!smtp) {
     log.info('email.dev-log', {
@@ -55,6 +77,7 @@ export const sendEmailChannelHook: ChannelHook = async (payload: NotificationJob
       template,
       subject: rendered.subject,
       body: rendered.text,
+      attachments: attachments.map((a) => a.filename),
       correlationId,
       note: 'SMTP_HOST unset — email logged, not sent.',
     });
@@ -66,7 +89,13 @@ export const sendEmailChannelHook: ChannelHook = async (payload: NotificationJob
   }
 
   try {
-    await sendSmtp(smtp, { to, subject: rendered.subject, text: rendered.text, html: rendered.html });
+    await sendSmtp(smtp, {
+      to,
+      subject: rendered.subject,
+      text: rendered.text,
+      html: rendered.html,
+      attachments: attachments.length > 0 ? attachments : undefined,
+    });
   } catch (err: any) {
     // Fail-LOUD: transient SMTP failure must throw so BullMQ retries (Phase
     // 2 item 2). The notification processor converts this to a `failed`

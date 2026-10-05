@@ -3,6 +3,7 @@ export * from './types/index.js';
 export * from './validators/index.js';
 export * from './utils/index.js';
 export * from './queues/index.js';
+export * from './retention.js';
 export * from './ai/index.js';
 export * from './payroll/index.js';
 export * from './employee-number.js';

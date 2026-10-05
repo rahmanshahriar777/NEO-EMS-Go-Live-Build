@@ -13,8 +13,12 @@ ALTER TABLE "invitations" ALTER COLUMN "role" TYPE TEXT USING "role"::TEXT;
 
 -- 3. OAuthAccount: providerUserId -> providerId, composite unique(provider, providerId)
 --    matches the documented OAuth contract (worker 1).
+--    CORRECTED PRE-RELEASE (2026-10-05): the unique on providerUserId was
+--    created in 20261005120000_phases_1_3 via CREATE UNIQUE INDEX, so there
+--    is no table constraint to DROP CONSTRAINT here — use DROP INDEX. This
+--    file was fixed before any real database ever applied it.
 ALTER TABLE "oauth_accounts" RENAME COLUMN "providerUserId" TO "providerId";
-ALTER TABLE "oauth_accounts" DROP CONSTRAINT "oauth_accounts_providerUserId_key";
+DROP INDEX IF EXISTS "oauth_accounts_providerUserId_key";
 ALTER TABLE "oauth_accounts" ADD CONSTRAINT "oauth_accounts_provider_providerId_key" UNIQUE ("provider", "providerId");
 
 -- 4. Document: fileKey nullable (server-generated storageKey is canonical) + expiry

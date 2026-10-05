@@ -12,8 +12,12 @@ const nextConfig = {
   // NEXT_PUBLIC_ALLOW_PUBLIC_REGISTRATION directly on the web build.
   env: {
     NEXT_PUBLIC_API_BASE_URL:
-      process.env.NEXT_PUBLIC_API_BASE_URL ??
-      process.env.NEXT_PUBLIC_API_URL ??
+      process.env.NEXT_PUBLIC_API_BASE_URL ||
+      process.env.NEXT_PUBLIC_API_URL ||
+      '/api/v1',
+    NEXT_PUBLIC_API_URL:
+      process.env.NEXT_PUBLIC_API_BASE_URL ||
+      process.env.NEXT_PUBLIC_API_URL ||
       '/api/v1',
     NEXT_PUBLIC_ALLOW_PUBLIC_REGISTRATION:
       process.env.NEXT_PUBLIC_ALLOW_PUBLIC_REGISTRATION ??

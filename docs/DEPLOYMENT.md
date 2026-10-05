@@ -83,6 +83,42 @@ Images: `ems-api:prod`, `ems-worker:prod`, `ems-web:prod` (multi-stage,
 non-root `node` user, pinned `node:20.19-alpine3.22` base; the api builder
 carries python3/make/g++ for the `argon2` native module — the runner does not).
 
+### Web client configuration is baked at build time (F6)
+
+Every `NEXT_PUBLIC_*` variable the web app reads is **inlined into the client
+JavaScript bundle when the image is built**. Setting one as a runtime env var
+(on the container, in compose `environment:`, or in a k8s manifest) has **no
+effect on browser code** — client-side API calls will keep using whatever was
+baked in. (This is why k8s must NOT set `NEXT_PUBLIC_*` as pod env vars.)
+
+The full inventory lives as `ARG`s in `apps/web/Dockerfile` (builder stage);
+defaults mirror `apps/web/.env.example`:
+
+| Variable | Default | Notes |
+|---|---|---|
+| `NEXT_PUBLIC_API_BASE_URL` | `/api/v1` | Primary API base URL. `/api/v1` = same-origin Next.js rewrite → API. |
+| `NEXT_PUBLIC_API_URL` | _(empty)_ | Deprecated legacy fallback, honoured if the above is unset. |
+| `NEXT_PUBLIC_TIMEZONE` | `Europe/London` | Display timezone. |
+| `NEXT_PUBLIC_LOCALE` | `en-GB` | Display locale. |
+| `NEXT_PUBLIC_CURRENCY` | `GBP` | Display currency. |
+| `NEXT_PUBLIC_ALLOW_PUBLIC_REGISTRATION` | `false` | Shows the `/register` form (API 403s regardless). |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | _(empty)_ | Fallback; the client prefers the API-published key. |
+| `NEXT_PUBLIC_SITE_NAME` / `_LATITUDE` / `_LONGITUDE` / `_RADIUS_METERS` | _(empty)_ | Site geofence for location-checked clock-in. |
+
+**Changing any of these requires rebuilding the `ems-web` image:**
+
+- **CI (k8s):** set the matching repository/org **Variables** (same names, e.g.
+  `NEXT_PUBLIC_API_BASE_URL=https://ems.yourcompany.com/api/v1` for the direct
+  cross-origin topology) — `docker-build.yaml` passes them as build-args.
+  A redeploy of an already-built image changes nothing client-side.
+- **Compose:** set them as build `args` in `docker-compose.prod.yml`
+  (interpolated from your shell/`.env`, e.g. `NEXT_PUBLIC_API_BASE_URL`),
+  then `docker compose -f docker-compose.prod.yml build web`.
+
+Consequence of build-time baking: **one web image = one API URL.** If two
+environments need different API origins, build a separate `ems-web` image per
+environment (the image tags are per-commit anyway — see "Image tags" below).
+
 ## 3. Migrate (release pipeline step)
 
 > ⚠️ **FRESH INSTALLS: apply the enum values AFTER `migrate deploy`.**

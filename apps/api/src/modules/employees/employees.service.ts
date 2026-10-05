@@ -129,8 +129,13 @@ export class EmployeesService {
     }
 
     const result = await this.findAll(scopedQuery);
+    const rawItems: any[] = Array.isArray((result as any).data?.items)
+      ? (result as any).data.items
+      : Array.isArray((result as any).data)
+      ? (result as any).data
+      : [];
     const items = await Promise.all(
-      (result as any).data.map(async (e: any) => {
+      rawItems.map(async (e: any) => {
         const sanitized = sanitizeEmployee(e, viewer.roles);
         if (sanitized && typeof sanitized === 'object' && 'avatarUrl' in sanitized) {
           sanitized.avatarUrl = await this.resolveAvatarUrl((sanitized as any).avatarUrl);
@@ -138,6 +143,9 @@ export class EmployeesService {
         return sanitized;
       }),
     );
+    if ((result as any).data?.items) {
+      return { ...result, data: { ...(result as any).data, items } };
+    }
     return { ...(result as any), data: items };
   }
 

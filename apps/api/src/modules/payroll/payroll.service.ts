@@ -457,23 +457,30 @@ export class PayrollService {
    * Disburses an APPROVED run: APPROVED -> PAID in a transaction, stamping
    * disbursementDate on the run and every payslip. Idempotent: re-disbursing
    * a PAID run returns it unchanged (no-op). Any other status -> 409.
+   *
+   * Concurrency (F10): the APPROVED check above is not serialised with the
+   * write below, so the transition itself is conditional — the update only
+   * matches while the row is STILL APPROVED. The database serialises the
+   * writers: exactly one wins, the loser gets P2025 and is re-classified as
+   * a no-op (already PAID) or 409 (moved to any other state).
    */
   async disbursePayrollRun(id: string, actorId: string, actorEmail?: string) {
     const disbursementDate = new Date();
+    const slipSelect = {
+      payslips: {
+        select: {
+          id: true,
+          employeeId: true,
+          netPay: true,
+          employee: { select: { userId: true } },
+        },
+      },
+    };
 
     const { disbursed, updated } = await this.prisma.$transaction(async (tx) => {
       const run = await tx.payrollRun.findUnique({
         where: { id },
-        include: {
-          payslips: {
-            select: {
-              id: true,
-              employeeId: true,
-              netPay: true,
-              employee: { select: { userId: true } },
-            },
-          },
-        },
+        include: slipSelect,
       });
       if (!run) throw new NotFoundException('Payroll run not found');
 
@@ -489,10 +496,35 @@ export class PayrollService {
         );
       }
 
-      const paidRun = await tx.payrollRun.update({
-        where: { id },
-        data: { status: PayrollStatus.PAID },
-      });
+      // Atomic guard: only the writer that still observes APPROVED moves the
+      // run to PAID. (The `as any` is deliberate: Prisma's generated
+      // WhereUniqueInput type only declares unique fields, but the query
+      // engine applies the whole filter — `WHERE id AND status` — and throws
+      // P2025 when no row matches. This is the standard Prisma optimistic-
+      // locking pattern.)
+      let paidRun: any;
+      try {
+        paidRun = await tx.payrollRun.update({
+          where: { id, status: PayrollStatus.APPROVED } as any,
+          data: { status: PayrollStatus.PAID },
+        });
+      } catch (e: any) {
+        if (e?.code !== 'P2025') throw e;
+        // Lost the race: re-read to distinguish "already PAID" (safe no-op)
+        // from any other state (409), instead of trusting the stale read.
+        const current = await tx.payrollRun.findUnique({
+          where: { id },
+          include: slipSelect,
+        });
+        if (!current) throw new NotFoundException('Payroll run not found');
+        if (current.status !== PayrollStatus.PAID) {
+          throw new ConflictException(
+            `Payroll run must be APPROVED before disbursement (current status: ${current.status})`,
+          );
+        }
+        this.logger.log(`Disburse lost race: payroll run ${id} is already PAID — no-op`);
+        return { disbursed: false as const, updated: current };
+      }
 
       await tx.payslip.updateMany({
         where: { payrollRunId: id },

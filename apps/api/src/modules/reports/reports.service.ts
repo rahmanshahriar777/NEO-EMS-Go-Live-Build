@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../core/prisma/prisma.service';
-import { EmailQueueProducer } from '../notifications/email-queue.producer';
+import { QueueService } from '../../core/queues/queue.service';
 import { toCsv } from './export/csv';
 import { toXlsx, XlsxCell } from './export/xlsx';
 import { renderPdf } from './export/pdf';
@@ -51,7 +51,7 @@ export class ReportsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
-    private readonly emailQueue: EmailQueueProducer,
+    private readonly queueService: QueueService,
   ) {
     this.currency = this.configService.get<string>('PAYROLL_CURRENCY') || 'GBP';
   }
@@ -336,6 +336,11 @@ export class ReportsService {
    * on each invocation. Schema worker: replace REPORT_SCHEDULES with a
    * ReportSchedule table (reportType, format, recipients, cronExpr,
    * lastRunAt, isActive).
+   *
+   * Delivery goes through the LIVE `notifications` queue (channel 'email')
+   * as user-less email-only jobs: the worker's email hook resolves the
+   * recipient from `data.email` and attaches the generated file. (The old
+   * standalone `email` queue had no consumer — HIGH #2 — and is deleted.)
    */
   async runScheduledReports(): Promise<{ ran: number; emailed: number; errors: string[] }> {
     const schedules = this.readSchedules();
@@ -347,17 +352,16 @@ export class ReportsService {
         const { buffer, filename } = await this.exportReport(s.type, s.format);
         const correlationId = randomUUID();
         for (const to of s.recipients) {
-          const jobId = await this.emailQueue.enqueueEmail(
+          const jobId = await this.queueService.enqueueNotification(
+            undefined, // no userId: email-only job to a raw address
+            'email',
+            'scheduled-report',
             {
-              to,
+              email: to,
               subject: s.subject ?? `Scheduled report: ${s.type}`,
-              text: `Attached: ${filename} (generated ${new Date().toISOString()}).`,
-              template: 'scheduled-report',
-              data: {
-                reportType: s.type,
-                format: s.format,
-                attachment: { filename, contentBase64: buffer.toString('base64') },
-              },
+              title: s.subject ?? `Scheduled report: ${s.type}`,
+              message: `Attached: ${filename} (generated ${new Date().toISOString()}).`,
+              attachment: { filename, contentBase64: buffer.toString('base64') },
             },
             correlationId,
             `scheduled-report:${s.type}:${s.format}:${to}:${new Date().toISOString().slice(0, 10)}`,

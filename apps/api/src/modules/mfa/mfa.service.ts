@@ -183,13 +183,21 @@ export class MfaService {
    * a TOTP code or an unused recovery code (single-use: its hash is deleted).
    * Returns the full session (user profile + tokens); the controller sets the
    * cookies and returns only the user in the body (item 8).
+   *
+   * P0-7 replay hardening:
+   *  (a) the challenge token is single-use — its jti is consumed in Redis
+   *      AFTER the second factor verifies (a wrong code must not burn the
+   *      challenge), so a captured (challenge, code) pair cannot mint a
+   *      second session;
+   *  (b) each TOTP 30s time-step may be consumed only once per user — a
+   *      replayed code within its epoch window is rejected.
    */
   async completeChallenge(
     challengeToken: string,
     code: string,
     ipAddress?: string,
   ): Promise<{ user: import('@ems/shared').AuthUserResponse; tokens: import('@ems/shared').TokensResponse }> {
-    const userId = await this.tokenService.verifyMfaChallengeToken(challengeToken);
+    const { userId, jti } = await this.tokenService.verifyMfaChallengeToken(challengeToken);
     const { mfaSecret, mfaEnabled, mfaRecoveryHashes } = await this.getMfaFields(userId);
 
     if (!mfaEnabled || !mfaSecret) {
@@ -197,9 +205,26 @@ export class MfaService {
     }
 
     const window = this.configService.get<number>('mfa.totpWindow', 1);
-    const { valid: totpOk } = verifySync({ secret: mfaSecret, token: code, epochTolerance: window * 30 });
+    const verifyResult = verifySync({ secret: mfaSecret, token: code, epochTolerance: window * 30 });
+    const totpOk = verifyResult.valid;
+    // otplib 13.5.0 returns the matched 30s time-step at runtime (`timeStep`;
+    // verified empirically) but omits it from the public VerifyResult type,
+    // hence the narrow cast. It is deterministic per code — unlike
+    // floor(now/30)+delta, it cannot straddle a step boundary between verify
+    // and claim, which would let a replay slip through.
+    const timeStep = (verifyResult as { timeStep?: number }).timeStep ?? null;
 
-    if (!totpOk) {
+    if (totpOk) {
+      // P0-7b: claim the code's time-step before minting the session. A
+      // replayed code maps to the same step and loses the atomic claim.
+      const stepTtlSeconds = (window + 2) * 30;
+      const claimed =
+        timeStep === null ||
+        (await this.tokenService.claimTotpTimeStep(userId, timeStep, stepTtlSeconds));
+      if (!claimed) {
+        throw new UnauthorizedException('MFA code has already been used');
+      }
+    } else {
       // Recovery codes are single-use. Constant-time compare against the
       // stored hashes, then consume atomically (see consumeRecoveryCode) so
       // two concurrent requests can never double-spend the same code.
@@ -213,6 +238,10 @@ export class MfaService {
         `Recovery code consumed for user ${userId} (${remaining} remaining)`,
       );
     }
+
+    // P0-7a: single-use challenge — consumed only after the second factor
+    // verified, so a replayed challenge token is rejected here.
+    await this.tokenService.consumeMfaChallengeToken(jti);
 
     return this.authService.completeMfaLogin(userId, ipAddress);
   }

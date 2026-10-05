@@ -1,18 +1,7 @@
 import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/prisma/prisma.service';
-import { SystemRole } from '@ems/shared';
-
-/** Bounded retries for the employee-number race (concurrent signups). */
-const EMPLOYEE_NUMBER_MAX_ATTEMPTS = 5;
-
-function isUniqueConflictOn(error: unknown, field: string): boolean {
-  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
-    return false;
-  }
-  const target = (error.meta as { target?: unknown } | undefined)?.target;
-  return Array.isArray(target) && target.includes(field);
-}
+import { SystemRole, nextEmployeeNumber } from '@ems/shared';
 
 @Injectable()
 export class UserService {
@@ -106,33 +95,24 @@ export class UserService {
         throw e;
       }
 
-      // Automatically scaffold employee profile record.
-      // F11/F30 race fix: the old `count + 1` numbering collides under
-      // concurrent signups (two transactions read the same count). Retry the
-      // insert with a freshly re-read count on employeeNumber conflicts
-      // instead of failing the whole registration.
-      let employee;
-      for (let attempt = 0; ; attempt++) {
-        const count = await tx.employee.count();
-        const employeeNumber = `EMP-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
-        try {
-          employee = await tx.employee.create({
-            data: {
-              employeeNumber,
-              userId: user.id,
-              firstName,
-              lastName,
-              email: email.toLowerCase(),
-            },
-          });
-          break;
-        } catch (e) {
-          if (isUniqueConflictOn(e, 'employeeNumber') && attempt < EMPLOYEE_NUMBER_MAX_ATTEMPTS - 1) {
-            continue;
-          }
-          throw e;
-        }
-      }
+      // Automatically scaffold employee profile record. Race-free employee
+      // number via the employee_number_seq Postgres sequence (go-live
+      // Phase 1 item 6) — the same shared nextEmployeeNumber() helper used by
+      // employees.service.create and the recruitment offer-accept path.
+      // nextval() is atomic, so concurrent signups can never collide, and
+      // soft-deleted employees' numbers are never re-issued.
+      const employeeNumber = await nextEmployeeNumber((sql: string) =>
+        tx.$queryRawUnsafe(sql),
+      );
+      const employee = await tx.employee.create({
+        data: {
+          employeeNumber,
+          userId: user.id,
+          firstName,
+          lastName,
+          email: email.toLowerCase(),
+        },
+      });
 
       return { user, employee };
     });

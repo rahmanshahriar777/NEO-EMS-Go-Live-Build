@@ -401,8 +401,10 @@ describe('PayrollService', () => {
 
       const result = await service.disbursePayrollRun('run-1', 'checker-1', 'checker@ems.local');
 
+      // F10: the transition is conditional on the row still being APPROVED —
+      // this is the atomic guard that serialises concurrent disburse calls.
       expect(prismaService.payrollRun.update).toHaveBeenCalledWith({
-        where: { id: 'run-1' },
+        where: { id: 'run-1', status: PayrollStatus.APPROVED },
         data: { status: PayrollStatus.PAID },
       });
       expect(prismaService.payslip.updateMany).toHaveBeenCalledWith({

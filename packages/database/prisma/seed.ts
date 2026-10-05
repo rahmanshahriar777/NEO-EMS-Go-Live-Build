@@ -1175,6 +1175,17 @@ async function main() {
   }
   console.log(`✅ System audit logs seeded (${auditLogsData.length})`);
 
+  // Go-live HIGH #8: re-sync employee_number_seq AFTER all rows are seeded.
+  // The migration's setval runs at `migrate deploy` time — before these rows
+  // exist — so on a fresh DB the sequence would sit at 0 and the first
+  // app-created employee would re-issue a seeded EMP-YYYY-0001..0020 number
+  // (UNIQUE violation). Floor at 999 (same as the migration) so the sequence
+  // effectively starts at 1000; idempotent on re-runs.
+  await prisma.$executeRawUnsafe(
+    `SELECT setval('employee_number_seq', GREATEST(999, COALESCE((SELECT MAX(CAST(SUBSTRING("employeeNumber" FROM '[0-9]+$') AS INTEGER)) FROM "employees"), 0)))`,
+  );
+  console.log('✅ employee_number_seq re-synced above seeded employee numbers');
+
   console.log('🎉 Comprehensive database seed finished successfully with rich enterprise dummy data!');
   // Printed exactly ONCE. Valid only when superadmin@ems.local was created by
   // THIS run; re-runs never change existing credentials, so ignore this line

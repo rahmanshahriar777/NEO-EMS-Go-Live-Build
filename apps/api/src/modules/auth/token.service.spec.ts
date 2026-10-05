@@ -3,6 +3,7 @@ import { TokenService } from './token.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../core/prisma/prisma.service';
+import { RedisService } from '../../core/redis/redis.service';
 import { UnauthorizedException } from '@nestjs/common';
 import { SystemRole } from '@ems/shared';
 import * as crypto from 'crypto';
@@ -19,6 +20,7 @@ describe('TokenService', () => {
   let jwtService: { sign: jest.Mock; verify: jest.Mock };
   let configService: { get: jest.Mock };
   let prisma: any;
+  let redisService: { setIfAbsent: jest.Mock; getIsConnected: jest.Mock };
 
   const storedToken = (overrides: Record<string, any> = {}) => ({
     id: 'rt-1',
@@ -65,6 +67,10 @@ describe('TokenService', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
     };
+    redisService = {
+      setIfAbsent: jest.fn().mockResolvedValue(true),
+      getIsConnected: jest.fn().mockReturnValue(true),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -72,6 +78,7 @@ describe('TokenService', () => {
         { provide: JwtService, useValue: jwtService },
         { provide: ConfigService, useValue: configService },
         { provide: PrismaService, useValue: prisma },
+        { provide: RedisService, useValue: redisService },
       ],
     }).compile();
 
@@ -272,24 +279,44 @@ describe('TokenService', () => {
   });
 
   describe('MFA challenge tokens', () => {
-    it('issues a challenge token carrying the mfa-challenge purpose', async () => {
+    it('issues a challenge token carrying the mfa-challenge purpose and a jti', async () => {
       const token = await service.createMfaChallengeToken('user-1');
 
       expect(jwtService.sign).toHaveBeenCalledWith(
-        { sub: 'user-1', purpose: 'mfa-challenge' },
+        { sub: 'user-1', purpose: 'mfa-challenge', jti: expect.any(String) },
         { secret: 'test-access-secret', expiresIn: '5m' },
       );
       expect(typeof token).toBe('string');
     });
 
-    it('verifyMfaChallengeToken returns the user id for a valid challenge', async () => {
-      (jwtService.verify as jest.Mock).mockReturnValue({ sub: 'user-1', purpose: 'mfa-challenge' });
+    it('issues a unique jti per challenge', async () => {
+      await service.createMfaChallengeToken('user-1');
+      await service.createMfaChallengeToken('user-1');
+      const jtis = jwtService.sign.mock.calls.map((c) => c[0].jti);
+      expect(new Set(jtis).size).toBe(2);
+    });
 
-      await expect(service.verifyMfaChallengeToken('challenge')).resolves.toBe('user-1');
+    it('verifyMfaChallengeToken returns the user id and jti for a valid challenge', async () => {
+      (jwtService.verify as jest.Mock).mockReturnValue({
+        sub: 'user-1',
+        purpose: 'mfa-challenge',
+        jti: 'jti-1',
+      });
+
+      await expect(service.verifyMfaChallengeToken('challenge')).resolves.toEqual({
+        userId: 'user-1',
+        jti: 'jti-1',
+      });
     });
 
     it('verifyMfaChallengeToken rejects tokens with the wrong purpose', async () => {
-      (jwtService.verify as jest.Mock).mockReturnValue({ sub: 'user-1', purpose: 'access' });
+      (jwtService.verify as jest.Mock).mockReturnValue({ sub: 'user-1', purpose: 'access', jti: 'jti-1' });
+
+      await expect(service.verifyMfaChallengeToken('challenge')).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('verifyMfaChallengeToken rejects challenges without a jti (pre-fix tokens fail closed)', async () => {
+      (jwtService.verify as jest.Mock).mockReturnValue({ sub: 'user-1', purpose: 'mfa-challenge' });
 
       await expect(service.verifyMfaChallengeToken('challenge')).rejects.toThrow(UnauthorizedException);
     });
@@ -300,6 +327,45 @@ describe('TokenService', () => {
       });
 
       await expect(service.verifyMfaChallengeToken('stale')).rejects.toThrow(/expired/i);
+    });
+
+    it('consumeMfaChallengeToken claims the jti on first use', async () => {
+      await service.consumeMfaChallengeToken('jti-1');
+
+      expect(redisService.setIfAbsent).toHaveBeenCalledWith(
+        'mfa:challenge:consumed:jti-1',
+        '1',
+        600,
+      );
+    });
+
+    it('consumeMfaChallengeToken rejects a replayed challenge jti', async () => {
+      redisService.setIfAbsent.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+
+      await service.consumeMfaChallengeToken('jti-replay');
+      await expect(service.consumeMfaChallengeToken('jti-replay')).rejects.toThrow(
+        /already been used/,
+      );
+    });
+
+    it('claimTotpTimeStep returns true on first claim, false on replay', async () => {
+      redisService.setIfAbsent.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+
+      await expect(service.claimTotpTimeStep('user-1', 59705814, 90)).resolves.toBe(true);
+      await expect(service.claimTotpTimeStep('user-1', 59705814, 90)).resolves.toBe(false);
+      expect(redisService.setIfAbsent).toHaveBeenCalledWith(
+        'mfa:totp:used:user-1:59705814',
+        '1',
+        90,
+      );
+    });
+
+    it('replay guards fail open (with Redis down) rather than bricking MFA login', async () => {
+      redisService.getIsConnected.mockReturnValue(false);
+
+      await expect(service.consumeMfaChallengeToken('jti-x')).resolves.toBeUndefined();
+      await expect(service.claimTotpTimeStep('user-1', 1, 90)).resolves.toBe(true);
+      expect(redisService.setIfAbsent).not.toHaveBeenCalled();
     });
   });
 

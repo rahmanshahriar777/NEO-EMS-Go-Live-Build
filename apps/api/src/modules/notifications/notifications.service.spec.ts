@@ -3,12 +3,12 @@ import { ConfigService } from '@nestjs/config';
 import { NotificationsService } from './notifications.service';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
-import { EmailQueueProducer } from './email-queue.producer';
+import { QueueService } from '../../core/queues/queue.service';
 
 describe('NotificationsService', () => {
   let service: NotificationsService;
   let prisma: any;
-  let emailQueue: any;
+  let queueService: any;
   let redis: any;
 
   beforeEach(async () => {
@@ -22,14 +22,14 @@ describe('NotificationsService', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
     };
-    emailQueue = { enqueueEmail: jest.fn().mockResolvedValue('job-1') };
+    queueService = { enqueueNotification: jest.fn().mockResolvedValue('job-1') };
     redis = { get: jest.fn(), set: jest.fn(), del: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         NotificationsService,
         { provide: PrismaService, useValue: prisma },
-        { provide: EmailQueueProducer, useValue: emailQueue },
+        { provide: QueueService, useValue: queueService },
         { provide: RedisService, useValue: redis },
         { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(undefined) } },
       ],
@@ -74,7 +74,7 @@ describe('NotificationsService', () => {
     });
   });
 
-  it('notify persists in-app first, then enqueues email copy with idempotency key', async () => {
+  it('notify with emailCopy enqueues onto the live notifications queue (channel email)', async () => {
     const res = await service.notify({
       userId: 'user-1',
       template: 'leave-request-approved',
@@ -85,19 +85,28 @@ describe('NotificationsService', () => {
       emailTo: 'ada@example.com',
     });
 
-    expect(res.notificationId).toBe('notif-1');
+    // The worker creates the in-app row in this path (persist-first, then
+    // the email channel hook), so the API does not persist one itself and
+    // there is exactly one in-app copy — no duplicates.
+    expect(res.notificationId).toBeNull();
     expect(res.emailQueued).toBe(true);
-    expect(prisma.notification.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ recipientId: 'user-1', title: 'Leave request approved' }),
-    });
-    expect(emailQueue.enqueueEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ to: 'ada@example.com', template: 'leave-request-approved' }),
+    expect(prisma.notification.create).not.toHaveBeenCalled();
+    expect(queueService.enqueueNotification).toHaveBeenCalledWith(
+      'user-1',
+      'email',
+      'leave-request-approved',
+      expect.objectContaining({
+        email: 'ada@example.com',
+        subject: 'Leave request approved',
+        title: 'Leave request approved',
+        message: 'Your leave was approved.',
+      }),
       undefined,
       'leave-decision:req-1',
     );
   });
 
-  it('notify without emailCopy does not touch the email queue', async () => {
+  it('notify without emailCopy persists in-app only and touches no queue', async () => {
     const res = await service.notify({
       userId: 'user-1',
       template: 'leave-request-created',
@@ -105,28 +114,31 @@ describe('NotificationsService', () => {
       message: 'Someone requested leave.',
     });
 
+    expect(res.notificationId).toBe('notif-1');
     expect(res.emailQueued).toBe(false);
-    expect(emailQueue.enqueueEmail).not.toHaveBeenCalled();
+    expect(prisma.notification.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ recipientId: 'user-1', title: 'New leave request' }),
+    });
+    expect(queueService.enqueueNotification).not.toHaveBeenCalled();
   });
 
-  it('notify is fail-open when the email queue fails', async () => {
-    emailQueue.enqueueEmail.mockResolvedValue(null);
-
+  it('notify warns and skips the email when emailCopy is set without emailTo', async () => {
     const res = await service.notify({
       userId: 'user-1',
       template: 'review-completed',
       title: 'Review completed',
       message: 'Done.',
       emailCopy: true,
-      emailTo: 'ada@example.com',
     });
 
     expect(res.notificationId).toBe('notif-1');
     expect(res.emailQueued).toBe(false);
+    expect(queueService.enqueueNotification).not.toHaveBeenCalled();
+    expect(prisma.notification.create).toHaveBeenCalled();
   });
 
-  it('notify never throws when the email queue throws (fail-safe; in-app copy persisted)', async () => {
-    emailQueue.enqueueEmail.mockRejectedValue(new Error('Redis unavailable'));
+  it('notify never throws when the enqueue throws (fail-safe; in-app copy persisted)', async () => {
+    queueService.enqueueNotification.mockRejectedValue(new Error('Redis unavailable'));
 
     const res = await service.notify({
       userId: 'user-1',
@@ -140,7 +152,9 @@ describe('NotificationsService', () => {
     // In-app row is the guaranteed fallback: no throw, emailQueued false.
     expect(res.notificationId).toBe('notif-1');
     expect(res.emailQueued).toBe(false);
-    expect(prisma.notification.create).toHaveBeenCalled();
+    expect(prisma.notification.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ recipientId: 'user-1', title: 'Review completed' }),
+    });
   });
 
   describe('web push', () => {

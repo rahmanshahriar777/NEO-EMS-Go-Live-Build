@@ -16,6 +16,7 @@ import { TokenService } from './token.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../core/prisma/prisma.service';
+import { RedisService } from '../../core/redis/redis.service';
 import { UnauthorizedException } from '@nestjs/common';
 import { SystemRole } from '@ems/shared';
 import * as crypto from 'crypto';
@@ -81,6 +82,10 @@ describe('refresh-token reuse: full lifecycle', () => {
           useValue: { get: jest.fn((k: string, f?: any) => (k === 'jwt.accessSecret' ? 'test-secret' : f)) },
         },
         { provide: PrismaService, useValue: prisma },
+        {
+          provide: RedisService,
+          useValue: { setIfAbsent: jest.fn().mockResolvedValue(true), getIsConnected: jest.fn().mockReturnValue(true) },
+        },
       ],
     }).compile();
 

@@ -13,6 +13,17 @@ import { log } from '../logger.js';
  * for the current calendar year. Balances are upserted on the
  * @@unique([employeeId, leaveTypeId, year]) key, so a fresh year starts clean.
  *
+ * REDIS (HIGH #4 fix): this processor reuses the worker's shared BullMQ
+ * connection, injected once at boot via `setLeaveAccrualRedis()` (called
+ * from main.ts). The old module-local client used `lazyConnect: true` and
+ * never called `connect()` — with `enableOfflineQueue: false` every
+ * command rejected, so every monthly run failed into the DLQ.
+ *
+ * DISTRIBUTED LOCK: a `<marker>:lock` key (SET NX EX 1h) wraps the accrual
+ * pass so two worker replicas can never double-accrue the same month. The
+ * lock holder crashing mid-pass is safe: the lock expires, and the
+ * per-employee done-set makes a resumed pass skip already-credited rows.
+ *
  * IDEMPOTENCY ("credit once per month"):
  * - A completion marker `ems:accrual:leave:<year>:<month>` is set ONLY after
  *   the full pass succeeds (TTL 62 days). A repeat fire in the same month
@@ -32,21 +43,51 @@ import { log } from '../logger.js';
 
 const ACCRUAL_KEY_PREFIX = 'ems:accrual:leave:';
 const MARKER_TTL_SECONDS = 62 * 86400;
+const LOCK_TTL_SECONDS = 3600;
 const EMPLOYEE_BATCH_SIZE = 500;
 
 let redis: Redis | null = null;
 
-function getRedis(): Redis {
-  if (!redis) {
-    redis = new Redis({
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379', 10),
-      password: process.env.REDIS_PASSWORD || undefined,
-      maxRetriesPerRequest: 3,
-      lazyConnect: true,
-      enableOfflineQueue: false,
-    });
+/**
+ * Inject the worker's shared Redis connection. MUST be called once at
+ * worker boot (main.ts) before any accrual job can fire.
+ */
+export function setLeaveAccrualRedis(connection: Redis): void {
+  redis = connection;
+  log.info('leave-accrual.redis.injected', {});
+}
+
+/** Release the accrual lock only if we still hold it (compare-and-del). */
+const RELEASE_LOCK_LUA = `
+if redis.call("get", KEYS[1]) == ARGV[1] then
+  return redis.call("del", KEYS[1])
+else
+  return 0
+end`;
+
+async function releaseAccrualLock(r: Redis, lockKey: string, token: string): Promise<void> {
+  try {
+    await r.eval(RELEASE_LOCK_LUA, 1, lockKey, token);
+  } catch (e: any) {
+    // Best-effort: the lock TTL bounds the damage if this fails.
+    log.warn('leave-accrual.lock-release-failed', { lockKey, error: e?.message });
   }
+}
+
+function getRedis(): Redis {
+  if (redis) return redis;
+  // Defensive fallback (main.ts always injects): a client that connects
+  // EAGERLY — the old lazyConnect:true client that never connected is what
+  // dead-lettered every accrual run (HIGH #4).
+  log.warn('leave-accrual.redis.fallback', {
+    reason: 'no shared connection injected; creating an eagerly-connected client',
+  });
+  redis = new Redis({
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379', 10),
+    password: process.env.REDIS_PASSWORD || undefined,
+    maxRetriesPerRequest: 3,
+  });
   return redis;
 }
 
@@ -93,6 +134,40 @@ export async function accrueMonthlyLeave(job: Job<{ correlationId?: string }>) {
     });
     return { operation: 'accrueMonthlyLeave', skipped: true, year, month };
   }
+
+  // Distributed lock (HIGH #4): two worker replicas must never accrue the
+  // same month concurrently. SET NX EX — only the lock winner runs the
+  // pass; the loser skips loudly (the monthly repeatable job fires once,
+  // so a skip here means "already handled", not "lost").
+  const lockKey = `${markerKey}:lock`;
+  const lockToken = randomUUID();
+  const acquired = await r.set(lockKey, lockToken, 'EX', LOCK_TTL_SECONDS, 'NX');
+  if (acquired !== 'OK') {
+    log.warn('leave-accrual.lock-skip', {
+      jobId: job.id,
+      year,
+      month,
+      lockKey,
+      reason: 'another worker holds the accrual lock — skipping this run',
+      correlationId,
+    });
+    return { operation: 'accrueMonthlyLeave', skipped: true, year, month, reason: 'lock-held' };
+  }
+
+  try {
+    return await runAccrualPass(r, job, { year, month, markerKey, doneKey, correlationId });
+  } finally {
+    await releaseAccrualLock(r, lockKey, lockToken);
+  }
+}
+
+/** The accrual pass itself. Runs only under the distributed lock. */
+async function runAccrualPass(
+  r: Redis,
+  job: Job<{ correlationId?: string }>,
+  ctx: { year: number; month: number; markerKey: string; doneKey: string; correlationId: string },
+) {
+  const { year, month, markerKey, doneKey, correlationId } = ctx;
 
   const policies = await prisma.leavePolicy.findMany({
     where: { accrualPerMonth: { not: null } },

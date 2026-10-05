@@ -1,7 +1,8 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../core/prisma/prisma.service';
+import { RedisService } from '../../core/redis/redis.service';
 import { parseDurationMs } from '../../config/configuration';
 import { JwtPayload, TokensResponse, SystemRole } from '@ems/shared';
 import * as crypto from 'crypto';
@@ -15,12 +16,27 @@ import * as crypto from 'crypto';
 const MFA_CHALLENGE_PURPOSE = 'mfa-challenge';
 const MFA_CHALLENGE_TTL = '5m';
 
+/**
+ * P0-7a — single-use MFA challenges. Consumed challenge jtis live in Redis
+ * with a TTL comfortably beyond the 5-minute challenge lifetime; a replayed
+ * (challenge, code) pair is rejected even though the JWT itself still
+ * verifies.
+ */
+const MFA_CHALLENGE_CONSUMED_PREFIX = 'mfa:challenge:consumed:';
+const MFA_CHALLENGE_CONSUMED_TTL_S = 10 * 60;
+
+/** P0-7b — consumed TOTP 30s time-steps, one key per (user, step). */
+const MFA_TOTP_USED_PREFIX = 'mfa:totp:used:';
+
 @Injectable()
 export class TokenService {
+  private readonly logger = new Logger(TokenService.name);
+
   constructor(
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
   ) {}
 
   private hashToken(token: string): string {
@@ -225,10 +241,14 @@ export class TokenService {
    * Issue a short-lived MFA challenge token after a successful password check
    * for a user with MFA enabled. The client presents it to POST /mfa/challenge
    * together with the TOTP code (or a recovery code) to complete login.
+   *
+   * P0-7a: carries a random `jti` so each challenge is single-use — the jti
+   * is recorded in Redis on first successful completion and reuse is
+   * rejected (see consumeMfaChallengeToken).
    */
   async createMfaChallengeToken(userId: string): Promise<string> {
     return this.jwtService.sign(
-      { sub: userId, purpose: MFA_CHALLENGE_PURPOSE },
+      { sub: userId, purpose: MFA_CHALLENGE_PURPOSE, jti: crypto.randomUUID() },
       {
         secret: this.configService.get<string>('jwt.accessSecret'),
         expiresIn: MFA_CHALLENGE_TTL,
@@ -236,19 +256,88 @@ export class TokenService {
     );
   }
 
-  /** Validate a challenge token and return the user id it was issued for. */
-  async verifyMfaChallengeToken(challengeToken: string): Promise<string> {
+  /**
+   * Validate a challenge token (signature, purpose, jti present) and return
+   * the user id plus the jti. Does NOT consume the challenge — consumption
+   * happens in consumeMfaChallengeToken after the second factor verifies, so
+   * a wrong TOTP code does not burn the challenge.
+   */
+  async verifyMfaChallengeToken(challengeToken: string): Promise<{ userId: string; jti: string }> {
     try {
-      const payload = this.jwtService.verify<{ sub: string; purpose: string }>(challengeToken, {
-        secret: this.configService.get<string>('jwt.accessSecret'),
-      });
-      if (!payload?.sub || payload.purpose !== MFA_CHALLENGE_PURPOSE) {
+      const payload = this.jwtService.verify<{ sub: string; purpose: string; jti?: string }>(
+        challengeToken,
+        {
+          secret: this.configService.get<string>('jwt.accessSecret'),
+        },
+      );
+      if (!payload?.sub || !payload?.jti || payload.purpose !== MFA_CHALLENGE_PURPOSE) {
         throw new UnauthorizedException('Invalid MFA challenge token');
       }
-      return payload.sub;
+      return { userId: payload.sub, jti: payload.jti };
     } catch (e) {
       if (e instanceof UnauthorizedException) throw e;
       throw new UnauthorizedException('Invalid or expired MFA challenge token');
     }
+  }
+
+  /**
+   * P0-7a — consume an MFA challenge exactly once.
+   *
+   * Atomically claims the challenge jti in Redis (SET NX). The first
+   * completion wins; any replay of the same challenge token — even with a
+   * fresh TOTP code — is rejected, so a captured (challenge, code) pair can
+   * never mint a second session.
+   */
+  async consumeMfaChallengeToken(jti: string): Promise<void> {
+    if (!this.replayStoreAvailable('MFA challenge single-use check')) {
+      return;
+    }
+    const claimed = await this.redisService.setIfAbsent(
+      `${MFA_CHALLENGE_CONSUMED_PREFIX}${jti}`,
+      '1',
+      MFA_CHALLENGE_CONSUMED_TTL_S,
+    );
+    if (!claimed) {
+      this.logger.warn(`Rejected replay of consumed MFA challenge jti=${jti}`);
+      throw new UnauthorizedException('MFA challenge token has already been used');
+    }
+  }
+
+  /**
+   * P0-7b — claim one TOTP 30s time-step for a user.
+   *
+   * Returns true when this caller consumed the step (first use), false when
+   * the step was already consumed (replay within the epoch window). Atomic
+   * via Redis SET NX: two concurrent requests with the same code cannot both
+   * win. TTL covers the step's whole acceptance horizon; callers pass
+   * (window + 2) * 30 seconds.
+   */
+  async claimTotpTimeStep(userId: string, timeStep: number, ttlSeconds: number): Promise<boolean> {
+    if (!this.replayStoreAvailable('TOTP replay check')) {
+      return true;
+    }
+    const claimed = await this.redisService.setIfAbsent(
+      `${MFA_TOTP_USED_PREFIX}${userId}:${timeStep}`,
+      '1',
+      ttlSeconds,
+    );
+    if (!claimed) {
+      this.logger.warn(`Rejected replayed TOTP code for user ${userId} (timeStep=${timeStep})`);
+    }
+    return claimed;
+  }
+
+  /**
+   * Replay guards are Redis-backed. When Redis is unreachable we fail open
+   * (allow the request) with a loud warning — the same convention as the
+   * Redis throttler storage — rather than bricking all MFA logins during a
+   * Redis outage. Redis disconnects should be alerted on in production.
+   */
+  private replayStoreAvailable(what: string): boolean {
+    if (this.redisService.getIsConnected()) {
+      return true;
+    }
+    this.logger.warn(`${what} degraded: Redis unavailable (fail-open)`);
+    return false;
   }
 }

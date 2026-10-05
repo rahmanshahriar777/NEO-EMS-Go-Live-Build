@@ -6,11 +6,14 @@ import { log } from '../logger.js';
 /**
  * Notification processor: persist + dispatch.
  *
- * The in-app record in `notifications` is always persisted first — it is the
- * source of truth the dashboard reads. External channels (email/SMS) go
- * through registered hooks. This processor NEVER claims a message was "sent"
- * unless a hook confirms it: unconfigured channels are reported honestly as
- * `not_configured` so nobody mistakes a log line for a delivery.
+ * The in-app record in `notifications` is persisted first whenever the job
+ * has a userId — it is the source of truth the dashboard reads. Email-only
+ * jobs to raw addresses (scheduled reports) carry no userId and skip the
+ * in-app persist; the email hook resolves the recipient from `data.email`.
+ * External channels (email/SMS) go through registered hooks. This processor
+ * NEVER claims a message was "sent" unless a hook confirms it: unconfigured
+ * channels are reported honestly as `not_configured` so nobody mistakes a
+ * log line for a delivery.
  *
  * RETRY SEMANTICS (Phase 2 item 2, go-live hardening): when a channel hook
  * reports `failed` (e.g. the SMTP relay rejected the message), the processor
@@ -57,19 +60,35 @@ export async function processNotification(job: Job<NotificationJobPayload>) {
   const { userId, channel, template, data, correlationId } = job.data;
   log.info('notification.dispatch.start', { jobId: job.id, userId, channel, template, correlationId });
 
-  if (!userId || !template) {
-    throw new Error('Notification job missing required fields: userId and template are required.');
+  if (!template) {
+    throw new Error('Notification job missing required field: template is required.');
+  }
+  if (!userId && channel !== 'email') {
+    throw new Error(
+      `Notification channel '${channel}' requires a userId; only the email channel supports user-less jobs to raw addresses (data.email).`,
+    );
   }
 
   // 1. Persist — the dashboard reads this; it is the only delivery we can
   //    guarantee ourselves. On a channel retry (attemptsMade > 0) the earlier
   //    attempt already persisted the row: reuse it instead of duplicating.
+  //    Email-only jobs (no userId, e.g. scheduled reports to raw addresses)
+  //    skip this step — the email hook resolves the recipient from
+  //    `data.email` and there is no in-app inbox to write to.
   const title = String(data?.title ?? template);
   const message = String(data?.message ?? '');
   const linkUrl = data?.linkUrl ? String(data.linkUrl) : undefined;
 
-  let notification: { id: string };
-  if (job.attemptsMade > 0) {
+  let notification: { id: string } | null = null;
+  if (!userId) {
+    log.info('notification.dispatch.no-inapp', {
+      jobId: job.id,
+      channel,
+      template,
+      correlationId,
+      reason: 'no userId — email-only job to a raw address',
+    });
+  } else if (job.attemptsMade > 0) {
     const existing = await prisma.notification.findFirst({
       where: {
         recipientId: userId,
@@ -105,16 +124,19 @@ export async function processNotification(job: Job<NotificationJobPayload>) {
     result = {
       channel,
       status: 'delivered',
-      detail: `persisted as notification ${notification.id}`,
+      detail: `persisted as notification ${notification?.id}`,
     };
   } else {
     const hook = channelHooks.get(channel);
     if (!hook) {
+      const inAppNote = notification
+        ? `In-app record ${notification.id} persisted; `
+        : 'No in-app record (email-only job); ';
       result = {
         channel,
         status: 'not_configured',
         detail:
-          `No ${channel} provider wired. In-app record ${notification.id} persisted; ` +
+          `No ${channel} provider wired. ${inAppNote}` +
           `call registerChannelHook('${channel}', …) in the worker bootstrap to enable delivery.`,
       };
     } else {
@@ -128,7 +150,7 @@ export async function processNotification(job: Job<NotificationJobPayload>) {
 
   log.info('notification.dispatch.done', {
     jobId: job.id,
-    notificationId: notification.id,
+    notificationId: notification?.id ?? null,
     channel: result.channel,
     status: result.status,
     detail: result.detail,
@@ -141,10 +163,10 @@ export async function processNotification(job: Job<NotificationJobPayload>) {
   // `not_configured` is NOT thrown: no provider exists to retry against.
   if (result.status === 'failed') {
     throw new Error(
-      `Notification channel '${result.channel}' failed for notification ${notification.id}: ` +
+      `Notification channel '${result.channel}' failed for notification ${notification?.id ?? '(no in-app row)'}: ` +
         (result.detail || 'channel hook reported failure'),
     );
   }
 
-  return { notificationId: notification.id, channel: result };
+  return { notificationId: notification?.id ?? null, channel: result };
 }

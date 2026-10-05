@@ -1,6 +1,7 @@
 import {
   SmtpEmailProvider,
   type EmailProvider,
+  type EmailAttachment,
 } from '@ems/mailer';
 
 /**
@@ -38,6 +39,8 @@ export interface EmailMessage {
   html?: string;
   from?: string;
   replyTo?: string;
+  /** File attachments, passed through to the shared provider. */
+  attachments?: EmailAttachment[];
 }
 
 /** Resolve SMTP config from the environment. Returns null when disabled (no SMTP_HOST). */
@@ -97,6 +100,7 @@ export async function sendSmtp(config: SmtpConfig, msg: EmailMessage): Promise<v
       html: msg.html,
       from: msg.from ?? config.from,
       replyTo: msg.replyTo,
+      attachments: msg.attachments,
     });
   } finally {
     await (provider as SmtpEmailProvider).close();

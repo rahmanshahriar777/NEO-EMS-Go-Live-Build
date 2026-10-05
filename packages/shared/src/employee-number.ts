@@ -11,6 +11,47 @@
  * offer-accept auto-create) format through this module.
  */
 
+/**
+ * Floor for the employee_number_seq seed value (go-live HIGH #8).
+ *
+ * Mirrors migration 20261005140000_employee_number_seq:
+ *   SELECT setval('employee_number_seq',
+ *     GREATEST(999, COALESCE(MAX(trailing digits of employeeNumber), 0)))
+ * Seeded demo employees occupy EMP-YYYY-0001..0020, so the sequence must
+ * effectively start at 1000 — without the floor, the first app-created
+ * employee would re-issue EMP-YYYY-0001 and hit the UNIQUE constraint.
+ */
+export const EMPLOYEE_NUMBER_SEQUENCE_FLOOR = 999;
+
+/**
+ * Trailing digit run of an employee number: EMP-2026-0042 -> 42,
+ * EMP-12345 (legacy recruitment format) -> 12345. Returns null when the
+ * value has no trailing digits. Matches the migration's
+ * SUBSTRING("employeeNumber" FROM '[0-9]+$').
+ */
+export function trailingEmployeeDigits(value: string | null | undefined): number | null {
+  if (typeof value !== 'string') return null;
+  const m = value.match(/(\d+)$/);
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * Pure JS mirror of the migration's setval computation: the value the
+ * sequence must be seeded to given the employee numbers already in the
+ * table — never below EMPLOYEE_NUMBER_SEQUENCE_FLOOR, never below the
+ * highest trailing digit run. Unit-tested in employee-number.test.ts.
+ */
+export function computeEmployeeNumberSequenceSeed(
+  employeeNumbers: Iterable<string | null | undefined>,
+): number {
+  let max = EMPLOYEE_NUMBER_SEQUENCE_FLOOR;
+  for (const n of employeeNumbers) {
+    const t = trailingEmployeeDigits(n);
+    if (t !== null && t > max) max = t;
+  }
+  return max;
+}
+
 /** Format a sequence value as EMP-YYYY-NNNN. */
 export function formatEmployeeNumber(year: number, sequence: number): string {
   if (!Number.isInteger(year) || year < 2000 || year > 9999) {
@@ -37,7 +78,9 @@ export async function nextEmployeeNumber(
     `SELECT nextval('employee_number_seq') AS n`,
   )) as Array<{ n: unknown }> | null | undefined;
   const n = Number((rows as Array<{ n: unknown }>)?.[0]?.n);
-  if (!Number.isFinite(n)) {
+  // nextval() always yields a positive integer; anything else (empty rows,
+  // null, NaN) means the sequence is missing or broken — never fabricate.
+  if (!Number.isFinite(n) || n < 1) {
     throw new Error(
       'nextEmployeeNumber: employee_number_seq returned no value — ' +
         'migration 20261005140000_employee_number_seq has not been applied',

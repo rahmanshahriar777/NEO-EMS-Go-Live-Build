@@ -27,6 +27,8 @@ describe('MfaService', () => {
   let passwordService: { verify: jest.Mock };
   let tokenService: {
     verifyMfaChallengeToken: jest.Mock;
+    consumeMfaChallengeToken: jest.Mock;
+    claimTotpTimeStep: jest.Mock;
     listActiveSessions: jest.Mock;
     revokeTokenFamily: jest.Mock;
     revokeAllUserTokens: jest.Mock;
@@ -52,6 +54,8 @@ describe('MfaService', () => {
     passwordService = { verify: jest.fn() };
     tokenService = {
       verifyMfaChallengeToken: jest.fn(),
+      consumeMfaChallengeToken: jest.fn().mockResolvedValue(undefined),
+      claimTotpTimeStep: jest.fn().mockResolvedValue(true),
       listActiveSessions: jest.fn().mockResolvedValue([]),
       revokeTokenFamily: jest.fn().mockResolvedValue(1),
       revokeAllUserTokens: jest.fn().mockResolvedValue(undefined),
@@ -174,21 +178,66 @@ describe('MfaService', () => {
 
   describe('completeChallenge', () => {
     it('completes login with a valid TOTP code', async () => {
-      tokenService.verifyMfaChallengeToken.mockResolvedValue('user-1');
+      tokenService.verifyMfaChallengeToken.mockResolvedValue({ userId: 'user-1', jti: 'jti-1' });
       prisma.user.findUnique.mockResolvedValue(mfaRow({ mfaEnabled: true, mfaSecret: 'REAL' }));
-      (verifySync as jest.Mock).mockReturnValue({ valid: true });
+      (verifySync as jest.Mock).mockReturnValue({ valid: true, timeStep: 59705814 });
 
       const result = await service.completeChallenge('challenge', '123456', '10.0.0.1');
 
       expect(result.user.id).toBe('user-1');
+      // P0-7b: the code's time-step is claimed before the session is minted.
+      expect(tokenService.claimTotpTimeStep).toHaveBeenCalledWith('user-1', 59705814, 90);
+      // P0-7a: the challenge jti is consumed after the factor verified.
+      expect(tokenService.consumeMfaChallengeToken).toHaveBeenCalledWith('jti-1');
       expect(authService.completeMfaLogin).toHaveBeenCalledWith('user-1', '10.0.0.1');
+    });
+
+    it('rejects a replayed challenge token (consumed jti)', async () => {
+      tokenService.verifyMfaChallengeToken.mockResolvedValue({ userId: 'user-1', jti: 'jti-used' });
+      prisma.user.findUnique.mockResolvedValue(mfaRow({ mfaEnabled: true, mfaSecret: 'REAL' }));
+      (verifySync as jest.Mock).mockReturnValue({ valid: true, timeStep: 59705814 });
+      tokenService.consumeMfaChallengeToken.mockRejectedValue(
+        new UnauthorizedException('MFA challenge token has already been used'),
+      );
+
+      await expect(service.completeChallenge('challenge', '123456')).rejects.toThrow(
+        /already been used/,
+      );
+      expect(authService.completeMfaLogin).not.toHaveBeenCalled();
+    });
+
+    it('rejects a replayed TOTP code within its epoch window', async () => {
+      tokenService.verifyMfaChallengeToken.mockResolvedValue({ userId: 'user-1', jti: 'jti-1' });
+      prisma.user.findUnique.mockResolvedValue(mfaRow({ mfaEnabled: true, mfaSecret: 'REAL' }));
+      // Same code as the first login: otplib reports the same time-step.
+      (verifySync as jest.Mock).mockReturnValue({ valid: true, timeStep: 59705814 });
+      tokenService.claimTotpTimeStep.mockResolvedValue(false); // step already consumed
+
+      await expect(service.completeChallenge('challenge', '123456')).rejects.toThrow(
+        /already been used/,
+      );
+      expect(tokenService.consumeMfaChallengeToken).not.toHaveBeenCalled();
+      expect(authService.completeMfaLogin).not.toHaveBeenCalled();
+    });
+
+    it('accepts a fresh TOTP code in the next time window', async () => {
+      tokenService.verifyMfaChallengeToken.mockResolvedValue({ userId: 'user-1', jti: 'jti-2' });
+      prisma.user.findUnique.mockResolvedValue(mfaRow({ mfaEnabled: true, mfaSecret: 'REAL' }));
+      (verifySync as jest.Mock).mockReturnValue({ valid: true, timeStep: 59705815 });
+      tokenService.claimTotpTimeStep.mockResolvedValue(true);
+
+      const result = await service.completeChallenge('challenge', '654321');
+
+      expect(result.user.id).toBe('user-1');
+      expect(tokenService.claimTotpTimeStep).toHaveBeenCalledWith('user-1', 59705815, 90);
+      expect(authService.completeMfaLogin).toHaveBeenCalledWith('user-1', undefined);
     });
 
     it('accepts an unused recovery code exactly once (hash deleted)', async () => {
       const raw = 'ABCD-EFGH';
       const h = crypto.createHash('sha256').update(raw).digest('hex');
       const hashes = [h, 'other-hash'];
-      tokenService.verifyMfaChallengeToken.mockResolvedValue('user-1');
+      tokenService.verifyMfaChallengeToken.mockResolvedValue({ userId: 'user-1', jti: 'jti-1' });
       prisma.user.findUnique.mockResolvedValue(
         mfaRow({ mfaEnabled: true, mfaSecret: 'REAL', mfaRecoveryHashes: hashes }),
       );
@@ -208,7 +257,7 @@ describe('MfaService', () => {
       const raw = 'ABCD-EFGH';
       const h = crypto.createHash('sha256').update(raw).digest('hex');
       const hashes = [h, 'other-hash'];
-      tokenService.verifyMfaChallengeToken.mockResolvedValue('user-1');
+      tokenService.verifyMfaChallengeToken.mockResolvedValue({ userId: 'user-1', jti: 'jti-1' });
       prisma.user.findUnique
         .mockResolvedValueOnce(
           mfaRow({ mfaEnabled: true, mfaSecret: 'REAL', mfaRecoveryHashes: hashes }),
@@ -227,7 +276,7 @@ describe('MfaService', () => {
     });
 
     it('rejects a wrong TOTP and unknown recovery code', async () => {
-      tokenService.verifyMfaChallengeToken.mockResolvedValue('user-1');
+      tokenService.verifyMfaChallengeToken.mockResolvedValue({ userId: 'user-1', jti: 'jti-1' });
       prisma.user.findUnique.mockResolvedValue(
         mfaRow({ mfaEnabled: true, mfaSecret: 'REAL', mfaRecoveryHashes: ['some-hash'] }),
       );
@@ -240,7 +289,7 @@ describe('MfaService', () => {
     });
 
     it('rejects when MFA is not enabled', async () => {
-      tokenService.verifyMfaChallengeToken.mockResolvedValue('user-1');
+      tokenService.verifyMfaChallengeToken.mockResolvedValue({ userId: 'user-1', jti: 'jti-1' });
       prisma.user.findUnique.mockResolvedValue(mfaRow({ mfaEnabled: false }));
 
       await expect(service.completeChallenge('challenge', '123456')).rejects.toThrow(

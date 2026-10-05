@@ -2,7 +2,11 @@
  * Unit tests for the maintenance processor (mocked Prisma).
  *
  * Covers:
- * - purgeExpiredAiLogs: dry-run (explicit + env default) never deletes,
+ * - purgeExpiredAiLogs: dry-run (explicit + default) never deletes,
+ * - the counsel sign-off gate (HIGH #3): dry-run BY DEFAULT; a real delete
+ *   needs BOTH GDPR_RETENTION_SIGNED_OFF=true AND an explicit dryRun:false —
+ *   without sign-off the purge deletes nothing even when asked not to be a
+ *   dry run,
  * - real run: deleteMany called with the retention cutoff,
  * - retention window resolution: payload > env > 90-day default,
  * - invalid retention windows are rejected loudly,
@@ -27,7 +31,7 @@ import { stubPrisma } from '../test-utils/prisma-stub.helper.js';
 
 const job = (data: any) => ({ id: 'job-m1', data } as any);
 
-const ENV_KEYS = ['AI_LOG_RETENTION_DAYS', 'AI_PURGE_DRY_RUN'];
+const ENV_KEYS = ['AI_LOG_RETENTION_DAYS', 'GDPR_RETENTION_SIGNED_OFF'];
 let savedEnv: Record<string, string | undefined> = {};
 
 beforeEach(() => {
@@ -60,7 +64,8 @@ describe('purgeExpiredAiLogs', () => {
     );
   });
 
-  test('real run: deleteMany uses the retention cutoff', async (t) => {
+  test('real run (signed off + explicit dryRun:false): deleteMany uses the retention cutoff', async (t) => {
+    process.env.GDPR_RETENTION_SIGNED_OFF = 'true';
     const count = stubPrisma(prisma.aIRequestLog, 'count', async () => 7, t);
     const del = stubPrisma(prisma.aIRequestLog, 'deleteMany', async () => ({ count: 7 }), t);
 
@@ -78,19 +83,47 @@ describe('purgeExpiredAiLogs', () => {
       `cutoff should be ~30 days ago, was ${ageMs}ms`);
     assert.equal(out.deleted, 7);
     assert.equal(out.dryRun, false);
+    assert.equal(out.signedOff, true);
     // Count and delete use the same cutoff basis.
     const countWhere = count.calls[0][0].where;
     assert.equal(countWhere.createdAt.lt.getTime(), cutoff.getTime());
   });
 
-  test('env AI_PURGE_DRY_RUN=true forces dry-run when the payload is silent', async (t) => {
-    process.env.AI_PURGE_DRY_RUN = 'true';
-    stubPrisma(prisma.aIRequestLog, 'count', async () => 3, t);
-    const del = stubPrisma(prisma.aIRequestLog, 'deleteMany', async () => ({ count: 0 }), t);
+  test('HIGH #3: without sign-off, explicit dryRun:false is forced back to dry-run — deletes nothing', async (t) => {
+    // GDPR_RETENTION_SIGNED_OFF unset (beforeEach cleared it).
+    stubPrisma(prisma.aIRequestLog, 'count', async () => 11, t);
+    const del = stubPrisma(prisma.aIRequestLog, 'deleteMany', async () => ({ count: 11 }), t);
+
+    const out = await purgeExpiredAiLogs(
+      job({ operation: 'purgeExpiredAiLogs', dryRun: false }),
+    );
+
+    assert.equal(out.dryRun, true, 'must be forced to dry-run without sign-off');
+    assert.equal(out.signedOff, false);
+    assert.equal(out.deleted, 0);
+    assert.equal(del.calls.length, 0, 'no rows may be deleted without counsel sign-off');
+  });
+
+  test('HIGH #3: default (silent payload, no sign-off) is dry-run — the scheduled job never deletes', async (t) => {
+    // This is exactly what schedule.ts enqueues every night: no dryRun flag.
+    stubPrisma(prisma.aIRequestLog, 'count', async () => 5, t);
+    const del = stubPrisma(prisma.aIRequestLog, 'deleteMany', async () => ({ count: 5 }), t);
 
     const out = await purgeExpiredAiLogs(job({ operation: 'purgeExpiredAiLogs' }));
 
     assert.equal(out.dryRun, true);
+    assert.equal(out.deleted, 0);
+    assert.equal(del.calls.length, 0);
+  });
+
+  test('HIGH #3: with sign-off but no explicit dryRun:false, still dry-run', async (t) => {
+    process.env.GDPR_RETENTION_SIGNED_OFF = 'true';
+    stubPrisma(prisma.aIRequestLog, 'count', async () => 5, t);
+    const del = stubPrisma(prisma.aIRequestLog, 'deleteMany', async () => ({ count: 5 }), t);
+
+    const out = await purgeExpiredAiLogs(job({ operation: 'purgeExpiredAiLogs' }));
+
+    assert.equal(out.dryRun, true, 'sign-off alone must not arm deletes');
     assert.equal(del.calls.length, 0);
   });
 

@@ -2,6 +2,7 @@ import { requireApiBaseUrl } from './env';
 
 export interface RequestOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined>;
+  silentAuth?: boolean;
 }
 
 /** Paginated list envelope returned by the API for list endpoints. */
@@ -116,17 +117,17 @@ class ApiClient {
     return this.refreshPromise;
   }
 
-  private handleSessionExpired(isSessionCheck = false): never {
-    if (!isSessionCheck) {
-      this.sessionExpired = true;
-      if (
-        typeof window !== 'undefined' &&
-        !window.location.pathname.startsWith('/login') &&
-        !window.location.pathname.startsWith('/register') &&
-        !window.location.pathname.startsWith('/invitation-accept') &&
-        !window.location.pathname.startsWith('/reset-password') &&
-        !window.location.pathname.startsWith('/verify-email')
-      ) {
+  private handleSessionExpired(): never {
+    this.sessionExpired = true;
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname;
+      const isPublicPath =
+        path === '/login' ||
+        path === '/' ||
+        path.startsWith('/register') ||
+        path.startsWith('/reset-password') ||
+        path.startsWith('/verify-email');
+      if (!isPublicPath) {
         window.location.href = '/login';
       }
     }
@@ -193,15 +194,17 @@ class ApiClient {
     // If refresh fails, every pending request REJECTS (no hanging) and the
     // user is sent back to /login.
     if (response.status === 401 && !this.isAuthEndpoint(endpoint)) {
-      const isSessionCheck = endpoint.includes('/auth/me');
+      if (options.silentAuth) {
+        throw new ApiError('Not authenticated', 401);
+      }
       try {
         await this.doRefresh();
-        response = await this.fetchOnce(url, init);
-        if (response.status === 401) {
-          this.handleSessionExpired(isSessionCheck);
-        }
       } catch {
-        this.handleSessionExpired(isSessionCheck);
+        this.handleSessionExpired();
+      }
+      response = await this.fetchOnce(url, init);
+      if (response.status === 401) {
+        this.handleSessionExpired();
       }
     }
 

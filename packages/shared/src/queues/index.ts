@@ -51,7 +51,13 @@ export interface PayrollJobPayload {
 }
 
 export interface NotificationJobPayload {
-  userId: string;
+  /**
+   * Recipient USER id. Optional for email-only jobs addressed to raw
+   * addresses (e.g. scheduled reports): when absent the worker skips the
+   * in-app persist and the email channel hook resolves the recipient from
+   * `data.email` only. Non-email channels still require it.
+   */
+  userId?: string;
   channel: 'in-app' | 'email' | 'sms';
   template: string;
   data: Record<string, any>;

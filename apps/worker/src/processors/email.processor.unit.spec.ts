@@ -20,76 +20,10 @@
  */
 import { describe, test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import net from 'node:net';
 import { prisma } from '@ems/database';
 import { sendEmailChannelHook } from './email.processor.js';
 import { stubPrisma } from '../test-utils/prisma-stub.helper.js';
-
-/** Minimal RFC 5321 server: enough for the worker's sendSmtp client. */
-class FakeSmtpServer {
-  private server = net.createServer();
-  connections = 0;
-  received: Array<{ mailFrom: string; rcptTo: string; data: string }> = [];
-
-  async start(): Promise<number> {
-    this.server.on('connection', (socket) => {
-      this.connections += 1;
-      socket.write('220 fake-smtp ESMTP\r\n');
-      let buffer = '';
-      let dataMode = false;
-      let mailFrom = '';
-      let rcptTo = '';
-      let data = '';
-      socket.on('data', (chunk: Buffer) => {
-        buffer += chunk.toString('utf8');
-        let idx: number;
-        while ((idx = buffer.indexOf('\r\n')) >= 0) {
-          const line = buffer.slice(0, idx);
-          buffer = buffer.slice(idx + 2);
-          if (dataMode) {
-            if (line === '.') {
-              dataMode = false;
-              this.received.push({ mailFrom, rcptTo, data });
-              data = '';
-              socket.write('250 OK: queued\r\n');
-            } else {
-              data += line + '\r\n';
-            }
-            continue;
-          }
-          const upper = line.toUpperCase();
-          if (upper.startsWith('EHLO') || upper.startsWith('HELO')) {
-            socket.write('250 hello\r\n');
-          } else if (upper.startsWith('MAIL FROM:')) {
-            mailFrom = line.slice('MAIL FROM:'.length).trim();
-            socket.write('250 OK\r\n');
-          } else if (upper.startsWith('RCPT TO:')) {
-            rcptTo = line.slice('RCPT TO:'.length).trim();
-            socket.write('250 OK\r\n');
-          } else if (upper === 'DATA') {
-            dataMode = true;
-            socket.write('354 End data with <CR><LF>.<CR><LF>\r\n');
-          } else if (upper === 'QUIT') {
-            socket.write('221 Bye\r\n');
-            socket.end();
-          } else if (upper === 'RSET') {
-            socket.write('250 OK\r\n');
-          } else {
-            socket.write('502 command not implemented\r\n');
-          }
-        }
-      });
-    });
-    await new Promise<void>((resolve) => this.server.listen(0, '127.0.0.1', resolve));
-    return (this.server.address() as net.AddressInfo).port;
-  }
-
-  async stop(): Promise<void> {
-    await new Promise<void>((resolve, reject) =>
-      this.server.close((err) => (err ? reject(err) : resolve())),
-    );
-  }
-}
+import { FakeSmtpServer } from '../test-utils/fake-smtp.helper.js';
 
 const ENV_KEYS = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURE', 'SMTP_USER', 'SMTP_PASS', 'EMAIL_FROM', 'SMTP_FROM', 'SMTP_TIMEOUT_MS'];
 let savedEnv: Record<string, string | undefined> = {};
@@ -212,5 +146,57 @@ describe('sendEmailChannelHook', () => {
       sendEmailChannelHook(payload({ title: 'Hi', message: 'body' })),
       /Email channel failed/,
     );
+  });
+
+  test('data.attachment is delivered as a MIME attachment (scheduled reports)', async (t) => {
+    useSmtpEnv(port);
+    t.after(restoreEnv);
+    smtp.received.length = 0;
+    stubPrisma(prisma.user, 'findUnique', async () => ({ email: 'acct@example.com' }), t);
+
+    const csv = 'Metric,Value\nTotal headcount,4\n';
+    const res = await sendEmailChannelHook(
+      payload({
+        email: 'reports@example.com',
+        subject: 'Scheduled report: headcount',
+        title: 'Scheduled report: headcount',
+        message: 'Attached: headcount-2026-10-05.csv (generated ...).',
+        attachment: {
+          filename: 'headcount-2026-10-05.csv',
+          contentBase64: Buffer.from(csv, 'utf8').toString('base64'),
+          contentType: 'text/csv',
+        },
+      }),
+    );
+
+    assert.equal(res.status, 'delivered');
+    assert.equal(smtp.received.length, 1);
+    const raw = smtp.received[0].data;
+    assert.equal(smtp.received[0].rcptTo, '<reports@example.com>');
+    assert.match(raw, /filename=headcount-2026-10-05\.csv/);
+    assert.ok(
+      raw.includes(Buffer.from(csv, 'utf8').toString('base64')),
+      'attachment bytes must travel in the MIME body',
+    );
+  });
+
+  test('malformed attachment is skipped loudly, email still delivered', async (t) => {
+    useSmtpEnv(port);
+    t.after(restoreEnv);
+    smtp.received.length = 0;
+    stubPrisma(prisma.user, 'findUnique', async () => ({ email: 'acct@example.com' }), t);
+
+    const res = await sendEmailChannelHook(
+      payload({
+        email: 'reports@example.com',
+        title: 'Hi',
+        message: 'body',
+        attachment: { filename: 'broken.csv' }, // no contentBase64
+      }),
+    );
+
+    assert.equal(res.status, 'delivered');
+    assert.equal(smtp.received.length, 1);
+    assert.doesNotMatch(smtp.received[0].data, /broken\.csv/);
   });
 });

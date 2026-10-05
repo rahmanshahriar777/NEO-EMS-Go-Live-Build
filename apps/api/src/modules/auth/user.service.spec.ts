@@ -4,7 +4,9 @@ import { UserService } from './user.service';
 import { PrismaService } from '../../core/prisma/prisma.service';
 
 /**
- * UserService: duplicate-email handling and the employee-number race retry.
+ * UserService: duplicate-email handling and sequence-backed employee numbers
+ * (go-live HIGH #9 — the register path mints EMP-YYYY-NNNN via
+ * employee_number_seq, never count()+1).
  */
 describe('UserService', () => {
   let service: UserService;
@@ -21,7 +23,8 @@ describe('UserService', () => {
   beforeEach(async () => {
     tx = {
       user: { create: jest.fn() },
-      employee: { count: jest.fn(), create: jest.fn() },
+      employee: { create: jest.fn() },
+      $queryRawUnsafe: jest.fn(),
     };
     prisma = {
       user: { findUnique: jest.fn() },
@@ -37,8 +40,10 @@ describe('UserService', () => {
   it('creates a user and scaffolds the employee record', async () => {
     prisma.user.findUnique.mockResolvedValue(null);
     tx.user.create.mockResolvedValue({ id: 'user-1', email: 'jane@ems.local' });
-    tx.employee.count.mockResolvedValue(0);
-    tx.employee.create.mockResolvedValue({ id: 'emp-1', employeeNumber: 'EMP-2026-0001' });
+    tx.$queryRawUnsafe.mockResolvedValue([{ n: 1001 }]);
+    tx.employee.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({ id: 'emp-1', ...data }),
+    );
 
     const { user, employee } = await service.createUser(
       'Jane@Ems.Local',
@@ -48,7 +53,7 @@ describe('UserService', () => {
     );
 
     expect(user.id).toBe('user-1');
-    expect(employee.employeeNumber).toMatch(/^EMP-\d{4}-0001$/);
+    expect(employee.employeeNumber).toBe(`EMP-${new Date().getFullYear()}-1001`);
     // Email is normalized before the uniqueness check and the write.
     expect(prisma.user.findUnique).toHaveBeenCalledWith(
       expect.objectContaining({ where: { email: 'jane@ems.local' } }),
@@ -71,30 +76,36 @@ describe('UserService', () => {
     );
   });
 
-  it('retries the employee insert on employeeNumber conflicts', async () => {
+  it('mints the employee number from the shared sequence, never count()+1', async () => {
     prisma.user.findUnique.mockResolvedValue(null);
     tx.user.create.mockResolvedValue({ id: 'user-1', email: 'jane@ems.local' });
-    tx.employee.count.mockResolvedValue(41);
-    tx.employee.create
-      .mockRejectedValueOnce(p2002(['employeeNumber']))
-      .mockResolvedValue({ id: 'emp-1', employeeNumber: 'EMP-2026-0042' });
+    tx.$queryRawUnsafe.mockResolvedValue([{ n: 1002 }]);
+    tx.employee.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({ id: 'emp-1', ...data }),
+    );
 
     const { employee } = await service.createUser('jane@ems.local', 'hash', 'Jane', 'Smith');
 
-    expect(tx.employee.create).toHaveBeenCalledTimes(2);
-    expect(employee.employeeNumber).toBe('EMP-2026-0042');
+    // The register path must call the sequence helper (atomic nextval) —
+    // the same contract as employees.service.create and the recruitment
+    // offer-accept path. No count() probe, so concurrent signups and
+    // soft-deleted employees' numbers can never collide.
+    expect(tx.$queryRawUnsafe).toHaveBeenCalledTimes(1);
+    expect(tx.$queryRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining("nextval('employee_number_seq')"),
+    );
+    expect(employee.employeeNumber).toBe(`EMP-${new Date().getFullYear()}-1002`);
   });
 
-  it('gives up after the bounded retry attempts', async () => {
+  it('fails loud when the sequence is missing (never fabricates a number)', async () => {
     prisma.user.findUnique.mockResolvedValue(null);
     tx.user.create.mockResolvedValue({ id: 'user-1', email: 'jane@ems.local' });
-    tx.employee.count.mockResolvedValue(0);
-    tx.employee.create.mockRejectedValue(p2002(['employeeNumber']));
+    tx.$queryRawUnsafe.mockResolvedValue([]);
 
     await expect(service.createUser('jane@ems.local', 'hash', 'Jane', 'Smith')).rejects.toThrow(
-      Prisma.PrismaClientKnownRequestError,
+      /employee_number_seq/,
     );
-    expect(tx.employee.create).toHaveBeenCalledTimes(5);
+    expect(tx.employee.create).not.toHaveBeenCalled();
   });
 
   it('lowercases the email on lookup', async () => {

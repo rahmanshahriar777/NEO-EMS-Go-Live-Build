@@ -14,13 +14,23 @@
 
 CREATE SEQUENCE IF NOT EXISTS employee_number_seq;
 
+-- CORRECTED PRE-RELEASE (2026-10-05, go-live HIGH #8): on a fresh database
+-- `migrate deploy` runs this before any employee rows exist, so MAX(...) was
+-- NULL and the sequence was left at 0 — the first app-created employee then
+-- received EMP-YYYY-0001 and collided with seeded demo rows (seed uses
+-- EMP-YYYY-0001..0020) on the UNIQUE constraint. Floor at 999 so the
+-- sequence effectively starts at 1000 and can never re-issue a seeded
+-- number. This file was corrected before any real database ever applied it.
 SELECT setval(
   'employee_number_seq',
-  COALESCE(
-    (
-      SELECT MAX((regexp_match("employeeNumber", '(\d+)$'))[1]::bigint)
-      FROM "employees"
-    ),
-    0
+  GREATEST(
+    999,
+    COALESCE(
+      (
+        SELECT MAX(CAST(SUBSTRING("employeeNumber" FROM '[0-9]+$') AS INTEGER))
+        FROM "employees"
+      ),
+      0
+    )
   )
 );

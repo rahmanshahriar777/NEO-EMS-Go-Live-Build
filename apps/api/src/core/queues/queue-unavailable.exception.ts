@@ -10,9 +10,11 @@ import { HttpException, HttpStatus } from '@nestjs/common';
  * Recovery paths:
  * - Payroll: the worker's periodic sweep (`sweepStuckPayrollRuns`) requeues
  *   runs left DRAFT/PROCESSING by a lost job.
- * - Email: the in-app notification row is persisted BEFORE the email copy is
- *   enqueued (NotificationsService.notify), so the notification itself is
- *   never lost when the email copy fails to enqueue.
+ * - Notifications (incl. email copies, channel 'email'): the worker
+ *   persists the in-app row BEFORE invoking the channel hook, so the
+ *   notification itself is never lost when the email delivery fails; if the
+ *   enqueue itself fails, NotificationsService.notify persists the in-app
+ *   row directly as the guaranteed fallback.
  *
  * HTTP mapping: 503 Service Unavailable — the request itself was valid, a
  * backing dependency (Redis) is down.

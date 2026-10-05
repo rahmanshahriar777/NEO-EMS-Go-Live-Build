@@ -139,6 +139,68 @@ describe('payroll concurrency', () => {
     expect(result).toEqual(beforeWithoutSlips);
   });
 
+  it('concurrent double-disburse: exactly one wins, the loser is a safe no-op (never double-applied)', async () => {
+    // Stateful in-memory stand-in for the payroll_run row. BOTH concurrent
+    // calls read APPROVED before either writes (the real race), but the
+    // conditional update is atomic: exactly one writer observes
+    // status === where.status; the loser sees no matching row -> P2025.
+    let status = PayrollStatus.APPROVED;
+    const storedDisbursementDate = new Date('2026-10-01T10:00:00.000Z');
+    const runRow = () => ({
+      id: 'run-1',
+      month: 9,
+      year: 2026,
+      status,
+      disbursementDate: status === PayrollStatus.PAID ? storedDisbursementDate : null,
+      payslips: [{ id: 'slip-1', employeeId: 'emp-1', netPay: 5000, employee: { userId: 'user-1' } }],
+    });
+    prisma.payrollRun.findUnique.mockImplementation(() => Promise.resolve(runRow()));
+    prisma.payrollRun.update.mockImplementation(({ where }: any) => {
+      if (where.status !== status) {
+        throw Object.assign(new Error('Record to update not found'), { code: 'P2025' });
+      }
+      status = PayrollStatus.PAID;
+      return Promise.resolve({ id: 'run-1', status });
+    });
+    prisma.payslip.updateMany.mockResolvedValue({ count: 1 });
+
+    const [r1, r2] = await Promise.all([
+      service.disbursePayrollRun('run-1', 'checker-1'),
+      service.disbursePayrollRun('run-1', 'checker-2'),
+    ]);
+
+    // Both callers observe PAID and neither call threw (the loser is a no-op,
+    // NOT a 409) — the idempotent re-disburse contract holds under a race.
+    expect(r1.status).toBe(PayrollStatus.PAID);
+    expect(r2.status).toBe(PayrollStatus.PAID);
+    // Exactly-once side effects: one payslip stamp, one audit log entry, one
+    // notification per payslip — never double-applied.
+    expect(prisma.payslip.updateMany).toHaveBeenCalledTimes(1);
+    expect(audit.log).toHaveBeenCalledTimes(1);
+    expect(queues.enqueueNotification).toHaveBeenCalledTimes(1);
+    // The winner stamps a fresh disbursementDate; the loser re-reads the
+    // stored state and reports the WINNER's disbursementDate — never a fresh
+    // timestamp of its own, never undefined.
+    expect(new Date(r1.disbursementDate).getTime()).not.toBe(storedDisbursementDate.getTime());
+    expect(new Date(r2.disbursementDate).getTime()).toBe(storedDisbursementDate.getTime());
+  });
+
+  it('concurrent disburse-while-cancelled: the loser of the race gets 409, not a silent no-op', async () => {
+    // The run leaves APPROVED between the guard read and the conditional
+    // update (cancelled by a third party): the P2025 re-read sees CANCELLED
+    // and the call is rejected with 409.
+    prisma.payrollRun.findUnique
+      .mockResolvedValueOnce({ id: 'run-1', status: PayrollStatus.APPROVED, payslips: [] })
+      .mockResolvedValueOnce({ id: 'run-1', status: PayrollStatus.CANCELLED, payslips: [] });
+    prisma.payrollRun.update.mockImplementation(() => {
+      throw Object.assign(new Error('Record to update not found'), { code: 'P2025' });
+    });
+
+    await expect(service.disbursePayrollRun('run-1', 'checker-1')).rejects.toThrow(ConflictException);
+    expect(prisma.payslip.updateMany).not.toHaveBeenCalled();
+    expect(audit.log).not.toHaveBeenCalled();
+  });
+
   it('disburse-while-approving: a DRAFT run cannot be disbursed (409), even concurrently issued', async () => {
     prisma.payrollRun.findUnique.mockResolvedValue({ id: 'run-1', status: PayrollStatus.DRAFT, payslips: [] });
 

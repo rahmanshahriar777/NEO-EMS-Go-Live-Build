@@ -38,8 +38,17 @@ spec:
           env:
             - name: NODE_ENV
               value: "production"
-            - name: NEXT_PUBLIC_API_URL
-              value: "https://ems.yourcompany.com/api/v1"
+            # F6: NEXT_PUBLIC_* vars are inlined into the client bundle at
+            # BUILD time, so setting them here as runtime env vars has NO
+            # effect on browser code (the old NEXT_PUBLIC_API_URL entry did
+            # nothing for client-side API calls). The API origin the browser
+            # uses is baked into the image by docker-build.yaml from the
+            # repository/org variable NEXT_PUBLIC_API_BASE_URL — set that
+            # (e.g. "https://ems.yourcompany.com/api/v1") and rebuild the
+            # ems-web image to change it. See docs/DEPLOYMENT.md.
+            # (The one server-side reader, middleware.ts CSP connect-src, also
+            # sees the build-baked value — Next.js inlines NEXT_PUBLIC_* at
+            # compile time even in server code.)
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

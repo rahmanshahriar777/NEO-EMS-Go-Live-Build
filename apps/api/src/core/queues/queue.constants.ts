@@ -43,7 +43,12 @@ export interface PayrollJobPayload {
 }
 
 export interface NotificationJobPayload {
-  userId: string;
+  /**
+   * Recipient USER id. Optional for email-only jobs to raw addresses
+   * (scheduled reports): the worker then skips the in-app persist and the
+   * email hook resolves the recipient from `data.email`. Mirrors @ems/shared.
+   */
+  userId?: string;
   channel: 'in-app' | 'email' | 'sms';
   template: string;
   data: Record<string, any>;

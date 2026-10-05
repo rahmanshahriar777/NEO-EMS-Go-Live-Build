@@ -24,6 +24,18 @@ export interface EmailMessage {
   from?: string;
   /** Optional Reply-To header. */
   replyTo?: string;
+  /** File attachments (e.g. scheduled-report exports). */
+  attachments?: EmailAttachment[];
+}
+
+/** A file attached to an outbound email. */
+export interface EmailAttachment {
+  filename: string;
+  /** Raw bytes, or a base64 string when `encoding` is 'base64'. */
+  content: Buffer | string;
+  contentType?: string;
+  /** e.g. 'base64'. */
+  encoding?: string;
 }
 
 /**
