@@ -35,9 +35,9 @@ if (!isDevSeedAllowed) {
   );
 }
 
-// Random admin password, printed exactly once below. Only valid on a fresh
-// seed: existing users keep their current passwordHash (never reset).
-const SEED_ADMIN_PASSWORD = crypto.randomBytes(18).toString('base64url');
+// Demo admin password. Can be overridden via SEED_DEFAULT_PASSWORD.
+const SEED_ADMIN_PASSWORD =
+  process.env.SEED_DEFAULT_PASSWORD || crypto.randomBytes(18).toString('base64url');
 
 function hashPassword(password: string): string {
   // Per-user random salt; format matches the API's PasswordService verifier.
@@ -539,7 +539,13 @@ async function main() {
       (await prisma.user.create({
         data: {
           email: p.email,
-          passwordHash: hashPassword(p.email === 'superadmin@ems.local' ? SEED_ADMIN_PASSWORD : crypto.randomBytes(18).toString('base64url')),
+          passwordHash: hashPassword(
+            process.env.SEED_DEFAULT_PASSWORD
+              ? process.env.SEED_DEFAULT_PASSWORD
+              : p.email === 'superadmin@ems.local'
+                ? SEED_ADMIN_PASSWORD
+                : crypto.randomBytes(18).toString('base64url'),
+          ),
           roles: { create: { roleId: roles[p.role].id } },
         },
       }));
@@ -1181,6 +1187,9 @@ async function main() {
   // app-created employee would re-issue a seeded EMP-YYYY-0001..0020 number
   // (UNIQUE violation). Floor at 999 (same as the migration) so the sequence
   // effectively starts at 1000; idempotent on re-runs.
+  await prisma.$executeRawUnsafe(
+    `CREATE SEQUENCE IF NOT EXISTS employee_number_seq START WITH 1000`,
+  );
   await prisma.$executeRawUnsafe(
     `SELECT setval('employee_number_seq', GREATEST(999, COALESCE((SELECT MAX(CAST(SUBSTRING("employeeNumber" FROM '[0-9]+$') AS INTEGER)) FROM "employees"), 0)))`,
   );

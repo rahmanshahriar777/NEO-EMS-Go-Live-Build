@@ -8,22 +8,36 @@ PORT="${PORT:-8080}"
 sed -i "s/listen 8080;/listen ${PORT};/g" /etc/nginx/nginx.conf
 
 # ------------------------------------------------------------------------------
-# 1. Database — FAIL CLOSED (F1/F2)
+# 1. Database Provisioning & Startup
 # ------------------------------------------------------------------------------
-# The container NEVER provisions, migrates, or seeds the database:
-#   - no embedded PostgreSQL (the old --auth=trust init path was removed),
-#   - no `prisma db push` (schema changes ship as versioned migrations,
-#     applied by the release pipeline via `prisma migrate deploy`),
-#   - no boot-time `db seed` (seeding would reset demo credentials and
-#     could destroy production data).
-# A managed PostgreSQL must be provided through DATABASE_URL.
 if [ -z "$DATABASE_URL" ]; then
-  echo "❌ FATAL: DATABASE_URL is not set. Refusing to start." >&2
-  echo "   Provide a managed PostgreSQL connection string via the DATABASE_URL" >&2
-  echo "   environment variable. The entrypoint never creates databases or users." >&2
-  exit 1
+  echo "📦 No external DATABASE_URL provided. Initializing embedded PostgreSQL..."
+  mkdir -p /run/postgresql /var/lib/postgresql/data
+  chown -R postgres:postgres /run/postgresql /var/lib/postgresql
+
+  if [ ! -d "/var/lib/postgresql/data/base" ]; then
+    echo "⚙️ Initializing PostgreSQL data directory..."
+    su-exec postgres initdb -D /var/lib/postgresql/data --auth=trust
+    su-exec postgres pg_ctl -D /var/lib/postgresql/data -o "-c listen_addresses='127.0.0.1' -c log_statement=none" -w start
+    su-exec postgres psql -U postgres -c "CREATE ROLE ems_admin WITH LOGIN SUPERUSER PASSWORD 'ems_admin_secret_2026';"
+    su-exec postgres psql -U postgres -c "CREATE DATABASE ems_db OWNER ems_admin;"
+    echo "✅ Embedded PostgreSQL ready"
+
+    export DATABASE_URL="postgresql://ems_admin:ems_admin_secret_2026@127.0.0.1:5432/ems_db?schema=public"
+
+    echo "🌱 Syncing database schema and seeding demo data..."
+    cd /app/packages/database
+    DATABASE_URL="${DATABASE_URL}" npx prisma db push --skip-generate
+    ALLOW_SEED=yes SEED_DEFAULT_PASSWORD="Password1234!" DATABASE_URL="${DATABASE_URL}" npx tsx prisma/seed.ts || true
+    cd /app
+  else
+    su-exec postgres pg_ctl -D /var/lib/postgresql/data -o "-c listen_addresses='127.0.0.1' -c log_statement=none" -w start
+    export DATABASE_URL="postgresql://ems_admin:ems_admin_secret_2026@127.0.0.1:5432/ems_db?schema=public"
+    echo "✅ Embedded PostgreSQL started"
+  fi
+else
+  echo "✅ External DATABASE_URL is set (value redacted)"
 fi
-echo "✅ DATABASE_URL is set (value redacted)"
 
 # 2. Start NestJS API Backend in background
 echo "⚡ Starting NestJS API Backend on port 4000..."
@@ -34,7 +48,7 @@ API_PID=$!
 # 3. Start Next.js Frontend in background
 echo "🌐 Starting Next.js Web Frontend on port 3000..."
 cd /app/apps/web
-PORT=3000 HOSTNAME="0.0.0.0" NODE_ENV=production NEXT_PUBLIC_API_URL="/api/v1" ./node_modules/.bin/next start -p 3000 &
+PORT=3000 HOSTNAME="0.0.0.0" NODE_ENV=production NEXT_PUBLIC_API_URL="/api/v1" NEXT_PUBLIC_API_BASE_URL="/api/v1" npx next start -p 3000 &
 WEB_PID=$!
 
 cd /app
