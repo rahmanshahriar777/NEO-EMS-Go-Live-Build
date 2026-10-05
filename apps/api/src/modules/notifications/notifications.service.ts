@@ -191,7 +191,12 @@ export class NotificationsService {
    * unconfigured — the web client falls back to NEXT_PUBLIC_VAPID_PUBLIC_KEY.
    */
   async getVapidPublicKey(): Promise<{ vapidPublicKey: string | null }> {
-    return { vapidPublicKey: this.configService.get<string>('VAPID_PUBLIC_KEY') || null };
+    const key =
+      this.configService.get<string>('vapid.publicKey') ||
+      this.configService.get<string>('VAPID_PUBLIC_KEY') ||
+      process.env.VAPID_PUBLIC_KEY ||
+      null;
+    return { vapidPublicKey: key || null };
   }
 
   async savePushSubscription(userId: string, input: PushSubscriptionInput) {

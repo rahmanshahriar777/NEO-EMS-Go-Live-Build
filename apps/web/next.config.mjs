@@ -3,7 +3,7 @@ const nextConfig = {
   reactStrictMode: true,
   // B6: standalone output is required by apps/web/Dockerfile — the runner
   // stage executes .next/standalone/server.js directly.
-  // output: 'standalone', // disabled for Windows build
+  output: 'standalone',
   transpilePackages: ['@ems/shared'],
   // Go-live Phase 1 item 8: the web /register page must mirror the API's
   // ALLOW_PUBLIC_REGISTRATION flag. NEXT_PUBLIC_ vars are inlined at build

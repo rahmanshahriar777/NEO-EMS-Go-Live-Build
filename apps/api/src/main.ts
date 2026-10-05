@@ -24,6 +24,7 @@ async function bootstrap() {
   const apiPrefix = configService.get<string>('apiPrefix', '/api/v1');
   const allowedOrigins = configService.get<string[]>('allowedOrigins', [
     'http://localhost:3000',
+    'http://127.0.0.1:3000',
   ]);
 
   // F30: tightened body-parser limits (was 10 MB — unnecessary for JSON APIs and

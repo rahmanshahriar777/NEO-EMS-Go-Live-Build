@@ -103,7 +103,7 @@ function LoginForm() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit}>
+          <form method="post" onSubmit={handleSubmit}>
             <div className="login-form-group">
               <label htmlFor="login-email" className="login-label">Official Work Email</label>
               <div className="login-input-wrapper">

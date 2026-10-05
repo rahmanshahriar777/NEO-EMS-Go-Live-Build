@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import { JwtPayload } from '@ems/shared';
 import { IsNotEmpty, IsObject, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -65,6 +66,7 @@ export class NotificationsController {
     return this.service.markAllRead(user.sub);
   }
 
+  @Public()
   @Get('vapid-public-key')
   @ApiOperation({
     summary: 'VAPID public key for web-push subscription (null when unconfigured)',

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../lib/api-client';
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
@@ -14,7 +14,14 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   return outputArray;
 }
 
-export type PushStatus = 'unsupported' | 'idle' | 'subscribing' | 'subscribed' | 'denied' | 'failed';
+export type PushStatus =
+  | 'unsupported'
+  | 'unconfigured'
+  | 'idle'
+  | 'subscribing'
+  | 'subscribed'
+  | 'denied'
+  | 'failed';
 
 /**
  * Registers the offline service worker and subscribes to web-push.
@@ -28,28 +35,56 @@ export async function subscribeToPush(vapidPublicKey: string): Promise<PushStatu
   if (
     typeof window === 'undefined' ||
     !('serviceWorker' in navigator) ||
-    !('PushManager' in window) ||
-    !vapidPublicKey
+    !('PushManager' in window)
   ) {
     return 'unsupported';
   }
+  if (!vapidPublicKey || !vapidPublicKey.trim()) {
+    return 'unconfigured';
+  }
   try {
+    if (typeof Notification === 'undefined') return 'unsupported';
     if (Notification.permission === 'denied') return 'denied';
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') return 'denied';
-    const registration = await navigator.serviceWorker.ready;
-    const existing = await registration.pushManager.getSubscription();
+
+    // Ensure the service worker is registered
+    let registration = await navigator.serviceWorker.getRegistration();
+    if (!registration) {
+      registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    }
+
+    // Await worker readiness with fallback timeout to avoid hanging if activation is pending
+    const readyRegistration = await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise<ServiceWorkerRegistration>((resolve) => {
+        const interval = setInterval(() => {
+          if (registration?.active) {
+            clearInterval(interval);
+            resolve(registration);
+          }
+        }, 100);
+        setTimeout(() => {
+          clearInterval(interval);
+          resolve(registration!);
+        }, 5000);
+      }),
+    ]);
+
+    const existing = await readyRegistration.pushManager.getSubscription();
     const subscription =
       existing ||
-      (await registration.pushManager.subscribe({
+      (await readyRegistration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey.trim()),
       }));
     // Hand the subscription to the notifications backend. The server owns
     // delivery; the client only holds the endpoint.
     await api.post('/notifications/push-subscriptions', subscription.toJSON());
     return 'subscribed';
-  } catch {
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[pwa] Push subscription error:', err);
     return 'failed';
   }
 }
@@ -58,13 +93,64 @@ export function usePushSubscription() {
   const [status, setStatus] = useState<PushStatus>('idle');
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (
+      typeof window === 'undefined' ||
+      !('serviceWorker' in navigator) ||
+      !('PushManager' in window) ||
+      typeof Notification === 'undefined'
+    ) {
+      return;
+    }
+    if (Notification.permission === 'granted') {
+      navigator.serviceWorker
+        .getRegistration()
+        .then((reg) => reg?.pushManager.getSubscription())
+        .then((sub) => {
+          if (sub) {
+            setStatus('subscribed');
+          }
+        })
+        .catch(() => {});
+    } else if (Notification.permission === 'denied') {
+      setStatus('denied');
+    }
+  }, []);
+
   const subscribe = async () => {
     setStatus('subscribing');
     setError(null);
     try {
+      if (
+        typeof window === 'undefined' ||
+        !('serviceWorker' in navigator) ||
+        !('PushManager' in window)
+      ) {
+        setStatus('unsupported');
+        setError('This browser does not support web-push notifications.');
+        return;
+      }
+
       // The VAPID public key is published by the API (not a secret).
-      const res = await api.get<{ vapidPublicKey?: string }>('/notifications/vapid-public-key');
-      const key = res?.vapidPublicKey || process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || '';
+      let key = '';
+      try {
+        const res = await api.get<{ vapidPublicKey?: string }>('/notifications/vapid-public-key');
+        key = res?.vapidPublicKey || '';
+      } catch (apiErr) {
+        // eslint-disable-next-line no-console
+        console.warn('[pwa] Failed to fetch vapid-public-key from API:', apiErr);
+      }
+
+      if (!key) {
+        key = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || '';
+      }
+
+      if (!key || !key.trim()) {
+        setStatus('unconfigured');
+        setError('Push notifications are not configured on the server (missing VAPID public key).');
+        return;
+      }
+
       const result = await subscribeToPush(key);
       setStatus(result);
       if (result === 'failed') {
@@ -73,6 +159,10 @@ export function usePushSubscription() {
         );
       } else if (result === 'unsupported') {
         setError('This browser does not support web-push notifications.');
+      } else if (result === 'unconfigured') {
+        setError('Push notifications are not configured on the server (missing VAPID public key).');
+      } else if (result === 'denied') {
+        setError('Notification permission was denied. Please allow notifications in your browser site settings.');
       }
     } catch (err: any) {
       setStatus('failed');

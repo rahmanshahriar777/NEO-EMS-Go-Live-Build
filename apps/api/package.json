@@ -29,7 +29,7 @@
     "@nestjs/swagger": "^11.0.0",
     "@nestjs/terminus": "^11.0.0",
     "@nestjs/throttler": "^6.4.0",
-    "@prisma/client": "^6.19.3",
+    "@prisma/client": "^6.4.1",
     "argon2": "^0.45.1",
     "bullmq": "^5.18.0",
     "class-transformer": "^0.5.1",

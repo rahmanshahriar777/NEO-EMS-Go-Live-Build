@@ -111,10 +111,11 @@ function apiOriginForCsp(): string | null {
 const API_ORIGIN = apiOriginForCsp();
 
 function buildCsp(nonce: string): string {
-  return [
+  const isDev = process.env.NODE_ENV !== 'production';
+  const directives = [
     "default-src 'self'",
-    // Nonce-based script allowlist: no 'unsafe-inline', no 'unsafe-eval'.
-    `script-src 'self' 'nonce-${nonce}'`,
+    // Nonce-based script allowlist; development Next.js needs 'unsafe-eval' for HMR/Fast Refresh.
+    `script-src 'self' 'nonce-${nonce}'${isDev ? " 'unsafe-eval'" : ''}`,
     // React inline style props require this; no inline <style> blocks are used.
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
@@ -126,8 +127,13 @@ function buildCsp(nonce: string): string {
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
-    'upgrade-insecure-requests',
-  ].join('; ');
+  ];
+
+  if (!isDev) {
+    directives.push('upgrade-insecure-requests');
+  }
+
+  return directives.join('; ');
 }
 
 function buildPermissionsPolicy(pathname: string): string {

@@ -93,6 +93,11 @@ export interface AppConfig {
     /** Minutes before a password-reset token expires. */
     ttlMinutes: number;
   };
+  vapid: {
+    publicKey: string;
+    privateKey: string;
+    subject: string;
+  };
 }
 
 /**
@@ -132,7 +137,7 @@ function parseAllowedOrigins(frontendUrl: string): string[] {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  return [...new Set([frontendUrl, ...extra])];
+  return [...new Set([frontendUrl, 'http://localhost:3000', 'http://127.0.0.1:3000', ...extra])];
 }
 
 function parseBool(raw: string | undefined, fallback: boolean): boolean {
@@ -220,6 +225,11 @@ export default (): AppConfig => {
     },
     passwordReset: {
       ttlMinutes: parseInt(process.env.PASSWORD_RESET_TTL_MINUTES || '60', 10),
+    },
+    vapid: {
+      publicKey: process.env.VAPID_PUBLIC_KEY || '',
+      privateKey: process.env.VAPID_PRIVATE_KEY || '',
+      subject: process.env.VAPID_SUBJECT || 'mailto:admin@ems.local',
     },
   };
 };
