@@ -16,7 +16,32 @@
  */
 
 function readPublicEnv(name: string): string | undefined {
-  const value = process.env[name];
+  let value: string | undefined;
+  switch (name) {
+    case 'NEXT_PUBLIC_API_BASE_URL':
+      value = process.env.NEXT_PUBLIC_API_BASE_URL;
+      break;
+    case 'NEXT_PUBLIC_API_URL':
+      value = process.env.NEXT_PUBLIC_API_URL;
+      break;
+    case 'NEXT_PUBLIC_ALLOW_PUBLIC_REGISTRATION':
+      value = process.env.NEXT_PUBLIC_ALLOW_PUBLIC_REGISTRATION;
+      break;
+    case 'NEXT_PUBLIC_TIMEZONE':
+      value = process.env.NEXT_PUBLIC_TIMEZONE;
+      break;
+    case 'NEXT_PUBLIC_LOCALE':
+      value = process.env.NEXT_PUBLIC_LOCALE;
+      break;
+    case 'NEXT_PUBLIC_CURRENCY':
+      value = process.env.NEXT_PUBLIC_CURRENCY;
+      break;
+    default:
+      value = process.env[name];
+  }
+  if (value === undefined) {
+    value = process.env[name];
+  }
   return value && value.trim().length > 0 ? value.trim() : undefined;
 }
 
@@ -26,7 +51,8 @@ export function getApiBaseUrl(): string | null {
   if (primary) return primary.replace(/\/+$/, '');
   const legacy = readPublicEnv('NEXT_PUBLIC_API_URL');
   if (legacy) return legacy.replace(/\/+$/, '');
-  return null;
+  // Default to same-origin /api/v1 rewrite
+  return '/api/v1';
 }
 
 /**
