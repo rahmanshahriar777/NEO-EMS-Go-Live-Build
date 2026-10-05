@@ -447,6 +447,20 @@ describe('LeavesService', () => {
       expect(updated.status).toBe(LeaveStatus.APPROVED);
       expect(prisma.leaveBalance.update).not.toHaveBeenCalled();
     });
+
+    it('maps P2025 update error to ConflictException (409) under concurrent approve/reject', async () => {
+      prisma.leaveRequest.findUnique.mockResolvedValue(pendingRequest());
+      prisma.holiday.findMany.mockResolvedValue([]);
+      prisma.leaveBalance.findUnique.mockResolvedValue({ id: 'bal-2026' });
+      prisma.leaveBalance.update.mockResolvedValue({});
+      prisma.leaveRequest.update.mockRejectedValue(
+        Object.assign(new Error('Record to update not found'), { code: 'P2025' }),
+      );
+
+      await expect(
+        service.approveOrReject('req-1', 'mgr-1', approveDto),
+      ).rejects.toThrow(ConflictException);
+    });
   });
 
   describe('cancelLeave', () => {
@@ -504,6 +518,18 @@ describe('LeavesService', () => {
         where: { id: 'bal-2026' },
         data: { pendingDays: { decrement: 2 }, remainingDays: { increment: 2 } },
       });
+    });
+
+    it('maps P2025 update error to ConflictException (409) under concurrent cancel', async () => {
+      prisma.leaveRequest.findUnique.mockResolvedValue(pendingRequest());
+      prisma.holiday.findMany.mockResolvedValue([]);
+      prisma.leaveBalance.findUnique.mockResolvedValue({ id: 'bal-2026' });
+      prisma.leaveBalance.update.mockResolvedValue({});
+      prisma.leaveRequest.update.mockRejectedValue(
+        Object.assign(new Error('Record to update not found'), { code: 'P2025' }),
+      );
+
+      await expect(service.cancelLeave('req-1', 'emp-1')).rejects.toThrow(ConflictException);
     });
   });
 
