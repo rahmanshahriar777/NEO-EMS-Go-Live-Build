@@ -30,17 +30,22 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
         this.logger.log(`Redis connected on ${host}:${port}`);
       });
 
+      this.client.on('close', () => {
+        this.isConnected = false;
+        this.logger.error(`[ALERT] Redis connection closed on ${host}:${port}`);
+      });
+
       this.client.on('error', (err) => {
         this.isConnected = false;
-        this.logger.warn(`Redis connection error: ${err.message}`);
+        this.logger.error(`[ALERT] Redis connection error on ${host}:${port}: ${err.message}`);
       });
 
       // Try connecting lazily
       this.client.connect().catch((err) => {
         this.logger.warn(`Redis initial connect deferred: ${err.message}`);
       });
-    } catch (e) {
-      this.logger.warn(`Failed to initialize Redis client: ${e.message}`);
+    } catch (e: any) {
+      this.logger.error(`[ALERT] Failed to initialize Redis client: ${e.message}`);
     }
   }
 
@@ -96,11 +101,17 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
    */
   async setIfAbsent(key: string, value: string, ttlSeconds: number): Promise<boolean> {
     const client = this.getClient();
+    const failClosed = this.configService.get<string>('REDIS_REPLAY_FAIL_CLOSED') === 'true';
     if (!client || !this.isConnected) {
-      // SECURITY DEGRADATION: replay guard cannot enforce single-use while
-      // Redis is down. Log loudly so the outage is visible in monitoring.
+      if (failClosed) {
+        this.logger.error(
+          `[ALERT] setIfAbsent FAIL-CLOSED for key '${key}': Redis unreachable — rejecting replay guard claim`,
+        );
+        return false;
+      }
+      // Documented accepted risk when REDIS_REPLAY_FAIL_CLOSED is false (or unset)
       this.logger.warn(
-        `setIfAbsent FAIL-OPEN for key '${key}': Redis unreachable — replay guard is DEGRADED`,
+        `[ALERT] setIfAbsent FAIL-OPEN for key '${key}': Redis unreachable — replay guard is DEGRADED (documented acceptance)`,
       );
       return true;
     }
@@ -108,10 +119,14 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       const res = await client.set(key, value, 'EX', ttlSeconds, 'NX');
       return res === 'OK';
     } catch (e) {
-      // Log loudly: a catch here means Redis is reachable but the operation
-      // failed (e.g. WRONGTYPE, OOM). Same degradation posture as above.
+      if (failClosed) {
+        this.logger.error(
+          `[ALERT] setIfAbsent FAIL-CLOSED for key '${key}': ${(e as Error).message} — rejecting replay guard claim`,
+        );
+        return false;
+      }
       this.logger.warn(
-        `setIfAbsent FAIL-OPEN for key '${key}': ${(e as Error).message} — replay guard is DEGRADED`,
+        `[ALERT] setIfAbsent FAIL-OPEN for key '${key}': ${(e as Error).message} — replay guard is DEGRADED (documented acceptance)`,
       );
       return true;
     }

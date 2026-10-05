@@ -15,12 +15,13 @@ interface Notification {
 }
 
 /**
- * Notification bell (Phase 2 item 2): dropdown, unread count, mark-all-read.
+ * Notification bell: dropdown, unread count, bulk mark-all-read.
  *
- * API: GET /notifications, PATCH /notifications/:id/read.
- * Mark-all-read issues one PATCH per unread item (the API has no bulk
- * endpoint yet — reported as a mismatch) so the unread count is always the
- * server's truth, never a locally-forced zero.
+ * Uses dedicated bulk & count endpoints:
+ * - GET /notifications/unread-count for badge count
+ * - GET /notifications for items on open
+ * - POST /notifications/mark-all-read for bulk mark-all-read
+ * - PATCH /notifications/:id/read for single item
  */
 export const NotificationBell: React.FC = () => {
   const [open, setOpen] = useState(false);

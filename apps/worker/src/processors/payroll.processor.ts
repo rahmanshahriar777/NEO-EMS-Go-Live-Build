@@ -343,6 +343,21 @@ export async function computePayrollRun(job: Job<PayrollJobPayload>, db: Payroll
     log.info('payroll.compute.resume', { jobId: job.id, payrollRunId, status: run.status });
   }
 
+  // Heartbeat payrollRun.updatedAt during compute so maintenance sweeps never
+  // flap legitimately long-running jobs.
+  const heartbeat = setInterval(() => {
+    db.payrollRun
+      .update({
+        where: { id: payrollRunId },
+        data: { updatedAt: new Date() },
+      })
+      .catch((err: any) => {
+        log.warn('payroll.compute.heartbeat-failed', { payrollRunId, error: err?.message });
+      });
+  }, 15_000);
+  if (typeof (heartbeat as any).unref === 'function') (heartbeat as any).unref();
+
+  try {
   // Minor-unit exact totals (currency-aware — correct for JPY/KWD, not just
   // 2-decimal currencies). Falls back to PAYROLL_CURRENCY env var, then 'GBP'.
   const currency =
@@ -538,13 +553,16 @@ export async function computePayrollRun(job: Job<PayrollJobPayload>, db: Payroll
     correlationId,
   });
 
-  return {
-    success: true,
-    payrollRunId,
-    payslipsComputed: computed,
-    warnings,
-    totalGross: Number(updated.totalGross),
-    totalDeductions: Number(updated.totalDeductions),
-    totalNet: Number(updated.totalNet),
-  };
+    return {
+      success: true,
+      payrollRunId,
+      payslipsComputed: computed,
+      warnings,
+      totalGross: Number(updated.totalGross),
+      totalDeductions: Number(updated.totalDeductions),
+      totalNet: Number(updated.totalNet),
+    };
+  } finally {
+    clearInterval(heartbeat);
+  }
 }

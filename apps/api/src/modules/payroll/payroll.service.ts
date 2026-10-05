@@ -297,6 +297,7 @@ export class PayrollService {
             year: dto.year,
             departmentId: dto.departmentId,
             status: PayrollStatus.DRAFT,
+            currency: dto.currency || this.defaultCurrency,
             // Totals start at zero; the worker rolls them up after computing.
             totalGross: 0,
             totalDeductions: 0,

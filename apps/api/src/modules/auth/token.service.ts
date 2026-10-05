@@ -1,4 +1,9 @@
-import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  ServiceUnavailableException,
+  Logger,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../core/prisma/prisma.service';
@@ -328,16 +333,22 @@ export class TokenService {
   }
 
   /**
-   * Replay guards are Redis-backed. When Redis is unreachable we fail open
-   * (allow the request) with a loud warning — the same convention as the
-   * Redis throttler storage — rather than bricking all MFA logins during a
-   * Redis outage. Redis disconnects should be alerted on in production.
+   * Replay guards are Redis-backed.
+   * Posture decision:
+   * - If REDIS_REPLAY_FAIL_CLOSED=true: fail closed (reject authentication attempts) to prevent any replay.
+   * - Otherwise (default): documented acceptance of degraded replay window during Redis outage,
+   *   emitting a high-visibility [ALERT] log for monitoring.
    */
   private replayStoreAvailable(what: string): boolean {
     if (this.redisService.getIsConnected()) {
       return true;
     }
-    this.logger.warn(`${what} degraded: Redis unavailable (fail-open)`);
+    const failClosed = this.configService.get<string>('REDIS_REPLAY_FAIL_CLOSED') === 'true';
+    if (failClosed) {
+      this.logger.error(`[ALERT] ${what} blocked: Redis unavailable (posture: fail-closed)`);
+      throw new ServiceUnavailableException('Authentication service temporarily unavailable; please try again later');
+    }
+    this.logger.warn(`[ALERT] ${what} degraded: Redis unavailable (documented acceptance: fail-open)`);
     return false;
   }
 }

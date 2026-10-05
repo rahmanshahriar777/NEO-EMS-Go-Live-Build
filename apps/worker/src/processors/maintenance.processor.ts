@@ -260,8 +260,11 @@ export async function sweepStuckPayrollRuns(job: Job<ExtendedMaintenanceJobPaylo
   let requeued = 0;
   let skippedActive = 0;
   for (const run of stuckProcessingCandidates) {
-    const jobId = `payroll-run:${run.id}`;
-    const active = await isJobActive(getPayrollQueue(), jobId);
+    const jobIdColon = `payroll-run:${run.id}`;
+    const jobIdHyphen = `payroll-run-${run.id}`;
+    const active =
+      (await isJobActive(getPayrollQueue(), jobIdColon)) ||
+      (await isJobActive(getPayrollQueue(), jobIdHyphen));
     if (active) {
       // Job is still processing — leave it alone.
       skippedActive++;
@@ -269,7 +272,7 @@ export async function sweepStuckPayrollRuns(job: Job<ExtendedMaintenanceJobPaylo
         payrollRunId: run.id,
         month: run.month,
         year: run.year,
-        jobId,
+        jobId: jobIdColon,
         correlationId,
       });
       continue;

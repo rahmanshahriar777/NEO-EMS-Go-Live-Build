@@ -504,8 +504,13 @@ export class LeavesService {
     }
 
     const created = await this.prisma.$transaction(async (tx) => {
-      // Row lock on employee to prevent TOCTOU overlapping requests under concurrent creates
+      // Per-employee transaction advisory lock to guarantee overlap atomicity and prevent TOCTOU under concurrent creates
       if (typeof (tx as any).$executeRaw === 'function') {
+        try {
+          await (tx as any).$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'leave-overlap-' + employeeId}))`;
+        } catch {
+          // Graceful fallback for mock/in-memory test environments
+        }
         try {
           await (tx as any).$executeRaw`SELECT 1 FROM "employees" WHERE id = ${employeeId} FOR UPDATE`;
         } catch {

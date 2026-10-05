@@ -106,6 +106,11 @@ export class CreatePayrollRunDto {
   @IsUUID()
   @IsOptional()
   departmentId?: string;
+
+  @ApiPropertyOptional({ example: 'GBP', description: 'Currency code override (defaults to PAYROLL_CURRENCY or GBP)' })
+  @IsString()
+  @IsOptional()
+  currency?: string;
 }
 
 export class CreatePayslipCorrectionDto {

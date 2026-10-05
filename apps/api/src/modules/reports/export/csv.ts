@@ -7,7 +7,16 @@
  */
 export function escapeCsvField(value: unknown): string {
   if (value === null || value === undefined) return '';
-  const s = String(value);
+  let s = String(value);
+
+  // Formula injection guard (CSV injection):
+  // Prefix fields starting with =, +, -, @, or tab/CR with a single quote (')
+  // so spreadsheet applications treat them as text literals rather than formulas.
+  // Numeric types (typeof number) are preserved unless formatted as string expressions.
+  if (typeof value === 'string' && /^[=+\-@\t\r]/.test(s)) {
+    s = `'${s}`;
+  }
+
   if (/[",\r\n]/.test(s)) {
     return `"${s.replace(/"/g, '""')}"`;
   }

@@ -205,9 +205,10 @@ instead).
    (and restore the pre-migration backup only if a migration actually
    changed data — prefer roll-forward fixes for schema issues).
 
-> Status: the current `deploy-prod.yaml` runs `prisma migrate deploy` with
-> no CI gate, no backup step, and no automated rollback — the gating,
-> backup, and `rollout undo` steps above are a go-live item in progress.
+> **Pipeline status**: `deploy-prod.yaml` is gated on successful CI completion on `main`
+> (or manual workflow dispatch), performs pre-migration image existence checks, executes an automated
+> pre-migration backup via `scripts/backup-prod.sh`, applies migrations and enum values,
+> and performs automated rollback on failure.
 
 ## 4. First admin (no self-registration in production)
 
@@ -265,15 +266,10 @@ structured logs; PDB intentionally omitted for the single-replica worker).
 - `docker-build.yaml` publishes **per-commit SHA tags**
   (`ghcr.io/<org>/ems-api:sha-<short-sha>`) for every main-branch build,
   plus semver tags (`1.2.3`) on `v*` releases.
-- **Never deploy `:latest`.** `deploy-prod.yaml` pins the image fields to
-  the built semver/SHA tag for that release.
-- k8s manifests must not contain placeholder registries.
-
-> Status: the current tree still publishes only `:latest` (main pushes) +
-> semver (releases) — no SHA tags — and `k8s/*-deployment.yaml` still points
-> at `ghcr.io/your-org/…` placeholders. Switching the tagging scheme and the
-> manifests to real per-commit SHA tags is a go-live item in progress. Do
-> not apply the k8s manifests as-is to production.
+- **Never deploy `:latest`.** `deploy-prod.yaml` verifies image existence and pins
+  deployments to the built `sha-<short-sha>` tag via `envsubst`.
+- Kubernetes manifests in `k8s/` use `${IMAGE_REGISTRY}/${IMAGE_REPOSITORY}/<svc>:${IMAGE_TAG}`
+  placeholders rendered dynamically by `envsubst` during deployment.
 
 ## Backups & restore
 
@@ -322,22 +318,12 @@ changes. **Re-evaluation trigger: before the platform handles customer PII
 documents at scale** (or before any production handling of documents from
 untrusted sources), a real scanner (ClamAV sidecar or a provider hook)
 must be wired and `DOCUMENT_MALWARE_SCAN_ENABLED=true` set in production.
-`DOCUMENT_MALWARE_SCAN_ENABLED` is read directly by the documents module
-and is not yet in `.env.example` (env repair in progress).
+`DOCUMENT_MALWARE_SCAN_ENABLED` is documented in `.env.example` (defaults to `false`).
 
-## What this guide does NOT cover (other workers / later phases)
+## Summary of Hardening & Automated Pipelines
 
-- `.env.example` repair + CI grep check (`MFA_TOTP_WINDOW` vs `MFA_WINDOW`
-  still skewed), per-commit SHA image tags, k8s manifest registry fixes,
-  and deploy-prod gating with backup + rollback (go-live infra/pipeline
-  item — target states documented above; current tree is not yet at
-  target). The enum pre-step script exists, but `deploy-prod.yaml` does
-  not invoke it yet — run it manually per §3.
-- `DOCUMENT_MALWARE_SCAN_ENABLED` is not yet in `.env.example` (env repair
-  in progress); ClamAV sidecar wiring is deferred — see the accepted-risk
-  note above.
-- Prometheus `/metrics` wiring: the shared registry exists
-  (`packages/shared/src/observability/metrics.ts`); the guarded endpoint is
-  still to be mounted by the API owner.
-- DPIA sign-off for AI features: see `docs/DPIA-notes.md` (notes only —
-  requires DPO review before enabling AI in production).
+- **Enum Values Script**: `scripts/apply-enum-values.sql` is automatically executed post-migration in `deploy-prod.yaml` (`psql -f scripts/apply-enum-values.sql`), ensuring `ALTER TYPE ... ADD VALUE` statements are applied outside transaction blocks.
+- **Prometheus Observability**: `/metrics` is actively mounted in `apps/api/src/core/metrics/metrics.controller.ts` (admin-authenticated) and serves metrics from `packages/shared/src/observability/metrics.ts`.
+- **Malware Scanning**: Documented in `.env.example`. Upload paths fail-closed at boot if `DOCUMENT_MALWARE_SCAN_ENABLED=true` without a registered scanner; default is `NoopMalwareScanner` with magic-byte validation (accepted risk for go-live).
+- **Image Pinning & Pipeline Gating**: `docker-build.yaml` publishes immutable per-commit SHA tags (`sha-<short-sha>`). `deploy-prod.yaml` gates on CI completion, verifies image existence prior to migrations, executes automated backups (`scripts/backup-prod.sh`), and deploys tagged manifests via `envsubst`.
+- **DPIA Sign-Off for AI Features**: See `docs/DPIA-notes.md` (requires DPO review before enabling AI in production).

@@ -61,6 +61,7 @@ export class NotificationsController {
   }
 
   @Post('mark-all-read')
+  @Patch('mark-all-read')
   @ApiOperation({ summary: 'Mark all notifications as read' })
   markAllRead(@CurrentUser() user: JwtPayload) {
     return this.service.markAllRead(user.sub);
