@@ -25,6 +25,7 @@ import {
   toMinorUnits,
   fromMinorUnits,
 } from '@ems/shared';
+import { getCorrelationId } from '../../common/correlation/correlation';
 import { renderPayslipPdf } from './payroll-pdf';
 import { toCsv } from '../reports/export/csv';
 
@@ -304,7 +305,7 @@ export class PayrollService {
     // Hand computation to the worker (retries/DLQ/idempotency key
     // `payroll-run:<runId>` handled by the queue contract). The worker owns
     // the ONLY copy of the payroll formula.
-    await this.queues.enqueuePayrollRun(run.id, randomUUID());
+    await this.queues.enqueuePayrollRun(run.id, getCorrelationId() ?? randomUUID());
 
     return run;
   }
@@ -379,7 +380,7 @@ export class PayrollService {
       afterState: { id, status: PayrollStatus.DRAFT },
     });
 
-    await this.queues.enqueuePayrollRun(id, randomUUID());
+    await this.queues.enqueuePayrollRun(id, getCorrelationId() ?? randomUUID());
 
     return this.getPayrollRunById(id);
   }
@@ -574,7 +575,7 @@ export class PayrollService {
 
     // Notify each employee that their payslip is ready. One job per payslip
     // with a stable idempotency key so retries never double-notify.
-    const correlationId = randomUUID();
+    const correlationId = getCorrelationId() ?? randomUUID();
     for (const slip of (updated as any).payslips ?? []) {
       const userId = slip.employee?.userId;
       if (!userId) continue;

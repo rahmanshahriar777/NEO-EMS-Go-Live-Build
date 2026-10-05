@@ -35,7 +35,12 @@ RUN pnpm --filter @ems/database db:generate
 RUN pnpm --filter @ems/shared build
 RUN pnpm --filter @ems/api build
 
-# Stage 3: Runner
+# Produce a pruned production install (no devDependencies) for the runner
+# stage. `pnpm deploy` resolves the workspace graph and writes exactly the
+# runtime deps + built artefacts into /deploy/apps/api.
+RUN pnpm deploy --filter @ems/api --prod /deploy/apps/api
+
+# Stage 3: Runner — production-only dependencies, no devDeps.
 FROM node:20.19-alpine3.22 AS runner
 WORKDIR /app
 ENV NODE_ENV=production
@@ -44,8 +49,9 @@ RUN apk add --no-cache curl
 # Security: Non-root user
 USER node
 
-COPY --chown=node:node --from=builder /app/node_modules ./node_modules
-COPY --chown=node:node --from=builder /app/packages/database/node_modules ./packages/database/node_modules
+# Copy pruned deployment artefact from builder (prod deps only).
+COPY --chown=node:node --from=builder /deploy/apps/api/node_modules ./node_modules
+# Workspace packages that @ems/api depends on at runtime.
 COPY --chown=node:node --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --chown=node:node --from=builder /app/packages/shared/package.json ./packages/shared/package.json
 COPY --chown=node:node --from=builder /app/packages/database/dist ./packages/database/dist

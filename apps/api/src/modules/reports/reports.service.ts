@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { QueueService } from '../../core/queues/queue.service';
+import { getCorrelationId } from '../../common/correlation/correlation';
 import { toCsv } from './export/csv';
 import { toXlsx, XlsxCell } from './export/xlsx';
 import { renderPdf } from './export/pdf';
@@ -350,7 +351,7 @@ export class ReportsService {
     for (const s of schedules) {
       try {
         const { buffer, filename } = await this.exportReport(s.type, s.format);
-        const correlationId = randomUUID();
+        const correlationId = getCorrelationId() ?? randomUUID();
         for (const to of s.recipients) {
           const jobId = await this.queueService.enqueueNotification(
             undefined, // no userId: email-only job to a raw address

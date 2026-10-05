@@ -291,6 +291,7 @@ model Invitation {
   createdBy User?     @relation("InvitationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([email])
+  @@index([employeeId])
   @@map("invitations")
 }
 
@@ -1120,6 +1121,7 @@ model OnboardingTask {
   document  Document?           @relation(fields: [documentId], references: [id], onDelete: SetNull)
 
   @@index([checklistId, status])
+  @@index([ownerUserId])
   @@map("onboarding_tasks")
 }
 
@@ -1187,6 +1189,7 @@ model Candidate {
   offers   Offer[]
 
   @@index([vacancyId, stage])
+  @@index([employeeId])
   @@map("candidates")
 }
 

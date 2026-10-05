@@ -89,18 +89,30 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
    * one wins.
    *
    * Fail-open when Redis is unreachable (returns true), matching the
-   * throttler storage convention — the caller logs the degradation loudly.
+   * throttler storage convention — but logs a LOUD WARN so operators can
+   * see replay-guard degradation in the structured logs during an outage.
+   * Callers (MFA, TOTP) must treat a fail-open as a security degradation
+   * event and ensure their surrounding rate-limits still apply.
    */
   async setIfAbsent(key: string, value: string, ttlSeconds: number): Promise<boolean> {
     const client = this.getClient();
     if (!client || !this.isConnected) {
+      // SECURITY DEGRADATION: replay guard cannot enforce single-use while
+      // Redis is down. Log loudly so the outage is visible in monitoring.
+      this.logger.warn(
+        `setIfAbsent FAIL-OPEN for key '${key}': Redis unreachable — replay guard is DEGRADED`,
+      );
       return true;
     }
     try {
       const res = await client.set(key, value, 'EX', ttlSeconds, 'NX');
       return res === 'OK';
     } catch (e) {
-      this.logger.warn(`Redis setIfAbsent error for ${key}: ${(e as Error).message}`);
+      // Log loudly: a catch here means Redis is reachable but the operation
+      // failed (e.g. WRONGTYPE, OOM). Same degradation posture as above.
+      this.logger.warn(
+        `setIfAbsent FAIL-OPEN for key '${key}': ${(e as Error).message} — replay guard is DEGRADED`,
+      );
       return true;
     }
   }

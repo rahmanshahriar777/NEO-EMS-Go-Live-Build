@@ -27,14 +27,22 @@ RUN pnpm --filter @ems/database db:generate
 RUN pnpm --filter @ems/shared build
 RUN pnpm --filter @ems/worker build
 
+# Produce a pruned production install (no devDependencies) for the runner
+# stage. `pnpm deploy` resolves the workspace graph and writes exactly the
+# runtime deps + built artefacts into /deploy/apps/worker.
+RUN pnpm deploy --filter @ems/worker --prod /deploy/apps/worker
+
 FROM node:20.19-alpine3.22 AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
 USER node
 
-COPY --chown=node:node --from=builder /app/node_modules ./node_modules
-COPY --chown=node:node --from=builder /app/packages/database/node_modules ./packages/database/node_modules
+# Copy pruned deployment artefact from builder (prod deps only: bullmq,
+# ioredis, @google/generative-ai, groq-sdk, dotenv). tsx, typescript,
+# rimraf and @types/node are devDeps and will not be present.
+COPY --chown=node:node --from=builder /deploy/apps/worker/node_modules ./node_modules
+# Workspace packages that @ems/worker depends on at runtime.
 COPY --chown=node:node --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --chown=node:node --from=builder /app/packages/database/dist ./packages/database/dist
 COPY --chown=node:node --from=builder /app/packages/database/prisma ./packages/database/prisma

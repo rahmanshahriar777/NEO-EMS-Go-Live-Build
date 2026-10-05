@@ -13,6 +13,28 @@ import { accrueMonthlyLeave } from './leave-accrual.processor.js';
 import { getScheduledReportsRunner } from '../schedule.js';
 
 /**
+ * Return true when a BullMQ job with the given jobId is currently in the
+ * 'active' state (i.e. being processed by a worker right now).
+ *
+ * This is used by the payroll sweep to distinguish a genuinely stuck
+ * PROCESSING run (worker died) from a legitimately long-running one.
+ * If the queue is unreachable we conservatively return true (assume active)
+ * so the sweep never aborts a live run during a Redis hiccup.
+ */
+async function isJobActive(queue: Queue, jobId: string): Promise<boolean> {
+  try {
+    const job = await queue.getJob(jobId);
+    if (!job) return false;
+    const state = await job.getState();
+    return state === 'active';
+  } catch (e: any) {
+    // Can't determine — assume it could be active to be safe.
+    log.warn('maintenance.sweep.active-check-failed', { jobId, error: e?.message });
+    return true;
+  }
+}
+
+/**
  * Maintenance processor: retention and housekeeping jobs.
  *
  * Supported operations:
@@ -223,15 +245,35 @@ export async function sweepStuckPayrollRuns(job: Job<ExtendedMaintenanceJobPaylo
     correlationId,
   });
 
-  // 1. Stuck PROCESSING: reset to DRAFT, then requeue.
-  const stuckProcessing = await prisma.payrollRun.findMany({
+  // 1. Stuck PROCESSING: reset to DRAFT and requeue, BUT only when there is
+  //    no active BullMQ job for the run. A job is still active when the
+  //    processor is running a legitimately long computation (large payroll)
+  //    — resetting that run mid-flight would cause a double-compute on the
+  //    next sweep iteration. Only truly orphaned runs (no active job AND
+  //    past the stale window) are recovered.
+  const stuckProcessingCandidates = await prisma.payrollRun.findMany({
     where: { status: 'PROCESSING', updatedAt: { lt: staleBefore } },
     select: { id: true, month: true, year: true },
   });
 
   let reset = 0;
   let requeued = 0;
-  for (const run of stuckProcessing) {
+  let skippedActive = 0;
+  for (const run of stuckProcessingCandidates) {
+    const jobId = `payroll-run:${run.id}`;
+    const active = await isJobActive(getPayrollQueue(), jobId);
+    if (active) {
+      // Job is still processing — leave it alone.
+      skippedActive++;
+      log.info('maintenance.sweep.skip-active', {
+        payrollRunId: run.id,
+        month: run.month,
+        year: run.year,
+        jobId,
+        correlationId,
+      });
+      continue;
+    }
     await prisma.payrollRun.update({
       where: { id: run.id },
       data: { status: 'DRAFT' },
@@ -269,7 +311,8 @@ export async function sweepStuckPayrollRuns(job: Job<ExtendedMaintenanceJobPaylo
 
   log.info('maintenance.sweep.done', {
     jobId: job.id,
-    stuckProcessing: stuckProcessing.length,
+    stuckProcessingCandidates: stuckProcessingCandidates.length,
+    skippedActive,
     stuckDraft: stuckDraft.length,
     reset,
     requeued,
@@ -278,7 +321,8 @@ export async function sweepStuckPayrollRuns(job: Job<ExtendedMaintenanceJobPaylo
 
   return {
     operation: 'sweepStuckPayrollRuns',
-    stuckProcessing: stuckProcessing.length,
+    stuckProcessingCandidates: stuckProcessingCandidates.length,
+    skippedActive,
     stuckDraft: stuckDraft.length,
     reset,
     requeued,
