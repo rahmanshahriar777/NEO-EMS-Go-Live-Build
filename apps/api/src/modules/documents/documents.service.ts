@@ -297,7 +297,13 @@ export class DocumentsService implements OnModuleInit {
           )
         : null;
 
-    const { fileKey: _legacy, fileUrl: _legacyUrl, ...rest } = doc as any;
+    const {
+      fileKey: _legacy,
+      fileUrl: _legacyUrl,
+      storageKey: _storageKey,
+      iv: _iv,
+      ...rest
+    } = doc as any;
     return {
       ...rest,
       // Never expose the raw storage key or interpolate it into URLs.

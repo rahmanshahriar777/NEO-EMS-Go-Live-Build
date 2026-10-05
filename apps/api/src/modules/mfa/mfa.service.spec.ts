@@ -329,6 +329,8 @@ describe('MfaService', () => {
 
       expect(sessions).toHaveLength(1);
       expect(sessions[0].familyId).toBe('fam-a');
+      expect(sessions[0].id).toBe('fam-a');
+      expect(sessions[0].ipAddress).toBe('1.1.1.1');
     });
 
     it('revokes one session; 400 when unknown', async () => {

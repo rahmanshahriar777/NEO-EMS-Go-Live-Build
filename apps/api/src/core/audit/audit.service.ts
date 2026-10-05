@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   AuditAction,
@@ -348,7 +348,7 @@ export class AuditService {
    */
   private async insertV2(client: AuditTxClient, row: any) {
     // Serialize chain-head writers for the duration of this transaction.
-    await client.$queryRaw`SELECT pg_advisory_xact_lock(420001, 7)`;
+    await client.$queryRaw`SELECT pg_advisory_xact_lock(420001, 7)::text`;
 
     const latest = await client.$queryRaw<
       Array<{ id: string; hash: string | null; sequence: number | null; schemeVersion: number | null }>
@@ -390,15 +390,16 @@ export class AuditService {
         });
         const checkpointHash = computeAuditHash(prevHash, checkpointPayload);
         const checkpointSequence = nextSequence;
+        const checkpointId = randomUUID();
         await client.$queryRaw`
           INSERT INTO audit_logs
             ("entityType", "entityId", action, "beforeState", "afterState",
-             "prevHash", hash, "createdAt", "sequence", "schemeVersion")
+             "prevHash", hash, "createdAt", "sequence", "schemeVersion", id)
           VALUES (
             'AUDIT_CHAIN', ${`scheme-v2-checkpoint`}, 'UPDATE'::"AuditAction",
             NULL, ${JSON.stringify(checkpointAfterState)}::jsonb,
-            ${prevHash}, ${checkpointHash}, ${row.createdAt.toISOString()},
-            ${checkpointSequence}, ${CURRENT_SCHEME_VERSION}
+            ${prevHash}, ${checkpointHash}, ${row.createdAt.toISOString()}::timestamp,
+            ${checkpointSequence}, ${CURRENT_SCHEME_VERSION}, ${checkpointId}
           )
           RETURNING id
         `;
@@ -408,25 +409,26 @@ export class AuditService {
     }
 
     const hash = computeAuditHash(prevHash, row.canonicalPayload);
+    const rowId = randomUUID();
     const inserted = await client.$queryRaw<Array<{ id: string }>>`
       INSERT INTO audit_logs
         ("actorId", "actorEmail", action, "entityType", "entityId",
          "beforeState", "afterState", "ipAddress",
-         "prevHash", hash, "createdAt", "sequence", "schemeVersion")
+         "prevHash", hash, "createdAt", "sequence", "schemeVersion", id)
       VALUES (
         ${row.actorId ?? null}, ${row.actorEmail ?? null}, ${row.action}::"AuditAction",
         ${row.entityType}, ${row.entityId},
         ${row.beforeState ? JSON.stringify(row.beforeState) : null}::jsonb,
         ${row.afterState ? JSON.stringify(row.afterState) : null}::jsonb,
         ${row.ipAddress ?? null},
-        ${prevHash}, ${hash}, ${row.createdAt.toISOString()},
-        ${nextSequence}, ${CURRENT_SCHEME_VERSION}
+        ${prevHash}, ${hash}, ${row.createdAt.toISOString()}::timestamp,
+        ${nextSequence}, ${CURRENT_SCHEME_VERSION}, ${rowId}
       )
       RETURNING id
     `;
 
     return {
-      id: inserted[0]?.id,
+      id: inserted[0]?.id ?? rowId,
       ...row,
       prevHash,
       hash,
@@ -641,8 +643,8 @@ export class AuditService {
         SELECT id, "actorId", "actorEmail", action, "entityType", "entityId",
                "beforeState", "afterState", "ipAddress", "prevHash", hash, "createdAt"
         FROM audit_logs
-        WHERE "createdAt" > ${lastCreatedAt.toISOString()}
-           OR ("createdAt" = ${lastCreatedAt.toISOString()} AND id > ${lastId})
+        WHERE "createdAt" > ${lastCreatedAt.toISOString()}::timestamp
+           OR ("createdAt" = ${lastCreatedAt.toISOString()}::timestamp AND id > ${lastId})
         ORDER BY "createdAt" ASC, id ASC
         LIMIT ${Math.min(batchSize, 1000)}
       `;
@@ -767,7 +769,7 @@ export class AuditService {
 
       const doomed = await client.$queryRaw<Array<{ id: string; hash: string | null }>>`
         SELECT id, hash FROM audit_logs
-        WHERE "createdAt" < ${cutoff.toISOString()} AND id <> ${newest.id}
+        WHERE "createdAt" < ${cutoff.toISOString()}::timestamp AND id <> ${newest.id}
         ORDER BY "createdAt" ASC
       `;
       if (doomed.length === 0) {
@@ -813,7 +815,7 @@ export class AuditService {
 
       let checkpointId: string | null = null;
       try {
-        await client.$queryRaw`SELECT pg_advisory_xact_lock(420001, 7)`;
+        await client.$queryRaw`SELECT pg_advisory_xact_lock(420001, 7)::text`;
         const latest = await client.$queryRaw<
           Array<{ hash: string | null; sequence: number | null }>
         >`
@@ -824,15 +826,16 @@ export class AuditService {
         const prevHash = latest[0]?.hash ?? GENESIS_HASH;
         const sequence = (latest[0]?.sequence ?? 0) + 1;
         const hash = computeAuditHash(prevHash, checkpointPayload);
+        const truncationId = randomUUID();
         const inserted = await client.$queryRaw<Array<{ id: string }>>`
           INSERT INTO audit_logs
             ("entityType", "entityId", action, "afterState",
-             "prevHash", hash, "createdAt", "sequence", "schemeVersion")
+             "prevHash", hash, "createdAt", "sequence", "schemeVersion", id)
           VALUES (
             'AUDIT_CHAIN', 'retention-truncation', 'UPDATE'::"AuditAction",
             ${JSON.stringify(checkpointAfterState)}::jsonb,
-            ${prevHash}, ${hash}, ${createdAt.toISOString()},
-            ${sequence}, ${CURRENT_SCHEME_VERSION}
+            ${prevHash}, ${hash}, ${createdAt.toISOString()}::timestamp,
+            ${sequence}, ${CURRENT_SCHEME_VERSION}, ${truncationId}
           )
           RETURNING id
         `;

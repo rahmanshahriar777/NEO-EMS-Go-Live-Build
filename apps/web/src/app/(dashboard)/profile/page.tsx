@@ -14,7 +14,13 @@ export default function ProfilePage() {
   const [downloadError, setDownloadError] = useState<string | null>(null);
   // Go-live Phase 2 item 9: surface the existing push-subscription hook so
   // web-push is actually reachable from the UI.
-  const { status: pushStatus, error: pushError, subscribe: subscribePush } = usePushSubscription();
+  const {
+    status: pushStatus,
+    error: pushError,
+    subscribe: subscribePush,
+    unsubscribe: unsubscribePush,
+  } = usePushSubscription();
+  const [unsubscribing, setUnsubscribing] = useState(false);
 
   const handleDsarDownload = async () => {
     setDownloading(true);
@@ -101,32 +107,58 @@ export default function ProfilePage() {
               aria-label="Push notification preference"
               style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '12px' }}
             >
-              <button
-                type="button"
-                role="switch"
-                aria-checked={pushStatus === 'subscribed'}
-                aria-label="Enable push notifications"
-                disabled={pushStatus === 'subscribing' || pushStatus === 'subscribed'}
-                onClick={() => void subscribePush()}
-                className="profile-btn-primary"
-              >
-                {pushStatus === 'subscribing' ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Enabling…</span>
-                  </>
-                ) : pushStatus === 'subscribed' ? (
-                  <>
-                    <Bell className="w-4 h-4" />
-                    <span>Notifications enabled</span>
-                  </>
-                ) : (
-                  <>
-                    <Bell className="w-4 h-4" />
-                    <span>Enable notifications</span>
-                  </>
-                )}
-              </button>
+              {pushStatus === 'subscribed' ? (
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={true}
+                  aria-label="Disable push notifications"
+                  disabled={unsubscribing}
+                  onClick={async () => {
+                    setUnsubscribing(true);
+                    try {
+                      await unsubscribePush();
+                    } finally {
+                      setUnsubscribing(false);
+                    }
+                  }}
+                  className="profile-btn-secondary"
+                >
+                  {unsubscribing ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Disabling…</span>
+                    </>
+                  ) : (
+                    <>
+                      <BellOff className="w-4 h-4" />
+                      <span>Disable notifications</span>
+                    </>
+                  )}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={false}
+                  aria-label="Enable push notifications"
+                  disabled={pushStatus === 'subscribing'}
+                  onClick={() => void subscribePush()}
+                  className="profile-btn-primary"
+                >
+                  {pushStatus === 'subscribing' ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Enabling…</span>
+                    </>
+                  ) : (
+                    <>
+                      <Bell className="w-4 h-4" />
+                      <span>Enable notifications</span>
+                    </>
+                  )}
+                </button>
+              )}
               {pushStatus === 'denied' && (
                 <span className="profile-card-text" style={{ fontSize: '12px' }}>
                   Browser permission was denied — re-enable it in your browser

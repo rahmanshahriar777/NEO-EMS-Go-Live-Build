@@ -11,14 +11,7 @@ import {
 import { processPayroll } from './processors/payroll.processor.js';
 import { processNotification, registerChannelHook } from './processors/notification.processor.js';
 import { sendEmailChannelHook } from './processors/email.processor.js';
-// NOTE (go-live hardening, worker 2): the AI queue consumer was REMOVED.
-// apps/worker/src/processors/ai.processor.ts was real code but unreachable:
-// no API flow ever called QueueService.enqueueAi() (the API's AI path is
-// synchronous via AiOrchestratorService), so the consumer idled forever.
-// Decision: DELETE the dead processor rather than wire a producer with no
-// consumer of its results. If an async AI flow is needed later, the typed
-// producer (QueueService.enqueueAi), the queue name, and the AiJobPayload
-// contract in @ems/shared all remain; re-adding a consumer is mechanical.
+import { processAi } from './processors/ai.processor.js';
 import { processMaintenance } from './processors/maintenance.processor.js';
 import { setLeaveAccrualRedis } from './processors/leave-accrual.processor.js';
 import { setupRepeatableJobs } from './schedule.js';
@@ -155,8 +148,7 @@ async function bootstrap() {
   const workers = [
     new Worker(QUEUE_NAMES.payroll, processPayroll, { connection, concurrency: 1 }),
     new Worker(QUEUE_NAMES.notifications, processNotification, { connection, concurrency: 5 }),
-    // No AI queue consumer: the AI processor was unreachable dead code —
-    // see the note on the removed import above.
+    new Worker(QUEUE_NAMES.ai, processAi, { connection, concurrency: 2 }),
     new Worker(MAINTENANCE_QUEUE, processMaintenance, { connection, concurrency: 1 }),
   ];
 

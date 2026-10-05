@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Post, Param, Query, Body, UseGuards, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Patch, Post, Delete, Param, Query, Body, UseGuards, ParseIntPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -79,6 +79,12 @@ export class NotificationsController {
   @ApiOperation({ summary: 'Register a web-push subscription for the logged in user' })
   savePushSubscription(@Body() dto: PushSubscriptionDto, @CurrentUser() user: JwtPayload) {
     return this.service.savePushSubscription(user.sub, dto);
+  }
+
+  @Delete('push-subscriptions')
+  @ApiOperation({ summary: 'Unregister web-push subscriptions for the logged in user' })
+  deletePushSubscription(@CurrentUser() user: JwtPayload) {
+    return this.service.deletePushSubscription(user.sub);
   }
 
   @Patch(':id/read')

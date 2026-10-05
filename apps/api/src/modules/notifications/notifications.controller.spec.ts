@@ -19,6 +19,7 @@ describe('NotificationsController', () => {
       markAllRead: jest.fn(),
       getVapidPublicKey: jest.fn(),
       savePushSubscription: jest.fn(),
+      deletePushSubscription: jest.fn(),
       markAsRead: jest.fn(),
     };
 
@@ -72,6 +73,12 @@ describe('NotificationsController', () => {
     service.savePushSubscription.mockResolvedValue({ ok: true });
     await controller.savePushSubscription(dto, user);
     expect(service.savePushSubscription).toHaveBeenCalledWith('user-1', dto);
+  });
+
+  it('deletePushSubscription forwards user id', async () => {
+    service.deletePushSubscription.mockResolvedValue({ deleted: true });
+    await controller.deletePushSubscription(user);
+    expect(service.deletePushSubscription).toHaveBeenCalledWith('user-1');
   });
 
   it('markAsRead forwards id + user id', async () => {

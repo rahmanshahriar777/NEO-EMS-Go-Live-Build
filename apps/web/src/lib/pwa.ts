@@ -89,6 +89,34 @@ export async function subscribeToPush(vapidPublicKey: string): Promise<PushStatu
   }
 }
 
+/**
+ * Unsubscribes from web-push notifications on both client (PushManager) and server.
+ */
+export async function unsubscribeFromPush(): Promise<boolean> {
+  if (
+    typeof window === 'undefined' ||
+    !('serviceWorker' in navigator) ||
+    !('PushManager' in window)
+  ) {
+    return false;
+  }
+  try {
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (registration) {
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription) {
+        await subscription.unsubscribe();
+      }
+    }
+    await api.delete('/notifications/push-subscriptions');
+    return true;
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[pwa] Push unsubscribe error:', err);
+    return false;
+  }
+}
+
 export function usePushSubscription() {
   const [status, setStatus] = useState<PushStatus>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -170,7 +198,21 @@ export function usePushSubscription() {
     }
   };
 
-  return { status, error, subscribe };
+  const unsubscribe = async () => {
+    setError(null);
+    try {
+      const ok = await unsubscribeFromPush();
+      if (ok) {
+        setStatus('idle');
+      } else {
+        setError('Could not unsubscribe from push notifications.');
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Push unsubscribe failed.');
+    }
+  };
+
+  return { status, error, subscribe, unsubscribe };
 }
 
 /**

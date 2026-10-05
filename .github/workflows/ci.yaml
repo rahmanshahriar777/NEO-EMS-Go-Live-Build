@@ -134,6 +134,18 @@ jobs:
           JWT_ACCESS_SECRET: test-access-secret-minimum-64-characters-long-key-for-jwt-signing
           JWT_REFRESH_SECRET: test-refresh-secret-minimum-64-characters-long-key-for-jwt-rotation
 
+      - name: Worker coverage gate (enforced via tsx --experimental-test-coverage)
+        run: pnpm --filter @ems/worker test:cov
+
+      - name: Run E2E Tests
+        run: pnpm --filter @ems/api test:e2e
+        env:
+          DATABASE_URL: postgresql://ems_admin:ems_secure_password_123!@localhost:5432/ems_db?schema=public
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          JWT_ACCESS_SECRET: test-access-secret-minimum-64-characters-long-key-for-jwt-signing
+          JWT_REFRESH_SECRET: test-refresh-secret-minimum-64-characters-long-key-for-jwt-rotation
+
       - name: Build All Workspaces
         run: pnpm build
 

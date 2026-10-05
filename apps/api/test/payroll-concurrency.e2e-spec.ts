@@ -208,6 +208,7 @@ const gate = e2eDbOrSkip('concurrency');
     });
 
     const period = { month: 3, year: 2027 };
+    await prisma.payrollRun.deleteMany({ where: { month: period.month, year: period.year } });
     const [a, b] = await Promise.all([
       api().post('/api/v1/payroll/runs').set('Authorization', `Bearer ${hrToken}`).send(period),
       api().post('/api/v1/payroll/runs').set('Authorization', `Bearer ${hrToken}`).send(period),

@@ -1,1 +1,12 @@
-{"maxWorkers":1,"moduleFileExtensions":["js","json","ts"],"rootDir":".","testEnvironment":"node","testRegex":".e2e-spec.ts$","testTimeout":60000,"transform":{"^.+\\.(t|j)s$":"ts-jest"}}
+{
+  "maxWorkers": 1,
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": ".",
+  "testEnvironment": "node",
+  "testRegex": ".e2e-spec.ts$",
+  "testTimeout": 60000,
+  "setupFiles": ["<rootDir>/setup-e2e.ts"],
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  }
+}

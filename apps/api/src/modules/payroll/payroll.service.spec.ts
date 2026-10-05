@@ -24,6 +24,7 @@ describe('PayrollService', () => {
     month: 9,
     year: 2026,
     status: PayrollStatus.APPROVED,
+    approvedById: 'approver-1',
     payslips: [
       { id: 'slip-1', employeeId: 'emp-1', netPay: 6000, employee: { userId: 'user-1' } },
       { id: 'slip-2', employeeId: 'emp-2', netPay: 4500, employee: { userId: 'user-2' } },
@@ -434,6 +435,17 @@ describe('PayrollService', () => {
         ConflictException,
       );
       expect(prismaService.payslip.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('rejects disbursement when the disburser is the approver (separation of duties)', async () => {
+      prismaService.payrollRun.findUnique.mockResolvedValue(
+        approvedRun({ approvedById: 'approver-1' }),
+      );
+
+      await expect(service.disbursePayrollRun('run-1', 'approver-1')).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(prismaService.payrollRun.update).not.toHaveBeenCalled();
     });
 
     it('disburses an APPROVED run: PAID status + disbursementDate on payslips + per-payslip notifications', async () => {

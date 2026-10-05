@@ -344,8 +344,11 @@ export async function computePayrollRun(job: Job<PayrollJobPayload>, db: Payroll
   }
 
   // Minor-unit exact totals (currency-aware — correct for JPY/KWD, not just
-  // 2-decimal currencies). No `Math.round(x * 100)` float boundary.
-  const currency = (run as { currency?: string | null }).currency ?? 'GBP';
+  // 2-decimal currencies). Falls back to PAYROLL_CURRENCY env var, then 'GBP'.
+  const currency =
+    (run as { currency?: string | null }).currency ||
+    process.env.PAYROLL_CURRENCY ||
+    'GBP';
   const { year, month } = run;
   const dim = daysInMonth(year, month);
 

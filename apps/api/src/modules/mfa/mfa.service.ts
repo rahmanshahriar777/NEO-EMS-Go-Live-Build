@@ -295,8 +295,10 @@ export class MfaService {
   async listSessions(userId: string) {
     const sessions = await this.tokenService.listActiveSessions(userId);
     return sessions.map((s) => ({
+      id: s.familyId,
       familyId: s.familyId,
       createdAt: s.createdAt,
+      ipAddress: s.createdIp,
       createdIp: s.createdIp,
       expiresAt: s.expiresAt,
     }));

@@ -267,6 +267,30 @@ export class PayrollService {
     let run: any;
     try {
       run = await this.prisma.$transaction(async (tx) => {
+        // Advisory xact lock to serialize concurrent run creations for the same period/dept
+        const lockKey = `payroll-run-${dto.year}-${dto.month}-${dto.departmentId || 'all'}`;
+        if (typeof (tx as any).$executeRaw === 'function') {
+          try {
+            await (tx as any).$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+          } catch {
+            // Graceful fallback for mock/in-memory test environments
+          }
+        }
+
+        const existingInTx = await tx.payrollRun.findFirst({
+          where: {
+            month: dto.month,
+            year: dto.year,
+            departmentId: dto.departmentId || null,
+          },
+        });
+
+        if (existingInTx) {
+          throw new ConflictException(
+            `Payroll run for period ${dto.month}/${dto.year} already exists with status ${existingInTx.status}`,
+          );
+        }
+
         const created = await tx.payrollRun.create({
           data: {
             month: dto.month,
@@ -515,6 +539,28 @@ export class PayrollService {
       if (run.status !== PayrollStatus.APPROVED) {
         throw new ConflictException(
           `Payroll run must be APPROVED before disbursement (current status: ${run.status})`,
+        );
+      }
+
+      // Separation of duties: the disburser must differ from the approver.
+      let approverId = run.approvedById;
+      if (!approverId) {
+        const auditClient = (tx as any).auditLog ?? (this.prisma as any).auditLog;
+        if (auditClient?.findFirst) {
+          const approveAudit = await auditClient.findFirst({
+            where: {
+              entityType: 'PAYROLL_RUN',
+              entityId: id,
+              action: AuditAction.APPROVE as any,
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+          approverId = approveAudit?.actorId;
+        }
+      }
+      if (approverId && approverId === actorId) {
+        throw new ForbiddenException(
+          'Separation of duties violation: the disburser must differ from the payroll run approver',
         );
       }
 

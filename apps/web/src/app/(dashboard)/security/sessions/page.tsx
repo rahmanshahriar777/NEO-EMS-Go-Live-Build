@@ -40,8 +40,23 @@ export default function SessionsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.get<Session[] | { items: Session[] }>('/auth/sessions');
-      setSessions(Array.isArray(res) ? res : res?.items || []);
+      const res = await api.get<any>('/auth/sessions');
+      const rawList: any[] = Array.isArray(res)
+        ? res
+        : Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.items)
+        ? res.items
+        : [];
+      const normalized: Session[] = rawList.map((s: any) => ({
+        id: s.id || s.familyId,
+        ipAddress: s.ipAddress || s.createdIp,
+        userAgent: s.userAgent,
+        createdAt: s.createdAt,
+        lastActiveAt: s.lastActiveAt || s.createdAt,
+        current: s.current,
+      }));
+      setSessions(normalized);
     } catch (err: any) {
       setError(err?.message || 'Could not load active sessions. The sessions API may not be deployed yet.');
       setSessions([]);

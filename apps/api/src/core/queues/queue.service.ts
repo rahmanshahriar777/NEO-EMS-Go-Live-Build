@@ -139,10 +139,7 @@ export class QueueService implements OnModuleDestroy {
    * Enqueue an AI generation job for async processing by the worker.
    * Idempotency key: `ai-request:<requestId>`.
    *
-   * NOTE: currently no API flow enqueues AI jobs (the orchestrator serves
-   * synchronously); the worker-side AI processor was removed as dead code
-   * (see apps/worker/src/main.ts). This method stays as the typed producer
-   * for future async AI flows.
+   * Consumed by the worker's AI processor (`apps/worker/src/processors/ai.processor.ts`).
    *
    * @throws QueueUnavailableException when the enqueue fails (Redis down).
    */
@@ -169,12 +166,13 @@ export class QueueService implements OnModuleDestroy {
     payload: PayrollJobPayload | NotificationJobPayload | AiJobPayload,
     jobId: string,
   ): Promise<string> {
+    const sanitizedJobId = jobId ? jobId.replace(/:/g, '-') : undefined;
     try {
       const job = await this.getQueue(queueName).add(jobName, payload, {
         ...DEFAULT_JOB_OPTIONS,
-        jobId,
+        ...(sanitizedJobId ? { jobId: sanitizedJobId } : {}),
       });
-      const id = job.id ?? jobId;
+      const id = job.id ?? sanitizedJobId ?? jobId;
       this.logger.log(
         `Enqueued job '${jobName}' on queue '${queueName}' (jobId=${id})`,
       );
