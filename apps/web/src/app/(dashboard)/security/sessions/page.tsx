@@ -2,8 +2,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { MonitorSmartphone, LogOut, RefreshCw } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { DashboardLayout } from '../../../../components/layout/dashboard-layout';
 import { api } from '../../../../lib/api-client';
+import { useSessionsQuery, securityKeys } from '../../../../lib/queries';
 import { useAuth } from '../../../../context/auth-context';
 import { ErrorBanner } from '../../../../components/ui/error-banner';
 import { SkeletonTable } from '../../../../components/ui/skeleton';
@@ -30,44 +32,12 @@ interface Session {
  */
 export default function SessionsPage() {
   const { logout } = useAuth();
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const { data: rawSessions, isPending: loading, error: queryError, refetch } = useSessionsQuery();
+  const sessions: Session[] = rawSessions || [];
+  const error = queryError ? (queryError as Error).message || 'Could not load active sessions.' : null;
   const [revoking, setRevoking] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-
-  const fetchSessions = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.get<any>('/auth/sessions');
-      const rawList: any[] = Array.isArray(res)
-        ? res
-        : Array.isArray(res?.data)
-        ? res.data
-        : Array.isArray(res?.items)
-        ? res.items
-        : [];
-      const normalized: Session[] = rawList.map((s: any) => ({
-        id: s.id || s.familyId,
-        ipAddress: s.ipAddress || s.createdIp,
-        userAgent: s.userAgent,
-        createdAt: s.createdAt,
-        lastActiveAt: s.lastActiveAt || s.createdAt,
-        current: s.current,
-      }));
-      setSessions(normalized);
-    } catch (err: any) {
-      setError(err?.message || 'Could not load active sessions. The sessions API may not be deployed yet.');
-      setSessions([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchSessions();
-  }, []);
 
   const revoke = async (session: Session) => {
     if (session.current) {
@@ -76,11 +46,10 @@ export default function SessionsPage() {
       // confirmed the logout (or the session is already dead server-side).
       // On failure we surface the error and stay on this page — navigating
       // to /login would lie to the user while the refresh token may be live.
-      setError(null);
       try {
         await logout();
       } catch (err: any) {
-        setError(err?.message || 'Sign out failed. You are still signed in — please try again.');
+        alert(err?.message || 'Sign out failed. You are still signed in — please try again.');
       }
       return;
     }
@@ -89,11 +58,11 @@ export default function SessionsPage() {
     setNotice(null);
     try {
       await api.delete(`/auth/sessions/${session.id}`);
-      setSessions((prev) => prev.filter((s) => s.id !== session.id));
+      await queryClient.invalidateQueries({ queryKey: securityKeys.sessions() });
       setNotice('Session revoked. That device has been signed out.');
     } catch (err: any) {
       setNotice(null);
-      setError(err?.message || 'Could not revoke that session.');
+      alert(err?.message || 'Could not revoke that session.');
     } finally {
       setRevoking(null);
     }
@@ -127,7 +96,7 @@ export default function SessionsPage() {
               <ErrorBanner
                 resource="active sessions"
                 detail={error}
-                onRetry={fetchSessions}
+                onRetry={() => refetch()}
                 retrying={loading}
               />
             </div>

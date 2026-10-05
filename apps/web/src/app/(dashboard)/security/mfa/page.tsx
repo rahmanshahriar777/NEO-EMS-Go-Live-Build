@@ -2,8 +2,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { ShieldCheck, Copy, Check, RefreshCw, AlertTriangle } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { DashboardLayout } from '../../../../components/layout/dashboard-layout';
 import { api, ApiError } from '../../../../lib/api-client';
+import { useMfaStatusQuery, securityKeys } from '../../../../lib/queries';
 import { ErrorBanner } from '../../../../components/ui/error-banner';
 import '../../../../styles/security.css';
 
@@ -25,9 +27,9 @@ interface MfaStatus {
  * MFA state is never guessed from local state.
  */
 export default function MfaSetupPage() {
-  const [status, setStatus] = useState<MfaStatus | null>(null);
-  const [statusError, setStatusError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { data: status, isPending: loading, error: queryError, refetch } = useMfaStatusQuery();
+  const statusError = queryError ? (queryError as Error).message || 'Could not load MFA status.' : null;
 
   const [setup, setSetup] = useState<{ otpauthUrl: string; secret: string } | null>(null);
   const [setupBusy, setSetupBusy] = useState(false);
@@ -42,27 +44,6 @@ export default function MfaSetupPage() {
   const [showDisable, setShowDisable] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
-
-  const fetchStatus = async () => {
-    setLoading(true);
-    setStatusError(null);
-    try {
-      const res = await api.get<MfaStatus>('/mfa/status');
-      setStatus(res);
-    } catch (err: any) {
-      setStatus(null);
-      setStatusError(
-        err?.message ||
-          'Could not load MFA status. The MFA API may not be deployed yet.',
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchStatus();
-  }, []);
 
   const beginSetup = async () => {
     setSetupBusy(true);
@@ -85,7 +66,7 @@ export default function MfaSetupPage() {
     try {
       const res = await api.post<{ recoveryCodes: string[] }>('/mfa/totp/verify', { token });
       setRecoveryCodes(res?.recoveryCodes || []);
-      setStatus({ enabled: true });
+      await queryClient.invalidateQueries({ queryKey: securityKeys.mfa() });
     } catch (err: any) {
       setError(err?.message || 'That code was not accepted. Check your authenticator app clock and try again.');
     } finally {
@@ -99,7 +80,7 @@ export default function MfaSetupPage() {
     setError(null);
     try {
       await api.post('/mfa/totp/disable', { password: disablePassword || undefined });
-      setStatus({ enabled: false });
+      await queryClient.invalidateQueries({ queryKey: securityKeys.mfa() });
       setSetup(null);
       setRecoveryCodes(null);
       setShowDisable(false);
@@ -143,7 +124,7 @@ export default function MfaSetupPage() {
             <ErrorBanner
               resource="MFA status"
               detail={statusError}
-              onRetry={fetchStatus}
+              onRetry={() => refetch()}
               retrying={loading}
             />
           )}

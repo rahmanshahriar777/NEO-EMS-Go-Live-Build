@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { FileText, Upload, Download, Trash2, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { DashboardLayout } from '../../../components/layout/dashboard-layout';
 import { api } from '../../../lib/api-client';
+import { useDocumentsQuery, documentKeys } from '../../../lib/queries';
 import { requireApiBaseUrl } from '../../../lib/env';
 import { ErrorBanner } from '../../../components/ui/error-banner';
 import { SkeletonCardGrid } from '../../../components/ui/skeleton';
@@ -71,13 +73,15 @@ export default function DocumentsPage() {
   const { hasRole } = useAuth();
   const canUpload = hasRole(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN, SystemRole.MANAGER, SystemRole.EMPLOYEE);
 
-  const [docs, setDocs] = useState<DocumentItem[]>([]);
-  const [total, setTotal] = useState(0);
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [category, setCategory] = useState('ALL');
   const [search, setSearch] = useState('');
+
+  const { data, isPending: loading, error: queryError, refetch } = useDocumentsQuery(page, PAGE_SIZE, category);
+  const docs: DocumentItem[] = data?.items || [];
+  const total = data?.total || 0;
+  const error = queryError ? (queryError as Error).message || 'Could not load documents.' : null;
 
   const [showUpload, setShowUpload] = useState(false);
   const [upFile, setUpFile] = useState<File | null>(null);
@@ -92,33 +96,6 @@ export default function DocumentsPage() {
 
   const uploadModalRef = useRef<HTMLDivElement>(null);
   useFocusTrap(uploadModalRef, { isActive: showUpload, onEscape: () => setShowUpload(false) });
-
-  const fetchDocs = useCallback(async (pageToLoad: number, cat: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.getPaginated<DocumentItem>('/documents', {
-        params: {
-          page: pageToLoad,
-          limit: PAGE_SIZE,
-          category: cat === 'ALL' ? undefined : cat,
-        },
-      });
-      setDocs(res.items);
-      setTotal(res.total);
-      setPage(res.page);
-    } catch (err: any) {
-      setError(err?.message || 'Could not load documents.');
-      setDocs([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchDocs(1, category);
-  }, [category, fetchDocs]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
@@ -164,7 +141,7 @@ export default function DocumentsPage() {
       setUpTitle('');
       setUpExpiry('');
       setUpCategory('GENERAL');
-      await fetchDocs(1, category);
+      await queryClient.invalidateQueries({ queryKey: documentKeys.all });
     } catch (err: any) {
       setUploadError(err?.message || 'Upload failed.');
     } finally {
@@ -203,7 +180,7 @@ export default function DocumentsPage() {
     setBusyId(doc.id);
     try {
       await api.delete(`/documents/${doc.id}`);
-      await fetchDocs(page, category);
+      await queryClient.invalidateQueries({ queryKey: documentKeys.all });
     } catch (err: any) {
       setActionError(`Could not delete "${doc.title}": ${err?.message || 'request failed'}`);
     } finally {
@@ -217,9 +194,7 @@ export default function DocumentsPage() {
     setActionError(null);
     try {
       await api.post(`/documents/${doc.id}/acknowledge`, {});
-      setDocs((prev) =>
-        prev.map((d) => (d.id === doc.id ? { ...d, acknowledgedAt: new Date().toISOString() } : d)),
-      );
+      await queryClient.invalidateQueries({ queryKey: documentKeys.all });
     } catch (err: any) {
       // Report the real failure verbatim (see handleDownload above).
       setActionError(
@@ -264,7 +239,7 @@ export default function DocumentsPage() {
         )}
 
         {error && (
-          <ErrorBanner resource="documents" detail={error} onRetry={() => fetchDocs(1, category)} retrying={loading} />
+          <ErrorBanner resource="documents" detail={error} onRetry={() => refetch()} retrying={loading} />
         )}
         {actionError && (
           <div className="doc-error" role="alert">
@@ -388,7 +363,7 @@ export default function DocumentsPage() {
               page={page}
               limit={PAGE_SIZE}
               total={total}
-              onPageChange={(p) => fetchDocs(p, category)}
+              onPageChange={(p) => setPage(p)}
             />
           </>
         )}

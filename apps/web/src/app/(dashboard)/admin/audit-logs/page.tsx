@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { DashboardLayout } from '../../../../components/layout/dashboard-layout';
 import { api, Paginated } from '../../../../lib/api-client';
+import { useAuditLogsQuery } from '../../../../lib/queries';
 import { useAuth } from '../../../../context/auth-context';
 import { useFocusTrap } from '../../../../hooks/use-focus-trap';
 import { SystemRole } from '@ems/shared';
@@ -49,45 +50,19 @@ export default function AuditLogsPage() {
   // on GET /audit so unauthorized users see an immediate, honest denial
   // instead of a permission-denied flash after the API 403s.
   const canView = hasRole(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN, SystemRole.AUDITOR);
-  const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'MUTATION' | 'PAYROLL' | 'SECURITY' | 'AI'>('ALL');
   const [copiedState, setCopiedState] = useState(false);
 
+  const { data, isPending: loading, error: queryError, refetch } = useAuditLogsQuery(page, PAGE_SIZE, canView);
+  const logs: AuditLog[] = data?.items || [];
+  const total = data?.total || 0;
+  const error = queryError ? (queryError as Error).message || 'Failed to load audit logs.' : null;
+
   const auditModalRef = useRef<HTMLDivElement>(null);
   useFocusTrap(auditModalRef, { isActive: Boolean(selectedLog), onEscape: () => setSelectedLog(null) });
-
-  const fetchLogs = useCallback(async (pageToLoad: number) => {
-    setLoading(true);
-    setError(null);
-    try {
-      // Audit trail lives at GET /audit (paginated, newest first).
-      const res: Paginated<AuditLog> = await api.getPaginated<AuditLog>('/audit', {
-        params: { page: pageToLoad, limit: PAGE_SIZE },
-      });
-      setLogs(res.items);
-      setTotal(res.total);
-      setPage(res.page);
-    } catch (err: any) {
-      // Never render fabricated audit events. Fail loudly.
-      setError(err?.message || 'Failed to load audit logs.');
-      setLogs([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    // Don't hit the API when the role gate denies the page — the server
-    // would 403 anyway; show the denial state immediately instead.
-    if (canView) fetchLogs(1);
-  }, [fetchLogs, canView]);
 
   // Filtered and searched logs (client-side over the loaded page)
   const filteredLogs = useMemo(() => {
@@ -231,7 +206,7 @@ export default function AuditLogsPage() {
                 <ErrorBanner
                   resource="audit logs"
                   detail={error}
-                  onRetry={() => fetchLogs(1)}
+                  onRetry={() => refetch()}
                   retrying={loading}
                 />
               </div>
@@ -478,7 +453,7 @@ export default function AuditLogsPage() {
               page={page}
               limit={PAGE_SIZE}
               total={total}
-              onPageChange={(p) => fetchLogs(p)}
+              onPageChange={(p) => setPage(p)}
             />
           </div>
 

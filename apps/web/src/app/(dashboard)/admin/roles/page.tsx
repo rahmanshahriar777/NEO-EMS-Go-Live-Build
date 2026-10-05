@@ -2,8 +2,10 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { KeyRound, Plus, RefreshCw, Trash2, Pencil } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { DashboardLayout } from '../../../../components/layout/dashboard-layout';
 import { api } from '../../../../lib/api-client';
+import { useAdminRolesQuery, adminKeys } from '../../../../lib/queries';
 import { ErrorBanner } from '../../../../components/ui/error-banner';
 import { SkeletonTable } from '../../../../components/ui/skeleton';
 import { useAuth } from '../../../../context/auth-context';
@@ -34,11 +36,12 @@ interface Role {
  */
 export default function AdminRolesPage() {
   const { hasRole, hasPermission } = useAuth();
+  const queryClient = useQueryClient();
   const canManage = hasRole(SystemRole.SUPER_ADMIN) || hasPermission('USER:MANAGE');
 
-  const [roles, setRoles] = useState<Role[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: rolesData, isPending: loading, error: queryError, refetch } = useAdminRolesQuery(canManage);
+  const roles: Role[] = rolesData || [];
+  const error = queryError ? (queryError as Error).message || 'Could not load roles.' : null;
 
   const [editing, setEditing] = useState<Role | null>(null);
   const [formName, setFormName] = useState('');
@@ -46,25 +49,6 @@ export default function AdminRolesPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-
-  const fetchRoles = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.get<Role[] | { items: Role[] }>('/roles');
-      setRoles(Array.isArray(res) ? res : res?.items || []);
-    } catch (err: any) {
-      setError(err?.message || 'Could not load roles. The roles API may not be deployed yet.');
-      setRoles([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (canManage) fetchRoles();
-    else setLoading(false);
-  }, [canManage, fetchRoles]);
 
   const permCodesOf = (role: Role): Set<string> =>
     new Set(
@@ -125,7 +109,7 @@ export default function AdminRolesPage() {
       }
       setModalOpen(false);
       setEditing(null);
-      await fetchRoles();
+      await queryClient.invalidateQueries({ queryKey: adminKeys.all });
     } catch (err: any) {
       setFormError(err?.message || 'Could not save the role.');
     } finally {
@@ -138,9 +122,9 @@ export default function AdminRolesPage() {
     if (!window.confirm(`Delete the role "${role.name}"? Users holding it lose those permissions.`)) return;
     try {
       await api.delete(`/roles/${role.id}`);
-      await fetchRoles();
+      await queryClient.invalidateQueries({ queryKey: adminKeys.all });
     } catch (err: any) {
-      setError(`Could not delete ${role.name}: ${err?.message || 'request failed'}`);
+      alert(`Could not delete ${role.name}: ${err?.message || 'request failed'}`);
     }
   };
 
@@ -186,7 +170,7 @@ export default function AdminRolesPage() {
         </div>
 
         {error && (
-          <ErrorBanner resource="roles" detail={error} onRetry={fetchRoles} retrying={loading} />
+          <ErrorBanner resource="roles" detail={error} onRetry={() => refetch()} retrying={loading} />
         )}
 
         <div className="adm-card">

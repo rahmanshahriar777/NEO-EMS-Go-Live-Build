@@ -1,9 +1,15 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { Bell, CheckCheck, RefreshCw } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api-client';
+import {
+  useNotificationsQuery,
+  useUnreadCountQuery,
+  notificationKeys,
+} from '../../lib/queries';
 
 interface Notification {
   id: string;
@@ -25,52 +31,31 @@ interface Notification {
  */
 export const NotificationBell: React.FC = () => {
   const [open, setOpen] = useState(false);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [serverUnreadCount, setServerUnreadCount] = useState<number | null>(null);
-  const [hasLoadedNotifications, setHasLoadedNotifications] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [markingAll, setMarkingAll] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  const fetchNotifications = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.get<Notification[] | { items: Notification[]; unreadCount?: number }>(
-        '/notifications',
-      );
-      if (Array.isArray(res)) {
-        setNotifications(res);
-        setServerUnreadCount(res.filter((n) => !n.isRead).length);
-      } else {
-        const items = res?.items || [];
-        setNotifications(items);
-        setServerUnreadCount(res?.unreadCount ?? items.filter((n) => !n.isRead).length);
-      }
-      setHasLoadedNotifications(true);
-    } catch (err: any) {
-      setError(err?.message || 'Could not load notifications.');
-      setNotifications([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const queryClient = useQueryClient();
+  const { data: countData } = useUnreadCountQuery();
+  const {
+    data: notifData,
+    isPending: loading,
+    error: notifError,
+  } = useNotificationsQuery(open);
 
-  useEffect(() => {
-    // Unread count badge on mount: cheap dedicated count endpoint, zero payload overhead
-    api
-      .get<{ unreadCount: number }>('/notifications/unread-count')
-      .then((res) => setServerUnreadCount(res?.unreadCount ?? 0))
-      .catch(() => {});
-  }, []);
+  const notifications: Notification[] = notifData
+    ? Array.isArray(notifData)
+      ? notifData
+      : notifData?.items || []
+    : [];
 
-  useEffect(() => {
-    // Only fetch full notification payload when the dropdown is opened
-    if (open) {
-      fetchNotifications();
-    }
-  }, [open, fetchNotifications]);
+  const unreadCount = notifData
+    ? notifications.filter((n) => !n.isRead).length
+    : (countData?.unreadCount ?? 0);
+
+  const error = notifError
+    ? (notifError as Error).message || 'Could not load notifications.'
+    : actionError;
 
   useEffect(() => {
     const onClickOutside = (e: MouseEvent) => {
@@ -87,15 +72,10 @@ export const NotificationBell: React.FC = () => {
     };
   }, []);
 
-  const unreadCount = hasLoadedNotifications
-    ? notifications.filter((n) => !n.isRead).length
-    : (serverUnreadCount ?? 0);
-
   const markOneRead = async (id: string) => {
     try {
       await api.patch(`/notifications/${id}/read`, {});
-      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
-      setServerUnreadCount((prev) => Math.max(0, (prev ?? 1) - 1));
+      await queryClient.invalidateQueries({ queryKey: notificationKeys.all });
     } catch {
       // Keep the item unread on failure — the count must stay truthful.
     }
@@ -104,14 +84,13 @@ export const NotificationBell: React.FC = () => {
   const markAllRead = async () => {
     if (unreadCount === 0) return;
     setMarkingAll(true);
-    setError(null);
+    setActionError(null);
     try {
       // Use the API's bulk mark-all-read endpoint
       await api.post('/notifications/mark-all-read', {});
-      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
-      setServerUnreadCount(0);
+      await queryClient.invalidateQueries({ queryKey: notificationKeys.all });
     } catch (err: any) {
-      setError(err?.message || 'Could not mark notifications as read.');
+      setActionError(err?.message || 'Could not mark notifications as read.');
     } finally {
       setMarkingAll(false);
     }

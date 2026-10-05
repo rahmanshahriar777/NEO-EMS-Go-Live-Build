@@ -85,6 +85,7 @@ export const employeeKeys = {
   all: ['employees'] as const,
   list: (page: number, limit: number, search: string) =>
     [...employeeKeys.all, 'list', page, limit, search] as const,
+  detail: (id: string) => [...employeeKeys.all, 'detail', id] as const,
 };
 
 export function useEmployeesPage(page: number, limit: number, search: string) {
@@ -195,18 +196,21 @@ export function useDepartmentsQuery(page: number, limit: number) {
 
 export const payrollKeys = {
   all: ['payroll'] as const,
-  list: (page: number, limit: number) => [...payrollKeys.all, 'list', page, limit] as const,
+  list: (page: number, limit: number, canViewRuns = true) =>
+    [...payrollKeys.all, 'list', page, limit, canViewRuns] as const,
 };
 
-export function usePayrollQuery(page: number, limit: number) {
+export function usePayrollQuery(page: number, limit: number, canViewRuns = true) {
   return useQuery({
-    queryKey: payrollKeys.list(page, limit),
+    queryKey: payrollKeys.list(page, limit, canViewRuns),
     queryFn: async () => {
-      const [runs, payslips] = await Promise.all([
-        api.get<any[]>('/payroll/runs').catch(() => []),
+      const [runsRes, slipsRes] = await Promise.all([
+        canViewRuns
+          ? api.getPaginated<any>('/payroll/runs', { params: { page: 1, limit: 10 } }).catch(() => ({ items: [], total: 0, page: 1, limit: 10 }))
+          : Promise.resolve({ items: [], total: 0, page: 1, limit: 10 }),
         api.getPaginated<any>('/payroll/payslips', { params: { page, limit } }),
       ]);
-      return { runs: Array.isArray(runs) ? runs : (runs as any)?.items || [], payslips };
+      return { runs: runsRes.items || [], payslips: slipsRes };
     },
     placeholderData: keepPreviousData,
   });
@@ -218,22 +222,38 @@ export function usePayrollQuery(page: number, limit: number) {
 
 export const attendanceKeys = {
   all: ['attendance'] as const,
-  today: (date: string) => [...attendanceKeys.all, 'today', date] as const,
-  my: (page: number, limit: number) => [...attendanceKeys.all, 'my', page, limit] as const,
+  list: (tab: 'my' | 'team', page: number, limit: number) =>
+    [...attendanceKeys.all, 'list', tab, page, limit] as const,
+  today: () => [...attendanceKeys.all, 'today'] as const,
+  corrections: () => [...attendanceKeys.all, 'corrections'] as const,
 };
 
-export function useAttendanceTodayQuery(date: string) {
+export function useAttendanceListQuery(tab: 'my' | 'team', page: number, limit: number) {
   return useQuery({
-    queryKey: attendanceKeys.today(date),
-    queryFn: () => api.get<any[]>('/attendance/today', { params: { date } }),
+    queryKey: attendanceKeys.list(tab, page, limit),
+    queryFn: () =>
+      api.getPaginated<any>(tab === 'my' ? '/attendance/me' : '/attendance/team', {
+        params: { page, limit },
+      }),
+    placeholderData: keepPreviousData,
   });
 }
 
-export function useMyAttendanceQuery(page: number, limit: number) {
+export function useAttendanceCorrectionsQuery(enabled = true) {
   return useQuery({
-    queryKey: attendanceKeys.my(page, limit),
-    queryFn: () => api.getPaginated<any>('/attendance/my', { params: { page, limit } }),
-    placeholderData: keepPreviousData,
+    queryKey: attendanceKeys.corrections(),
+    queryFn: async () => {
+      const res = await api.get<any>('/attendance/corrections');
+      return Array.isArray(res) ? res : res?.items || [];
+    },
+    enabled,
+  });
+}
+
+export function useMyAttendanceTodayQuery() {
+  return useQuery({
+    queryKey: attendanceKeys.today(),
+    queryFn: () => api.getPaginated<any>('/attendance/me', { params: { limit: 15 } }),
   });
 }
 
@@ -243,13 +263,14 @@ export function useMyAttendanceQuery(page: number, limit: number) {
 
 export const calendarKeys = {
   all: ['calendar'] as const,
-  month: (month: number, year: number) => [...calendarKeys.all, 'month', month, year] as const,
+  range: (from: string, to: string) => [...calendarKeys.all, 'range', from, to] as const,
 };
 
-export function useCalendarQuery(month: number, year: number) {
+export function useCalendarEventsQuery(from: string, to: string) {
   return useQuery({
-    queryKey: calendarKeys.month(month, year),
-    queryFn: () => api.get<any[]>('/calendar/events', { params: { month, year } }),
+    queryKey: calendarKeys.range(from, to),
+    queryFn: () => api.get<any>('/calendar', { params: { from, to } }),
+    enabled: Boolean(from && to),
   });
 }
 
@@ -259,17 +280,17 @@ export function useCalendarQuery(month: number, year: number) {
 
 export const auditKeys = {
   all: ['audit-logs'] as const,
-  list: (page: number, limit: number, action?: string, search?: string) =>
-    [...auditKeys.all, 'list', page, limit, action || '', search || ''] as const,
+  list: (page: number, limit: number) => [...auditKeys.all, 'list', page, limit] as const,
 };
 
-export function useAuditLogsQuery(page: number, limit: number, action?: string, search?: string) {
+export function useAuditLogsQuery(page: number, limit: number, enabled = true) {
   return useQuery({
-    queryKey: auditKeys.list(page, limit, action, search),
+    queryKey: auditKeys.list(page, limit),
     queryFn: () =>
-      api.getPaginated<any>('/audit-logs', {
-        params: { page, limit, action: action || undefined, search: search || undefined },
+      api.getPaginated<any>('/audit', {
+        params: { page, limit },
       }),
+    enabled,
     placeholderData: keepPreviousData,
   });
 }
@@ -280,26 +301,198 @@ export function useAuditLogsQuery(page: number, limit: number, action?: string, 
 
 export const adminKeys = {
   all: ['admin'] as const,
-  users: (page: number, limit: number, search?: string) =>
-    [...adminKeys.all, 'users', page, limit, search || ''] as const,
+  users: (page: number, limit: number) => [...adminKeys.all, 'users', page, limit] as const,
   roles: () => [...adminKeys.all, 'roles'] as const,
 };
 
-export function useAdminUsersQuery(page: number, limit: number, search?: string) {
+export function useAdminUsersQuery(page: number, limit: number, enabled = true) {
   return useQuery({
-    queryKey: adminKeys.users(page, limit, search),
+    queryKey: adminKeys.users(page, limit),
     queryFn: () =>
-      api.getPaginated<any>('/users', {
-        params: { page, limit, search: search || undefined },
+      api.getPaginated<any>('/auth/users', {
+        params: { page, limit },
+      }),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useAdminRolesQuery(enabled = true) {
+  return useQuery({
+    queryKey: adminKeys.roles(),
+    queryFn: async () => {
+      const res = await api.get<any>('/roles');
+      return Array.isArray(res) ? res : res?.items || [];
+    },
+    enabled,
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Security Sessions & MFA                                             */
+/* ------------------------------------------------------------------ */
+
+export const securityKeys = {
+  all: ['security'] as const,
+  sessions: () => [...securityKeys.all, 'sessions'] as const,
+  mfa: () => [...securityKeys.all, 'mfa'] as const,
+};
+
+export function useSessionsQuery() {
+  return useQuery({
+    queryKey: securityKeys.sessions(),
+    queryFn: async () => {
+      const res = await api.get<any>('/auth/sessions');
+      const rawList = Array.isArray(res)
+        ? res
+        : Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.items)
+        ? res.items
+        : [];
+      return rawList.map((s: any) => ({
+        id: s.id || s.familyId,
+        ipAddress: s.ipAddress || s.createdIp,
+        userAgent: s.userAgent,
+        createdAt: s.createdAt,
+        lastActiveAt: s.lastActiveAt || s.createdAt,
+        current: s.current,
+      }));
+    },
+  });
+}
+
+export function useMfaStatusQuery() {
+  return useQuery({
+    queryKey: securityKeys.mfa(),
+    queryFn: () => api.get<any>('/mfa/status'),
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Rostering                                                           */
+/* ------------------------------------------------------------------ */
+
+export const rosteringKeys = {
+  all: ['rostering'] as const,
+  range: (from: string, to: string) => [...rosteringKeys.all, 'range', from, to] as const,
+};
+
+export function useRosteringQuery(from: string, to: string) {
+  return useQuery({
+    queryKey: rosteringKeys.range(from, to),
+    queryFn: () => api.get<any>('/rostering', { params: { from, to } }),
+    enabled: Boolean(from && to),
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Performance: Goals, Cycles, Reviews, Feedback                       */
+/* ------------------------------------------------------------------ */
+
+export const performanceKeys = {
+  all: ['performance'] as const,
+  goals: (page: number, limit: number) => [...performanceKeys.all, 'goals', page, limit] as const,
+  cycles: () => [...performanceKeys.all, 'cycles'] as const,
+  reviews: (page: number, limit: number) => [...performanceKeys.all, 'reviews', page, limit] as const,
+  feedback: () => [...performanceKeys.all, 'feedback'] as const,
+};
+
+export function useGoalsQuery(page: number, limit: number) {
+  return useQuery({
+    queryKey: performanceKeys.goals(page, limit),
+    queryFn: () => api.getPaginated<any>('/goals', { params: { page, limit } }),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useReviewCyclesQuery() {
+  return useQuery({
+    queryKey: performanceKeys.cycles(),
+    queryFn: async () => {
+      const res = await api.get<any>('/performance/cycles');
+      return Array.isArray(res) ? res : res?.items || [];
+    },
+  });
+}
+
+export function useReviewsQuery(page: number, limit: number) {
+  return useQuery({
+    queryKey: performanceKeys.reviews(page, limit),
+    queryFn: () => api.getPaginated<any>('/performance/reviews', { params: { page, limit } }),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useFeedbackQuery() {
+  return useQuery({
+    queryKey: performanceKeys.feedback(),
+    queryFn: async () => {
+      const res = await api.get<any>('/feedback');
+      return Array.isArray(res) ? res : res?.items || [];
+    },
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Documents                                                           */
+/* ------------------------------------------------------------------ */
+
+export const documentKeys = {
+  all: ['documents'] as const,
+  list: (page: number, limit: number, category?: string) =>
+    [...documentKeys.all, 'list', page, limit, category || ''] as const,
+};
+
+export function useDocumentsQuery(page: number, limit: number, category?: string) {
+  return useQuery({
+    queryKey: documentKeys.list(page, limit, category),
+    queryFn: () =>
+      api.getPaginated<any>('/documents', {
+        params: {
+          page,
+          limit,
+          category: category === 'ALL' ? undefined : category,
+        },
       }),
     placeholderData: keepPreviousData,
   });
 }
 
-export function useAdminRolesQuery() {
+/* ------------------------------------------------------------------ */
+/* Employee Detail                                                     */
+/* ------------------------------------------------------------------ */
+
+export function useEmployeeDetailQuery(id: string) {
   return useQuery({
-    queryKey: adminKeys.roles(),
-    queryFn: () => api.get<any[]>('/roles'),
+    queryKey: employeeKeys.detail(id),
+    queryFn: () => api.get<any>(`/employees/${id}`),
+    enabled: Boolean(id),
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Notifications                                                       */
+/* ------------------------------------------------------------------ */
+
+export const notificationKeys = {
+  all: ['notifications'] as const,
+  list: () => [...notificationKeys.all, 'list'] as const,
+  unreadCount: () => [...notificationKeys.all, 'unread-count'] as const,
+};
+
+export function useNotificationsQuery(enabled = true) {
+  return useQuery({
+    queryKey: notificationKeys.list(),
+    queryFn: () => api.get<any>('/notifications'),
+    enabled,
+  });
+}
+
+export function useUnreadCountQuery() {
+  return useQuery({
+    queryKey: notificationKeys.unreadCount(),
+    queryFn: () => api.get<{ unreadCount: number }>('/notifications/unread-count'),
   });
 }
 

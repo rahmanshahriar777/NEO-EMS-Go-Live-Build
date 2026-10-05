@@ -14,8 +14,16 @@ import {
   MessageSquareQuote,
   Eye,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { DashboardLayout } from '../../../components/layout/dashboard-layout';
 import { api } from '../../../lib/api-client';
+import {
+  useGoalsQuery,
+  useReviewCyclesQuery,
+  useReviewsQuery,
+  useFeedbackQuery,
+  performanceKeys,
+} from '../../../lib/queries';
 import { ErrorBanner } from '../../../components/ui/error-banner';
 import { PaginationControls } from '../../../components/ui/pagination';
 import { SkeletonTable } from '../../../components/ui/skeleton';
@@ -90,8 +98,6 @@ export default function PerformancePage() {
   const [tab, setTab] = useState<Tab>('goals');
 
   // Goals
-  const [goals, setGoals] = useState<Goal[]>([]);
-  const [goalTotal, setGoalTotal] = useState(0);
   const [goalPage, setGoalPage] = useState(1);
   const [goalSearch, setGoalSearch] = useState('');
   const [goalStatusFilter, setGoalStatusFilter] = useState<'ALL' | 'IN_PROGRESS' | 'COMPLETED'>('ALL');
@@ -103,9 +109,6 @@ export default function PerformancePage() {
   const [goalFormError, setGoalFormError] = useState<string | null>(null);
 
   // Cycles
-  const [cycles, setCycles] = useState<ReviewCycle[]>([]);
-  const [cyclesLoading, setCyclesLoading] = useState(false);
-  const [cyclesError, setCyclesError] = useState<string | null>(null);
   const [showCycleModal, setShowCycleModal] = useState(false);
   const [cycleTitle, setCycleTitle] = useState('');
   const [cycleStart, setCycleStart] = useState('');
@@ -115,10 +118,7 @@ export default function PerformancePage() {
   const [cycleFormError, setCycleFormError] = useState<string | null>(null);
 
   // Reviews
-  const [reviews, setReviews] = useState<Review[]>([]);
-  const [reviewTotal, setReviewTotal] = useState(0);
   const [reviewPage, setReviewPage] = useState(1);
-  const [reviewsLoading, setReviewsLoading] = useState(false);
   const [selectedReview, setSelectedReview] = useState<Review | null>(null);
   const [reviewForm, setReviewForm] = useState<'self' | 'manager' | null>(null);
   const [rfRating, setRfRating] = useState(4);
@@ -128,8 +128,6 @@ export default function PerformancePage() {
   const [rfError, setRfError] = useState<string | null>(null);
 
   // Feedback
-  const [feedback, setFeedback] = useState<FeedbackItem[]>([]);
-  const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [fbRecipient, setFbRecipient] = useState('');
   const [fbType, setFbType] = useState('PEER');
@@ -138,8 +136,50 @@ export default function PerformancePage() {
   const [fbBusy, setFbBusy] = useState(false);
   const [fbError, setFbError] = useState<string | null>(null);
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const GOAL_PAGE_SIZE = 10;
+  const REVIEW_PAGE_SIZE = 10;
+
+  const {
+    data: goalsData,
+    isPending: goalsLoading,
+    error: goalsError,
+    refetch: refetchGoals,
+  } = useGoalsQuery(goalPage, GOAL_PAGE_SIZE);
+
+  const {
+    data: cyclesData,
+    isPending: cyclesLoading,
+    error: cyclesQueryError,
+    refetch: refetchCycles,
+  } = useReviewCyclesQuery();
+
+  const {
+    data: reviewsData,
+    isPending: reviewsLoading,
+    error: reviewsError,
+    refetch: refetchReviews,
+  } = useReviewsQuery(reviewPage, REVIEW_PAGE_SIZE);
+
+  const {
+    data: feedbackData,
+    isPending: feedbackLoading,
+    error: feedbackError,
+    refetch: refetchFeedback,
+  } = useFeedbackQuery();
+
+  const goals: Goal[] = goalsData?.items || [];
+  const goalTotal = goalsData?.total || 0;
+  const cycles: ReviewCycle[] = cyclesData || [];
+  const reviews: Review[] = reviewsData?.items || [];
+  const reviewTotal = reviewsData?.total || 0;
+  const feedback: FeedbackItem[] = feedbackData || [];
+
+  const loading = goalsLoading || cyclesLoading || reviewsLoading || feedbackLoading;
+  const error = (goalsError || reviewsError || feedbackError)
+    ? ((goalsError || reviewsError || feedbackError) as Error).message || 'Failed to load performance data.'
+    : null;
+  const cyclesError = cyclesQueryError ? (cyclesQueryError as Error).message || 'Failed to load review cycles.' : null;
 
   const goalModalRef = useRef<HTMLDivElement>(null);
   useFocusTrap(goalModalRef, { isActive: showGoalModal, onEscape: () => setShowGoalModal(false) });
@@ -152,78 +192,6 @@ export default function PerformancePage() {
 
   const feedbackModalRef = useRef<HTMLDivElement>(null);
   useFocusTrap(feedbackModalRef, { isActive: showFeedbackModal, onEscape: () => setShowFeedbackModal(false) });
-
-  const GOAL_PAGE_SIZE = 10;
-  const REVIEW_PAGE_SIZE = 10;
-
-  const fetchGoals = useCallback(async (pageToLoad: number) => {
-    try {
-      const res = await api.getPaginated<Goal>('/goals', {
-        params: { page: pageToLoad, limit: GOAL_PAGE_SIZE },
-      });
-      setGoals(res.items);
-      setGoalTotal(res.total);
-      setGoalPage(res.page);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to load goals.');
-      setGoals([]);
-    }
-  }, []);
-
-  const fetchCycles = useCallback(async () => {
-    setCyclesLoading(true);
-    setCyclesError(null);
-    try {
-      const res = await api.get<ReviewCycle[] | { items: ReviewCycle[] }>('/performance/cycles');
-      setCycles(Array.isArray(res) ? res : res?.items || []);
-    } catch (err: any) {
-      setCyclesError(err?.message || 'Failed to load review cycles.');
-      setCycles([]);
-    } finally {
-      setCyclesLoading(false);
-    }
-  }, []);
-
-  const fetchReviews = useCallback(async (pageToLoad: number) => {
-    setReviewsLoading(true);
-    try {
-      const res = await api.getPaginated<Review>('/performance/reviews', {
-        params: { page: pageToLoad, limit: REVIEW_PAGE_SIZE },
-      });
-      setReviews(res.items);
-      setReviewTotal(res.total);
-      setReviewPage(res.page);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to load reviews.');
-      setReviews([]);
-    } finally {
-      setReviewsLoading(false);
-    }
-  }, []);
-
-  const fetchFeedback = useCallback(async () => {
-    setFeedbackLoading(true);
-    try {
-      const res = await api.get<FeedbackItem[] | { items: FeedbackItem[] }>('/feedback');
-      setFeedback(Array.isArray(res) ? res : res?.items || []);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to load feedback.');
-      setFeedback([]);
-    } finally {
-      setFeedbackLoading(false);
-    }
-  }, []);
-
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    await Promise.all([fetchGoals(1), fetchCycles(), fetchReviews(1), fetchFeedback()]);
-    setLoading(false);
-  }, [fetchGoals, fetchCycles, fetchReviews, fetchFeedback]);
-
-  useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
 
   const handleCreateGoal = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -240,7 +208,7 @@ export default function PerformancePage() {
       setNewGoalTitle('');
       setTargetDate('');
       setInitialProgress(0);
-      fetchGoals(1);
+      await queryClient.invalidateQueries({ queryKey: performanceKeys.all });
     } catch (err: any) {
       setGoalFormError(err?.message || 'Failed to save goal.');
     } finally {
@@ -264,7 +232,7 @@ export default function PerformancePage() {
       setCycleStart('');
       setCycleEnd('');
       setCycleDesc('');
-      fetchCycles();
+      await queryClient.invalidateQueries({ queryKey: performanceKeys.cycles() });
     } catch (err: any) {
       setCycleFormError(err?.message || 'Failed to create the cycle.');
     } finally {
@@ -302,7 +270,7 @@ export default function PerformancePage() {
       }
       setReviewForm(null);
       setSelectedReview(null);
-      fetchReviews(reviewPage);
+      await queryClient.invalidateQueries({ queryKey: performanceKeys.all });
     } catch (err: any) {
       setRfError(err?.message || 'Could not submit the review.');
     } finally {
@@ -324,7 +292,7 @@ export default function PerformancePage() {
       setShowFeedbackModal(false);
       setFbRecipient('');
       setFbComments('');
-      fetchFeedback();
+      await queryClient.invalidateQueries({ queryKey: performanceKeys.feedback() });
     } catch (err: any) {
       setFbError(err?.message || 'Could not submit feedback.');
     } finally {
@@ -383,7 +351,7 @@ export default function PerformancePage() {
                 <ErrorBanner
                   resource="performance data"
                   detail={error}
-                  onRetry={fetchAll}
+                  onRetry={() => { refetchGoals(); refetchCycles(); refetchReviews(); refetchFeedback(); }}
                   retrying={loading}
                 />
               </div>
@@ -497,7 +465,7 @@ export default function PerformancePage() {
                   page={goalPage}
                   limit={GOAL_PAGE_SIZE}
                   total={goalTotal}
-                  onPageChange={(p) => fetchGoals(p)}
+                  onPageChange={(p) => setGoalPage(p)}
                 />
               </div>
             </div>
@@ -521,7 +489,7 @@ export default function PerformancePage() {
 
               {cyclesError && (
                 <div style={{ marginBottom: '12px' }}>
-                  <ErrorBanner resource="review cycles" detail={cyclesError} onRetry={fetchCycles} retrying={cyclesLoading} />
+                  <ErrorBanner resource="review cycles" detail={cyclesError} onRetry={() => refetchCycles()} retrying={cyclesLoading} />
                 </div>
               )}
 
@@ -647,7 +615,7 @@ export default function PerformancePage() {
                   page={reviewPage}
                   limit={REVIEW_PAGE_SIZE}
                   total={reviewTotal}
-                  onPageChange={(p) => fetchReviews(p)}
+                  onPageChange={(p) => setReviewPage(p)}
                 />
               </div>
             </div>

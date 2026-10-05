@@ -11,8 +11,10 @@ import {
   ShieldCheck,
   ArrowUpRight,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { DashboardLayout } from '../../../components/layout/dashboard-layout';
 import { api } from '../../../lib/api-client';
+import { usePayrollQuery, payrollKeys } from '../../../lib/queries';
 import { ErrorBanner } from '../../../components/ui/error-banner';
 import { PaginationControls } from '../../../components/ui/pagination';
 import { SkeletonTable } from '../../../components/ui/skeleton';
@@ -63,19 +65,22 @@ const MONTH_NAMES = [
 
 export default function PayrollPage() {
   const { user, hasRole } = useAuth();
-  const [payrollRuns, setPayrollRuns] = useState<PayrollRun[]>([]);
-  const [payslips, setPayslips] = useState<Payslip[]>([]);
+  const queryClient = useQueryClient();
   const [selectedPayslip, setSelectedPayslip] = useState<Payslip | null>(null);
   const [showRunModal, setShowRunModal] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PAID' | 'PENDING'>('ALL');
 
   const PAGE_SIZE = 15;
+
+  const canViewRuns = hasRole(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN, SystemRole.AUDITOR);
+  const { data, isPending: loading, error: queryError, refetch } = usePayrollQuery(page, PAGE_SIZE, canViewRuns);
+  const payrollRuns: PayrollRun[] = data?.runs || [];
+  const payslips: Payslip[] = data?.payslips.items || [];
+  const total = data?.payslips.total || 0;
+  const error = queryError ? (queryError as Error).message || 'Failed to load payroll data.' : null;
 
   // Cycle Modal State
   const [runMonth, setRunMonth] = useState<number>(new Date().getMonth() + 1);
@@ -101,37 +106,6 @@ export default function PayrollPage() {
   const runModalRef = useRef<HTMLDivElement>(null);
   useFocusTrap(runModalRef, { isActive: showRunModal, onEscape: () => setShowRunModal(false) });
 
-  const fetchPayroll = useCallback(async (pageToLoad: number) => {
-    setLoading(true);
-    setError(null);
-    setRunError(null);
-    try {
-      // NOTE: no mock fallbacks — API failure shows a loud error, not invented pay figures.
-      const canViewRuns = hasRole(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN, SystemRole.AUDITOR);
-      const [runsRes, slipsRes] = await Promise.all([
-        canViewRuns
-          ? api.getPaginated<PayrollRun>('/payroll/runs', { params: { page: 1, limit: 10 } })
-          : Promise.resolve({ items: [], total: 0, page: 1, limit: 10 }),
-        api.getPaginated<Payslip>('/payroll/payslips', { params: { page: pageToLoad, limit: PAGE_SIZE } }),
-      ]);
-      setPayrollRuns(runsRes.items);
-      setPayslips(slipsRes.items);
-      setTotal(slipsRes.total);
-      setPage(slipsRes.page);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to load payroll data.');
-      setPayrollRuns([]);
-      setPayslips([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-  }, [hasRole]);
-
-useEffect(() => {
-    fetchPayroll(1);
-  }, []);
-
   const handleRunPayroll = async (e: React.FormEvent) => {
     e.preventDefault();
     setRunningPayroll(true);
@@ -139,7 +113,7 @@ useEffect(() => {
     try {
       await api.post('/payroll/runs', { month: Number(runMonth), year: Number(runYear) });
       setShowRunModal(false);
-      fetchPayroll(1);
+      await queryClient.invalidateQueries({ queryKey: payrollKeys.all });
     } catch (err: any) {
       // Keep the modal open and show the error inline; no payroll was generated.
       setRunError(err?.message || 'Failed to generate payroll cycle.');
@@ -179,7 +153,7 @@ useEffect(() => {
     try {
       // Maker/checker: the API rejects when approver === creator (403).
       await api.patch(`/payroll/runs/${run.id}/approve`, {});
-      await fetchPayroll(1);
+      await queryClient.invalidateQueries({ queryKey: payrollKeys.all });
     } catch (err: any) {
       setActionError(err?.message || 'Could not approve this run.');
     } finally {
@@ -194,7 +168,7 @@ useEffect(() => {
     try {
       // Idempotent: safe to retry; the API records disbursementDate.
       await api.post(`/payroll/runs/${run.id}/disburse`, {});
-      await fetchPayroll(1);
+      await queryClient.invalidateQueries({ queryKey: payrollKeys.all });
     } catch (err: any) {
       setActionError(err?.message || 'Could not disburse this run.');
     } finally {
@@ -232,7 +206,7 @@ useEffect(() => {
       });
       setCorrectSlip(null);
       setCorrectReason('');
-      await fetchPayroll(page);
+      await queryClient.invalidateQueries({ queryKey: payrollKeys.all });
     } catch (err: any) {
       setCorrectError(
         err?.message || 'Could not submit the correction. The corrections endpoint is not deployed yet.',
@@ -276,7 +250,7 @@ useEffect(() => {
                 <ErrorBanner
                   resource="payroll data"
                   detail={error}
-                  onRetry={() => fetchPayroll(1)}
+                  onRetry={() => refetch()}
                   retrying={loading}
                 />
               </div>
@@ -625,7 +599,7 @@ useEffect(() => {
               page={page}
               limit={PAGE_SIZE}
               total={total}
-              onPageChange={(p) => fetchPayroll(p)}
+              onPageChange={(p) => setPage(p)}
             />
           </div>
         </div>

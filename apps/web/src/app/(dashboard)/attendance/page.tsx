@@ -10,8 +10,10 @@ import {
   ShieldCheck,
   Timer,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { DashboardLayout } from '../../../components/layout/dashboard-layout';
 import { api, Paginated } from '../../../lib/api-client';
+import { useAttendanceListQuery, useAttendanceCorrectionsQuery, attendanceKeys } from '../../../lib/queries';
 import { useAuth } from '../../../context/auth-context';
 import { SystemRole } from '@ems/shared';
 import { ErrorBanner } from '../../../components/ui/error-banner';
@@ -94,12 +96,8 @@ function isToday(value?: string): boolean {
 
 export default function AttendancePage() {
   const { hasRole } = useAuth();
-  const [attendanceList, setAttendanceList] = useState<AttendanceRecord[]>([]);
-  const [todayRecord, setTodayRecord] = useState<AttendanceRecord | null>(null);
-  const [total, setTotal] = useState(0);
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [clocking, setClocking] = useState(false);
   const [clockError, setClockError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'my' | 'team' | 'corrections'>('my');
@@ -107,10 +105,34 @@ export default function AttendancePage() {
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PRESENT' | 'LATE' | 'ABSENT'>('ALL');
   const [liveTime, setLiveTime] = useState<string>('');
 
+  const listTab = activeTab === 'corrections' ? 'my' : activeTab;
+  const {
+    data: listData,
+    isPending: listLoading,
+    error: listQueryError,
+    refetch: refetchAttendance,
+  } = useAttendanceListQuery(listTab, page, PAGE_SIZE);
+
+  const {
+    data: correctionsData,
+    isPending: correctionsQueryLoading,
+    error: correctionsQueryError,
+    refetch: refetchCorrections,
+  } = useAttendanceCorrectionsQuery(activeTab === 'corrections');
+
+  const attendanceList: AttendanceRecord[] = listData?.items || [];
+  const total = listData?.total || 0;
+  const todayRecord = attendanceList.find((r) => isToday(r.date)) || null;
+  const loading = activeTab !== 'corrections' && listLoading;
+  const error = listQueryError ? (listQueryError as Error).message || 'Failed to load attendance records.' : null;
+
+  const corrections: AttendanceCorrection[] = correctionsData || [];
+  const correctionsLoading = activeTab === 'corrections' && correctionsQueryLoading;
+  const correctionsError = correctionsQueryError
+    ? (correctionsQueryError as Error).message || 'Could not load correction requests.'
+    : null;
+
   // Correction requests (Phase 2 item 5 — API: worker 4)
-  const [corrections, setCorrections] = useState<AttendanceCorrection[]>([]);
-  const [correctionsError, setCorrectionsError] = useState<string | null>(null);
-  const [correctionsLoading, setCorrectionsLoading] = useState(false);
   const [correcting, setCorrecting] = useState<AttendanceRecord | null>(null);
   const [corrClockIn, setCorrClockIn] = useState('');
   const [corrClockOut, setCorrClockOut] = useState('');
@@ -132,37 +154,6 @@ export default function AttendancePage() {
     return () => clearInterval(timer);
   }, []);
 
-  const fetchAttendance = useCallback(
-    async (pageToLoad: number) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res: Paginated<AttendanceRecord> = await api.getPaginated<AttendanceRecord>(
-          activeTab === 'my' ? '/attendance/me' : '/attendance/team',
-          { params: { page: pageToLoad, limit: PAGE_SIZE } },
-        );
-        setAttendanceList(res.items);
-        setTotal(res.total);
-        setPage(res.page);
-        // Today's record is the API record dated today; absent = not clocked in yet.
-        setTodayRecord(res.items.find((r) => isToday(r.date)) || null);
-      } catch (err: any) {
-        // Never render fabricated timesheets: fail loudly instead.
-        setError(err?.message || 'Failed to load attendance records.');
-        setAttendanceList([]);
-        setTotal(0);
-        setTodayRecord(null);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [activeTab],
-  );
-
-  useEffect(() => {
-    fetchAttendance(1);
-  }, [fetchAttendance]);
-
   const handleClockToggle = async () => {
     setClocking(true);
     setClockError(null);
@@ -173,7 +164,7 @@ export default function AttendancePage() {
       await api.post(`/attendance/${action}`, {
         notes: wasClockedIn ? 'Clocked out from attendance portal' : 'Clocked in from attendance portal',
       });
-      await fetchAttendance(page);
+      await queryClient.invalidateQueries({ queryKey: attendanceKeys.all });
     } catch (err: any) {
       // On failure: keep the previous state and surface the error inline.
       setClockError(err?.message || 'Clock action failed. Your shift state was not changed.');
@@ -212,33 +203,13 @@ export default function AttendancePage() {
         location: formatCoords(pos),
       });
       setLocNotice('Clocked in — your device was inside the site radius.');
-      await fetchAttendance(page);
+      await queryClient.invalidateQueries({ queryKey: attendanceKeys.all });
     } catch (err: any) {
       setClockError(err?.message || 'Location-checked clock-in failed.');
     } finally {
       setLocBusy(false);
     }
   };
-
-  const fetchCorrections = useCallback(async () => {
-    setCorrectionsLoading(true);
-    setCorrectionsError(null);
-    try {
-      // API (worker 4): GET /attendance/corrections → pending requests.
-      const res = await api.get<AttendanceCorrection[] | { items: AttendanceCorrection[] }>(
-        '/attendance/corrections',
-        { params: { status: 'PENDING' } },
-      );
-      setCorrections(Array.isArray(res) ? res : res?.items || []);
-    } catch (err: any) {
-      setCorrections([]);
-      setCorrectionsError(
-        err?.message || 'Could not load correction requests. The corrections API is not deployed yet (worker 4).',
-      );
-    } finally {
-      setCorrectionsLoading(false);
-    }
-  }, []);
 
   const submitCorrection = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -257,6 +228,7 @@ export default function AttendancePage() {
       setCorrClockIn('');
       setCorrClockOut('');
       setCorrReason('');
+      await queryClient.invalidateQueries({ queryKey: attendanceKeys.corrections() });
     } catch (err: any) {
       setCorrError(err?.message || 'Could not submit the correction request.');
     } finally {
@@ -270,17 +242,13 @@ export default function AttendancePage() {
     try {
       // API (worker 4): PATCH /attendance/corrections/:id
       await api.patch(`/attendance/corrections/${id}`, { status: approve ? 'APPROVED' : 'REJECTED' });
-      await fetchCorrections();
+      await queryClient.invalidateQueries({ queryKey: attendanceKeys.corrections() });
     } catch (err: any) {
-      setCorrectionsError(err?.message || 'Could not decide the correction request.');
+      alert(err?.message || 'Could not decide the correction request.');
     } finally {
       setDeciding(null);
     }
   };
-
-  useEffect(() => {
-    if (activeTab === 'corrections') fetchCorrections();
-  }, [activeTab, fetchCorrections]);
 
   // Filtered records (client-side over the loaded page)
   const filteredList = useMemo(() => {
@@ -337,7 +305,7 @@ export default function AttendancePage() {
                 <ErrorBanner
                   resource="attendance records"
                   detail={error}
-                  onRetry={() => fetchAttendance(1)}
+                  onRetry={() => refetchAttendance()}
                   retrying={loading}
                 />
               </div>
@@ -582,7 +550,7 @@ export default function AttendancePage() {
                   <ErrorBanner
                     resource="correction requests"
                     detail={correctionsError}
-                    onRetry={fetchCorrections}
+                    onRetry={() => refetchCorrections()}
                     retrying={correctionsLoading}
                   />
                 </div>
@@ -827,7 +795,7 @@ export default function AttendancePage() {
                 page={page}
                 limit={PAGE_SIZE}
                 total={total}
-                onPageChange={(p) => fetchAttendance(p)}
+                onPageChange={(p) => setPage(p)}
               />
             </div>
           )}

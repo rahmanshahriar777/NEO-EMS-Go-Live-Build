@@ -632,8 +632,8 @@ model LeaveBalance {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  employee      Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  leaveType     LeaveType @relation(fields: [leaveTypeId], references: [id], onDelete: Cascade)
+  employee      Employee  @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  leaveType     LeaveType @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
 
   @@unique([employeeId, leaveTypeId, year])
   @@index([employeeId, year])
@@ -657,8 +657,8 @@ model LeaveRequest {
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
-  employee    Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  leaveType   LeaveType       @relation(fields: [leaveTypeId], references: [id])
+  employee    Employee        @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  leaveType   LeaveType       @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
   entity      Entity?         @relation(fields: [entityId], references: [id], onDelete: SetNull)
   approvals   LeaveApproval[]
 

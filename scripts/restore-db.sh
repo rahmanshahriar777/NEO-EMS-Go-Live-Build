@@ -33,27 +33,27 @@ if [ ! -f "${BACKUP_FILE}" ]; then
   exit 1
 fi
 
-# Detect format by extension.
-case "${BACKUP_FILE}" in
-  *.dump)
+# Detect format by checking pg_restore compatibility or magic bytes
+FORMAT=""
+if command -v pg_restore >/dev/null 2>&1 && pg_restore -l "${BACKUP_FILE}" >/dev/null 2>&1; then
+  FORMAT="custom"
+elif case "${BACKUP_FILE}" in *.dump|*.fc|*.backup) true ;; *) false ;; esac; then
+  FORMAT="custom"
+else
+  # Inspect first 5 magic bytes for pg_dump custom format ("PGDMP")
+  MAGIC=$(head -c 5 "${BACKUP_FILE}" 2>/dev/null || true)
+  if [[ "${MAGIC}" == *"PGDM"* ]]; then
     FORMAT="custom"
-    ;;
-  *.sql.gz)
+  elif case "${BACKUP_FILE}" in *.sql.gz|*.gz) true ;; *) false ;; esac; then
     FORMAT="plain"
-    ;;
-  *)
-    # Try to auto-detect by reading the pg_dump magic bytes.
-    # Custom format starts with 0x50 0x47 0x44 0x4D ("PGDM").
-    MAGIC=$(head -c 4 "${BACKUP_FILE}" 2>/dev/null | cat -v | head -c 4 || true)
-    if [[ "${MAGIC}" == "PGDM" ]]; then
-      FORMAT="custom"
-    else
-      echo "❌ Error: Cannot determine backup format for '${BACKUP_FILE}'."
-      echo "   Supported extensions: .dump (custom -Fc), .sql.gz (plain gzip)"
-      exit 1
-    fi
-    ;;
-esac
+  elif case "${BACKUP_FILE}" in *.sql) true ;; *) false ;; esac; then
+    FORMAT="plain_sql"
+  else
+    echo "❌ Error: Cannot determine backup format for '${BACKUP_FILE}'."
+    echo "   Supported formats: pg_dump custom (-Fc, .dump) and gzip plain SQL (.sql.gz)."
+    exit 1
+  fi
+fi
 
 if [ -n "${DATABASE_URL:-}" ]; then
   TARGET_DESC="managed PostgreSQL via DATABASE_URL (value redacted)"
@@ -89,6 +89,16 @@ if [ "${FORMAT}" = "custom" ]; then
         -d "${POSTGRES_DB:-ems_db}" \
         "${CONTAINER_PATH}"
     docker exec ems-postgres rm -f "${CONTAINER_PATH}"
+  fi
+elif [ "${FORMAT}" = "plain_sql" ]; then
+  # Plain uncompressed SQL
+  command -v psql >/dev/null || { echo "FATAL: psql not found on PATH" >&2; exit 1; }
+  if [ -n "${DATABASE_URL:-}" ]; then
+    psql "${DATABASE_URL}" -f "${BACKUP_FILE}"
+  else
+    docker exec -i ems-postgres psql \
+      -U "${POSTGRES_USER:-ems_admin}" \
+      -d "${POSTGRES_DB:-ems_db}" < "${BACKUP_FILE}"
   fi
 else
   # Plain SQL (gzip): decompress and pipe into psql.

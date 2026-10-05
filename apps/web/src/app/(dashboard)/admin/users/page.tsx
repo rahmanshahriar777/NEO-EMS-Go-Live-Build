@@ -2,8 +2,10 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Users, UserPlus, RefreshCw, ShieldOff } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { DashboardLayout } from '../../../../components/layout/dashboard-layout';
 import { api } from '../../../../lib/api-client';
+import { useAdminUsersQuery, adminKeys } from '../../../../lib/queries';
 import { ErrorBanner } from '../../../../components/ui/error-banner';
 import { PaginationControls } from '../../../../components/ui/pagination';
 import { SkeletonTable } from '../../../../components/ui/skeleton';
@@ -39,13 +41,14 @@ const PAGE_SIZE = 15;
  */
 export default function AdminUsersPage() {
   const { hasRole } = useAuth();
+  const queryClient = useQueryClient();
   const canManage = hasRole(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN);
 
-  const [users, setUsers] = useState<ManagedUser[]>([]);
-  const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data, isPending: loading, error: queryError, refetch } = useAdminUsersQuery(page, PAGE_SIZE, canManage);
+  const users: ManagedUser[] = data?.items || [];
+  const total = data?.total || 0;
+  const error = queryError ? (queryError as Error).message || 'Could not load users.' : null;
 
   const [showInvite, setShowInvite] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -59,30 +62,6 @@ export default function AdminUsersPage() {
 
   const [actionBusy, setActionBusy] = useState<string | null>(null);
 
-  const fetchUsers = useCallback(async (pageToLoad: number) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.getPaginated<ManagedUser>('/auth/users', {
-        params: { page: pageToLoad, limit: PAGE_SIZE },
-      });
-      setUsers(res.items);
-      setTotal(res.total);
-      setPage(res.page);
-    } catch (err: any) {
-      setError(err?.message || 'Could not load users. The admin user API may not be deployed yet.');
-      setUsers([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (canManage) fetchUsers(1);
-    else setLoading(false);
-  }, [canManage, fetchUsers]);
-
   const sendInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     setInviteBusy(true);
@@ -94,6 +73,7 @@ export default function AdminUsersPage() {
       await api.post('/auth/invitations', { email: inviteEmail, roleIds: [inviteRole] });
       setInviteSent(true);
       setInviteEmail('');
+      await queryClient.invalidateQueries({ queryKey: adminKeys.all });
     } catch (err: any) {
       setInviteError(err?.message || 'Could not send the invitation.');
     } finally {
@@ -108,9 +88,9 @@ export default function AdminUsersPage() {
     setActionBusy(u.id);
     try {
       await api.patch(`/auth/users/${u.id}`, { isActive: next });
-      setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, isActive: next } : x)));
+      await queryClient.invalidateQueries({ queryKey: adminKeys.all });
     } catch (err: any) {
-      setError(`Could not ${label} ${u.email}: ${err?.message || 'request failed'}`);
+      alert(`Could not ${label} ${u.email}: ${err?.message || 'request failed'}`);
     } finally {
       setActionBusy(null);
     }
@@ -147,7 +127,7 @@ export default function AdminUsersPage() {
         </div>
 
         {error && (
-          <ErrorBanner resource="users" detail={error} onRetry={() => fetchUsers(1)} retrying={loading} />
+          <ErrorBanner resource="users" detail={error} onRetry={() => refetch()} retrying={loading} />
         )}
 
         <div className="adm-card">
@@ -217,7 +197,7 @@ export default function AdminUsersPage() {
                   page={page}
                   limit={PAGE_SIZE}
                   total={total}
-                  onPageChange={(p) => fetchUsers(p)}
+                  onPageChange={(p) => setPage(p)}
                 />
               </div>
             </>

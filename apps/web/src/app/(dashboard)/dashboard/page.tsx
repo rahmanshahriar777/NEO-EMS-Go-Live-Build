@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { DashboardLayout } from '../../../components/layout/dashboard-layout';
 import { useAuth } from '../../../context/auth-context';
 import { api } from '../../../lib/api-client';
-import { useDashboardKpis } from '../../../lib/queries';
+import { useDashboardKpis, useMyAttendanceTodayQuery, attendanceKeys } from '../../../lib/queries';
 import { SkeletonStatCard } from '../../../components/ui/skeleton';
 import { ErrorBanner } from '../../../components/ui/error-banner';
 import { formatAppTime, formatAppDate, timezoneLabel, formatCurrency } from '../../../lib/date-utils';
@@ -113,7 +114,8 @@ export default function DashboardPage() {
   // refetch, error) instead of ad-hoc useState/useEffect.
   const { data: kpis, isPending: loading, error: queryError, refetch } = useDashboardKpis();
   const error = queryError ? (queryError as Error).message || 'Could not load dashboard KPIs.' : null;
-  const [clockStatus, setClockStatus] = useState<'IDLE' | 'CLOCKED_IN' | 'CLOCKED_OUT'>('IDLE');
+  const queryClient = useQueryClient();
+  const { data: attendanceData } = useMyAttendanceTodayQuery();
   const [clockError, setClockError] = useState<string | null>(null);
   const [clockBusy, setClockBusy] = useState(false);
   const [now, setNow] = useState(new Date());
@@ -123,33 +125,20 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    // Today's clock state — derived from the API, never assumed.
-    let cancelled = false;
-    api
-      .getPaginated<any>('/attendance/me', { params: { limit: 15 } })
-      .then((res) => {
-        if (cancelled) return;
-        const today = new Date();
-        const key = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(
-          today.getDate(),
-        ).padStart(2, '0')}`;
-        const record = res.items.find((r) => String(r.date || '').split('T')[0] === key);
-        if (record?.clockInTime && !record?.clockOutTime) {
-          setClockStatus('CLOCKED_IN');
-        } else if (record?.clockOutTime) {
-          setClockStatus('CLOCKED_OUT');
-        } else {
-          setClockStatus('IDLE');
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setClockStatus('IDLE');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const clockStatus = useMemo<'IDLE' | 'CLOCKED_IN' | 'CLOCKED_OUT'>(() => {
+    if (!attendanceData?.items) return 'IDLE';
+    const today = new Date();
+    const key = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(
+      today.getDate(),
+    ).padStart(2, '0')}`;
+    const record = attendanceData.items.find((r: any) => String(r.date || '').split('T')[0] === key);
+    if (record?.clockInTime && !record?.clockOutTime) {
+      return 'CLOCKED_IN';
+    } else if (record?.clockOutTime) {
+      return 'CLOCKED_OUT';
+    }
+    return 'IDLE';
+  }, [attendanceData]);
 
   const handleClockAction = async () => {
     setClockBusy(true);
@@ -157,11 +146,10 @@ export default function DashboardPage() {
     try {
       if (clockStatus === 'CLOCKED_IN') {
         await api.post('/attendance/clock-out', { notes: 'Clock out from dashboard' });
-        setClockStatus('CLOCKED_OUT');
       } else {
         await api.post('/attendance/clock-in', { notes: 'Clock in from dashboard' });
-        setClockStatus('CLOCKED_IN');
       }
+      await queryClient.invalidateQueries({ queryKey: attendanceKeys.all });
     } catch (err: any) {
       setClockError(err?.message || 'Clock action failed. Your shift state was not changed.');
     } finally {

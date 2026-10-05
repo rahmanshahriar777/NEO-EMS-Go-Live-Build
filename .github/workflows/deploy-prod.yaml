@@ -81,6 +81,10 @@ jobs:
           else
             TAG="sha-$(git rev-parse --short=7 HEAD)"
           fi
+          if [ "$TAG" = "latest" ] || [ "$TAG" = ":latest" ]; then
+            echo "::error::Deploying ':latest' to production is strictly forbidden. Deployments must pin an immutable per-commit SHA tag (e.g. sha-<hash>) or semver release tag."
+            exit 1
+          fi
           echo "Deploying image tag: $TAG (registry: $IMAGE_REGISTRY/$IMAGE_REPOSITORY)"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 

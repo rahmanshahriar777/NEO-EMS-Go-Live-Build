@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { DashboardLayout } from '../../../components/layout/dashboard-layout';
 import { useAiCompletion } from '../../../hooks/use-ai-completion';
 import { useSpeech } from '../../../hooks/use-speech';

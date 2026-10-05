@@ -63,8 +63,9 @@ ENV PATH="/app/node_modules/.bin:/app/apps/web/node_modules/.bin:$PNPM_HOME:$PAT
 RUN apk add --no-cache bash curl nginx postgresql postgresql-contrib su-exec
 RUN corepack enable
 
-# Copy built workspace
+# Copy built workspace and prune devDependencies for production
 COPY --from=builder /app /app
+RUN pnpm prune --prod
 
 # Copy Nginx configuration
 COPY docker/nginx-gcp.conf /etc/nginx/nginx.conf

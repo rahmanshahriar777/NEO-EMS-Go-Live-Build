@@ -54,6 +54,16 @@ spec:
             limits:
               cpu: "500m"
               memory: "512Mi"
+          livenessProbe:
+            exec:
+              command:
+                - node
+                - -e
+                - "const fs=require('fs'); if (!fs.existsSync('/tmp/worker-heartbeat') || Date.now()-Number(fs.readFileSync('/tmp/worker-heartbeat','utf8'))>60000) process.exit(1);"
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
           # Writable /tmp alongside the read-only root filesystem.
           volumeMounts:
             - name: tmp

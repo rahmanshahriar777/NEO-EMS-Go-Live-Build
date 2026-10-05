@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { ClipboardList, RefreshCw, Users } from 'lucide-react';
 import { DashboardLayout } from '../../../components/layout/dashboard-layout';
 import { api } from '../../../lib/api-client';
+import { useRosteringQuery } from '../../../lib/queries';
 import { ErrorBanner } from '../../../components/ui/error-banner';
 import { SkeletonCardGrid } from '../../../components/ui/skeleton';
 import { formatAppDate } from '../../../lib/date-utils';
@@ -60,29 +61,11 @@ function weekRange(offsetWeeks: number): { from: string; to: string } {
 
 export default function RosteringPage() {
   const [weekOffset, setWeekOffset] = useState(0);
-  const [entries, setEntries] = useState<RosterEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const { from, to } = weekRange(weekOffset);
-
-  const fetchRoster = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.get('/rostering', { params: { from, to } });
-      setEntries(normalizeRoster(res));
-    } catch (err: any) {
-      setError(err?.message || 'Failed to load roster.');
-      setEntries([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [from, to]);
-
-  useEffect(() => {
-    fetchRoster();
-  }, [fetchRoster]);
+  const { data: rawRoster, isPending: loading, error: queryError, refetch } = useRosteringQuery(from, to);
+  const entries = useMemo(() => normalizeRoster(rawRoster), [rawRoster]);
+  const error = queryError ? (queryError as Error).message || 'Failed to load roster.' : null;
 
   const byDay = useMemo(() => {
     const map = new Map<string, RosterEntry[]>();
@@ -136,7 +119,7 @@ export default function RosteringPage() {
             <ErrorBanner
               resource="roster"
               detail={error}
-              onRetry={fetchRoster}
+              onRetry={() => refetch()}
               retrying={loading}
             />
           </div>

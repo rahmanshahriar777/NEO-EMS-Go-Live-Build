@@ -1,6 +1,7 @@
 import { Job, Queue, Worker } from 'bullmq';
 import Redis from 'ioredis';
 import * as dotenv from 'dotenv';
+import * as fs from 'fs';
 import {
   QUEUE_NAMES,
   MAINTENANCE_QUEUE,
@@ -186,8 +187,28 @@ async function bootstrap() {
 
   log.info('worker.listening', { queues: queueNames });
 
+  // Heartbeat file for Kubernetes exec liveness probe
+  const heartbeatPath = process.env.WORKER_HEARTBEAT_PATH || '/tmp/worker-heartbeat';
+  const touchHeartbeat = async () => {
+    try {
+      if (connection.status === 'ready' || connection.status === 'connect') {
+        await connection.ping();
+      }
+      await fs.promises.writeFile(heartbeatPath, Date.now().toString(), 'utf8');
+    } catch (e: any) {
+      log.warn('worker.heartbeat.failed', { error: e?.message });
+    }
+  };
+  await touchHeartbeat();
+  const heartbeatInterval = setInterval(touchHeartbeat, 10_000);
+  if (typeof (heartbeatInterval as any).unref === 'function') (heartbeatInterval as any).unref();
+
   const shutdown = async (signal: string) => {
     log.info('worker.shutdown', { signal });
+    clearInterval(heartbeatInterval);
+    try {
+      await fs.promises.unlink(heartbeatPath);
+    } catch {}
     await Promise.all(workers.map((w) => w.close()));
     await Promise.all(Object.values(queues).map((q) => q.close()));
     await connection.quit();

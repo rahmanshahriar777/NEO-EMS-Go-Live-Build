@@ -22,8 +22,10 @@ import {
   Scale,
   X,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { DashboardLayout } from '../../../../components/layout/dashboard-layout';
 import { api } from '../../../../lib/api-client';
+import { useDepartmentsQuery, departmentKeys } from '../../../../lib/queries';
 import { ErrorBanner } from '../../../../components/ui/error-banner';
 import { PaginationControls } from '../../../../components/ui/pagination';
 import { SkeletonCardGrid, SkeletonTable } from '../../../../components/ui/skeleton';
@@ -46,11 +48,8 @@ interface Department {
 
 export default function DepartmentsPage() {
   const { hasRole } = useAuth();
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
   const [showModal, setShowModal] = useState(false);
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
@@ -60,46 +59,23 @@ export default function DepartmentsPage() {
 
   const PAGE_SIZE = 12;
 
+  const { data, isPending: loading, error: queryError, refetch } = useDepartmentsQuery(page, PAGE_SIZE);
+  const departments: Department[] = data?.items || [];
+  const total = data?.total || 0;
+  const error = queryError ? (queryError as Error).message || 'Failed to load departments.' : null;
+
   // Form State
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const fetchDepts = useCallback(async (pageToLoad: number) => {
-    setLoading(true);
-    setError(null);
-    setFormError(null);
-    try {
-      // NOTE: no hardcoded department seed — the API is the source of truth.
-      // The departments list endpoint returns a bare array today (not the
-      // paginated {items,total} envelope), so paginate client-side until the
-      // API contract converges. api.getPaginated() tolerates the bare array.
-      const res = await api.getPaginated<Department>('/departments', {
-        params: { page: pageToLoad, limit: PAGE_SIZE },
-      });
-      setDepartments(res.items);
-      setTotal(res.total);
-      setPage(res.page);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to load departments.');
-      setDepartments([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchDepts(1);
-  }, [fetchDepts]);
-
   const handleDelete = async (id: string, deptName: string) => {
     if (!confirm(`Are you sure you want to remove the ${deptName} department?`)) return;
     setFormError(null);
     try {
       await api.delete(`/departments/${id}`);
-      fetchDepts(1);
+      await queryClient.invalidateQueries({ queryKey: departmentKeys.all });
     } catch (err: any) {
       // Surface the failure inline rather than with an alert; nothing was deleted.
       setFormError(err?.message || 'Failed to delete department.');
@@ -116,7 +92,7 @@ export default function DepartmentsPage() {
       setName('');
       setCode('');
       setDescription('');
-      fetchDepts(1);
+      await queryClient.invalidateQueries({ queryKey: departmentKeys.all });
     } catch (err: any) {
       // Keep the modal open and show the error inline; nothing was created.
       setFormError(err?.message || 'Failed to create department.');
@@ -195,7 +171,7 @@ export default function DepartmentsPage() {
                 <ErrorBanner
                   resource="departments"
                   detail={error}
-                  onRetry={() => fetchDepts(1)}
+                  onRetry={() => refetch()}
                   retrying={loading}
                 />
               </div>
@@ -476,7 +452,7 @@ export default function DepartmentsPage() {
               page={page}
               limit={PAGE_SIZE}
               total={total}
-              onPageChange={(p) => fetchDepts(p)}
+              onPageChange={(p) => setPage(p)}
             />
           </div>
         </div>

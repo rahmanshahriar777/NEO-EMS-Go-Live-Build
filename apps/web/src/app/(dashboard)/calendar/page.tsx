@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, CalendarDays, RefreshCw } from 'lucide-react';
 import { DashboardLayout } from '../../../components/layout/dashboard-layout';
 import { api } from '../../../lib/api-client';
+import { useCalendarEventsQuery } from '../../../lib/queries';
 import { ErrorBanner } from '../../../components/ui/error-banner';
 import { Skeleton } from '../../../components/ui/skeleton';
 import { formatAppDate } from '../../../lib/date-utils';
@@ -73,31 +74,12 @@ export default function CalendarPage() {
     const now = new Date();
     return { year: now.getFullYear(), month: now.getMonth() };
   });
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   const { from, to } = monthRange(cursor.year, cursor.month);
-
-  const fetchEvents = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.get('/calendar', { params: { from, to } });
-      setEvents(normalizeEvents(res));
-    } catch (err: any) {
-      // No localStorage demo data: fail loudly instead.
-      setError(err?.message || 'Failed to load calendar events.');
-      setEvents([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [from, to]);
-
-  useEffect(() => {
-    fetchEvents();
-  }, [fetchEvents]);
+  const { data: rawEvents, isPending: loading, error: queryError, refetch } = useCalendarEventsQuery(from, to);
+  const events = useMemo(() => normalizeEvents(rawEvents), [rawEvents]);
+  const error = queryError ? (queryError as Error).message || 'Failed to load calendar events.' : null;
 
   const eventsByDay = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
@@ -184,7 +166,7 @@ export default function CalendarPage() {
               <ErrorBanner
                 resource="calendar events"
                 detail={error}
-                onRetry={fetchEvents}
+                onRetry={() => refetch()}
                 retrying={loading}
               />
             </div>

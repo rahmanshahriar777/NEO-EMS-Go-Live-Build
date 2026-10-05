@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import {
@@ -27,14 +28,15 @@ import {
   employeeToForm,
 } from '../../../../components/employees/employee-form-modal';
 import { SystemRole } from '@ems/shared';
+import { useEmployeeDetailQuery, employeeKeys } from '../../../../lib/queries';
 
 export default function EmployeeDetailPage() {
   const params = useParams();
   const id = params?.id as string;
   const { user, hasRole } = useAuth();
-  const [employee, setEmployee] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const { data: employee, isPending: loading, error: queryError, refetch } = useEmployeeDetailQuery(id);
+  const error = queryError ? (queryError as Error).message || 'Failed to load this employee profile.' : null;
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
 
@@ -42,28 +44,6 @@ export default function EmployeeDetailPage() {
     hasRole(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN) ||
     user?.employeeId === employee?.id ||
     user?.email === employee?.email;
-
-  const loadEmployee = () => {
-    if (!id) return;
-    setLoading(true);
-    setError(null);
-    api
-      .get(`/employees/${id}`)
-      .then((data) => {
-        setEmployee(data);
-        setLoading(false);
-      })
-      .catch((err: any) => {
-        // Never render a mock profile: a failed fetch is a loud error.
-        setError(err?.message || 'Failed to load this employee profile.');
-        setEmployee(null);
-        setLoading(false);
-      });
-  };
-
-  useEffect(() => {
-    loadEmployee();
-  }, [id]);
 
   if (loading) {
     return (
@@ -83,7 +63,7 @@ export default function EmployeeDetailPage() {
             <ErrorBanner
               resource="this employee profile"
               detail={error}
-              onRetry={loadEmployee}
+              onRetry={() => refetch()}
               retrying={loading}
             />
           ) : (
@@ -355,11 +335,8 @@ export default function EmployeeDetailPage() {
       <AvatarModal
         isOpen={isAvatarModalOpen}
         onClose={() => setIsAvatarModalOpen(false)}
-        onSuccess={(newAvatarUrl) => {
-          setEmployee((prev: any) => ({
-            ...prev,
-            avatarUrl: newAvatarUrl,
-          }));
+        onSuccess={async () => {
+          await queryClient.invalidateQueries({ queryKey: employeeKeys.detail(id) });
         }}
       />
 
@@ -373,8 +350,8 @@ export default function EmployeeDetailPage() {
             // Partial update: PATCH /employees/:id with only changed fields.
             // Manager callers are limited to direct reports + a restricted
             // field set server-side (Phase 1 A1).
-            const updated = await api.patch(`/employees/${id}`, payload);
-            setEmployee((prev: any) => ({ ...prev, ...(updated || {}), ...payload }));
+            await api.patch(`/employees/${id}`, payload);
+            await queryClient.invalidateQueries({ queryKey: employeeKeys.detail(id) });
           }}
         />
       )}
