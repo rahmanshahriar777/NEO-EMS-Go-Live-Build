@@ -8,7 +8,9 @@ import {
   DEFAULT_JOB_OPTIONS,
   RETENTION_SIGNOFF_ENV,
   isRetentionSignedOff,
+  metrics,
 } from '@ems/shared';
+import * as http from 'http';
 import { processPayroll } from './processors/payroll.processor.js';
 import { processNotification, registerChannelHook } from './processors/notification.processor.js';
 import { sendEmailChannelHook } from './processors/email.processor.js';
@@ -203,9 +205,29 @@ async function bootstrap() {
   const heartbeatInterval = setInterval(touchHeartbeat, 10_000);
   if (typeof (heartbeatInterval as any).unref === 'function') (heartbeatInterval as any).unref();
 
+  // Prometheus HTTP metrics & health server (exposes /metrics on port 9100)
+  const metricsPort = parseInt(process.env.WORKER_METRICS_PORT || '9100', 10);
+  const metricsServer = http.createServer((req, res) => {
+    if (req.url === '/metrics' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4' });
+      res.end(metrics.renderPrometheus());
+    } else if (req.url === '/healthz' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('OK');
+    } else {
+      res.writeHead(404);
+      res.end('Not Found');
+    }
+  });
+  metricsServer.listen(metricsPort, () => {
+    log.info('worker.metrics.listening', { port: metricsPort });
+  });
+  if (typeof (metricsServer as any).unref === 'function') (metricsServer as any).unref();
+
   const shutdown = async (signal: string) => {
     log.info('worker.shutdown', { signal });
     clearInterval(heartbeatInterval);
+    metricsServer.close();
     try {
       await fs.promises.unlink(heartbeatPath);
     } catch {}

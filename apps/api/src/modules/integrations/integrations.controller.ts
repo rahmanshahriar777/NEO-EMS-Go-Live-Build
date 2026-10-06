@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, Res, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { IntegrationsService } from './integrations.service';
@@ -48,5 +48,41 @@ export class IntegrationsController {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(csv);
+  }
+
+  @Post('alert')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Dispatch an alert notification to configured Slack and Microsoft Teams webhooks',
+  })
+  async sendAlert(
+    @Body() body: { title: string; message: string; linkUrl?: string },
+  ) {
+    return this.service.dispatchAlert(body);
+  }
+
+  @Post('hris/import')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Synchronise bulk employee records from an external HRIS system',
+  })
+  async importHris(
+    @Body()
+    body: {
+      employees: Array<{
+        firstName: string;
+        lastName: string;
+        email: string;
+        departmentCode?: string;
+        designationTitle?: string;
+        phone?: string;
+      }>;
+    },
+  ) {
+    return this.service.importHrisEmployees(body.employees || []);
   }
 }

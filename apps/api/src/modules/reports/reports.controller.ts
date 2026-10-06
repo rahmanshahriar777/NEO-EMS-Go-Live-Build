@@ -1,6 +1,8 @@
 import {
   Controller,
   Get,
+  Post,
+  Body,
   Param,
   Query,
   Res,
@@ -53,5 +55,31 @@ export class ReportsController {
     res!.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res!.setHeader('Content-Length', String(buffer.length));
     res!.send(buffer);
+  }
+
+  @Post('adhoc')
+  @ApiOperation({
+    summary: 'Build and execute an ad-hoc query report over core entity datasets',
+  })
+  async buildAdHoc(
+    @Body()
+    body: {
+      entity: 'employees' | 'leaves' | 'attendance' | 'payroll';
+      filters?: Record<string, any>;
+      limit?: number;
+    },
+  ) {
+    return this.service.buildAdHocReport(body);
+  }
+
+  @Get('warehouse/:entity')
+  @Roles(SystemRole.SUPER_ADMIN, SystemRole.AUDITOR)
+  @ApiOperation({
+    summary: 'Export structured dataset for external data warehouse / BI integration',
+  })
+  async warehouseExport(@Param('entity') entity: string) {
+    return this.service.exportWarehouseData(
+      entity as 'employees' | 'leaves' | 'attendance' | 'payroll' | 'audit',
+    );
   }
 }

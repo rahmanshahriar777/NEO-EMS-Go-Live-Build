@@ -41,5 +41,16 @@ export const log = {
  */
 export function alertOps(message: string, context: Record<string, unknown> = {}): void {
   log.fatal('ops.alert', { message, ...context });
-  // TODO(prod): POST to PagerDuty Events API v2 / Opsgenie / Slack webhook.
+  const alertWebhookUrl = process.env.ALERT_WEBHOOK_URL || process.env.SLACK_WEBHOOK_URL;
+  if (alertWebhookUrl) {
+    fetch(alertWebhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: `🚨 *CRITICAL WORKER ALERT*: ${message}\n\`\`\`${JSON.stringify(context, null, 2)}\`\`\``,
+      }),
+    }).catch((err: any) => {
+      log.error('ops.alert.dispatch_failed', { error: err?.message });
+    });
+  }
 }

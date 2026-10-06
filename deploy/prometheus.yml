@@ -1,0 +1,40 @@
+# Prometheus Configuration for NEO EMS Production Monitoring
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files: []
+
+scrape_configs:
+  # EMS API metrics (NestJS Prometheus exposition)
+  - job_name: 'ems-api'
+    metrics_path: '/api/v1/metrics'
+    scheme: 'http'
+    static_configs:
+      - targets: ['api:4000']
+        labels:
+          app: 'ems-api'
+          environment: 'production'
+
+  # EMS Worker metrics (BullMQ & Background Jobs exposition)
+  - job_name: 'ems-worker'
+    metrics_path: '/metrics'
+    scheme: 'http'
+    static_configs:
+      - targets: ['worker:9100']
+        labels:
+          app: 'ems-worker'
+          environment: 'production'
+
+  # Node / Container Host metrics
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          app: 'node-exporter'

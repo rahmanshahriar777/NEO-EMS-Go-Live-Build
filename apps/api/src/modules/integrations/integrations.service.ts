@@ -297,4 +297,71 @@ export class IntegrationsService {
 
     return { csv: toCsv(headers, rows), filename: `accounting-journal-${period}.csv` };
   }
+
+  /** Dispatches an alert to Slack and Teams webhooks. */
+  async dispatchAlert(input: { title: string; message: string; linkUrl?: string }) {
+    return this.sendAlert(input);
+  }
+
+  /**
+   * Bulk synchronises employee records from an external HRIS provider.
+   */
+  async importHrisEmployees(
+    records: Array<{
+      firstName: string;
+      lastName: string;
+      email: string;
+      departmentCode?: string;
+      designationTitle?: string;
+      phone?: string;
+    }>,
+  ): Promise<{ imported: number; updated: number; failed: number; errors: string[] }> {
+    let imported = 0;
+    let updated = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    for (const row of records) {
+      if (!row.email || !row.firstName || !row.lastName) {
+        failed++;
+        errors.push(`Row missing mandatory fields: ${JSON.stringify(row)}`);
+        continue;
+      }
+
+      try {
+        const existing = await this.prisma.employee.findUnique({
+          where: { email: row.email.toLowerCase().trim() },
+        });
+
+        if (existing) {
+          await this.prisma.employee.update({
+            where: { id: existing.id },
+            data: {
+              firstName: row.firstName.trim(),
+              lastName: row.lastName.trim(),
+              phone: row.phone || existing.phone,
+            },
+          });
+          updated++;
+        } else {
+          await this.prisma.employee.create({
+            data: {
+              firstName: row.firstName.trim(),
+              lastName: row.lastName.trim(),
+              email: row.email.toLowerCase().trim(),
+              phone: row.phone,
+              employeeNumber: `EMP-${Date.now().toString().slice(-4)}-${Math.floor(Math.random() * 900 + 100)}`,
+            },
+          });
+          imported++;
+        }
+      } catch (err: any) {
+        failed++;
+        errors.push(`Failed to import ${row.email}: ${err.message}`);
+      }
+    }
+
+    return { imported, updated, failed, errors };
+  }
 }
+

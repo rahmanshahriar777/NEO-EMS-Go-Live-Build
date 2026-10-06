@@ -20,16 +20,10 @@ import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes, ApiBody } from '@nes
 import { DocumentsService, DocumentViewer } from './documents.service';
 import { DocumentQueryDto, UploadDocumentDto } from './dto/document.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Permissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SystemRole, JwtPayload } from '@ems/shared';
 
-// NOTE (B1): guards are global; per-controller @UseGuards duplication removed.
-// NOTE on PBAC: @Permissions() metadata is deliberately NOT attached here.
-// Worker 1 activated PermissionsGuard globally but documented that the seed
-// grants zero permissions to any role, so attaching metadata now would
-// fail-closed in the wrong direction and lock out every non-SUPER_ADMIN user.
-// Once role -> permission grants are seeded, attach e.g.
-// @Permissions('DOCUMENT:READ') / 'DOCUMENT:WRITE' / 'DOCUMENT:DELETE'.
 @ApiTags('Documents')
 @ApiBearerAuth()
 @Controller('documents')
@@ -41,6 +35,7 @@ export class DocumentsController {
   }
 
   @Get()
+  @Permissions('DOCUMENT:READ')
   @ApiOperation({ summary: 'List documents (A5: employeeId filter ignored unless HR/admin)' })
   findAll(@Query() query: DocumentQueryDto, @CurrentUser() user: JwtPayload) {
     return this.service.findAll(this.toViewer(user), query);
@@ -48,6 +43,7 @@ export class DocumentsController {
 
   @Get('expiring')
   @Roles(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN, SystemRole.MANAGER, SystemRole.EMPLOYEE)
+  @Permissions('DOCUMENT:READ')
   @ApiOperation({ summary: 'List documents expiring within N days (scoped)' })
   listExpiring(@CurrentUser() user: JwtPayload, @Query('withinDays') withinDays?: string) {
     const days = Math.min(Math.max(parseInt(withinDays || '30', 10) || 30, 1), 365);
@@ -55,6 +51,7 @@ export class DocumentsController {
   }
 
   @Get(':id/download')
+  @Permissions('DOCUMENT:READ')
   @ApiOperation({
     summary: 'Download a document (B5: access-checked, decrypted, streamed, audited)',
   })
@@ -68,6 +65,7 @@ export class DocumentsController {
   }
 
   @Get(':id')
+  @Permissions('DOCUMENT:READ')
   @ApiOperation({ summary: 'Get document metadata (encrypted docs: no presigned URL, use /download)' })
   findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.service.findOne(id, this.toViewer(user));
@@ -87,6 +85,7 @@ export class DocumentsController {
   }
 
   @Post('upload')
+  @Permissions('DOCUMENT:CREATE')
   @ApiOperation({
     summary: 'Upload a document (multipart) — content-sniffed, scanned, encrypted, server-keyed',
   })
@@ -139,6 +138,7 @@ export class DocumentsController {
 
   @Delete(':id')
   @Roles(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN, SystemRole.MANAGER, SystemRole.EMPLOYEE)
+  @Permissions('DOCUMENT:DELETE')
   @ApiOperation({ summary: 'Soft-delete a document (owner, uploader, or HR/admin)' })
   remove(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.service.remove(id, this.toViewer(user));

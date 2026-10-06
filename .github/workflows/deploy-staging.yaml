@@ -1,0 +1,84 @@
+# ==============================================================================
+# Deploy to Staging Kubernetes — Staging pipeline & pre-production verification
+# ==============================================================================
+name: Deploy to Staging Kubernetes
+
+on:
+  push:
+    branches: [staging, develop]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (default: sha-<short commit SHA>)"
+        required: false
+        default: ""
+
+jobs:
+  deploy-staging:
+    name: Staging Deployment & DB Migrations
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      IMAGE_REGISTRY: ghcr.io
+      IMAGE_REPOSITORY: ${{ github.repository }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm & Node
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Determine image tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
+            TAG="${{ github.event.inputs.image_tag }}"
+          else
+            TAG="sha-${GITHUB_SHA::7}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Run Prisma DB migrations against Staging
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: |
+          if [ -n "$DATABASE_URL" ]; then
+            pnpm --filter @ems/database exec prisma migrate deploy
+          else
+            echo "STAGING_DATABASE_URL not set; skipping automated migration"
+          fi
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Configure Kubeconfig
+        if: "${{ secrets.STAGING_KUBECONFIG != '' }}"
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.STAGING_KUBECONFIG }}" > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Deploy to Staging Cluster
+        if: "${{ secrets.STAGING_KUBECONFIG != '' }}"
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          kubectl set image deployment/ems-api ems-api=${IMAGE_REGISTRY}/${IMAGE_REPOSITORY}/api:${TAG} -n staging
+          kubectl set image deployment/ems-worker ems-worker=${IMAGE_REGISTRY}/${IMAGE_REPOSITORY}/worker:${TAG} -n staging
+          kubectl set image deployment/ems-web ems-web=${IMAGE_REGISTRY}/${IMAGE_REPOSITORY}/web:${TAG} -n staging
+          kubectl rollout status deployment/ems-api -n staging --timeout=180s
+          kubectl rollout status deployment/ems-worker -n staging --timeout=180s
+          kubectl rollout status deployment/ems-web -n staging --timeout=180s

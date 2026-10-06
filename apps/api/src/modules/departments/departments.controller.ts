@@ -12,6 +12,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { DepartmentsService } from './departments.service';
 import { CreateDepartmentDto, UpdateDepartmentDto } from './dto/department.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Permissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SystemRole, JwtPayload } from '@ems/shared';
 
@@ -40,6 +41,7 @@ export class DepartmentsController {
 
   @Post()
   @Roles(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN)
+  @Permissions('DEPARTMENT:CREATE')
   @ApiOperation({ summary: 'Create a new department' })
   create(@Body() dto: CreateDepartmentDto, @CurrentUser() user: JwtPayload) {
     return this.service.create(dto, user.sub, user.email);
@@ -47,6 +49,7 @@ export class DepartmentsController {
 
   @Patch(':id')
   @Roles(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN)
+  @Permissions('DEPARTMENT:UPDATE')
   @ApiOperation({ summary: 'Update an existing department' })
   update(
     @Param('id') id: string,
@@ -58,6 +61,7 @@ export class DepartmentsController {
 
   @Delete(':id')
   @Roles(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN)
+  @Permissions('DEPARTMENT:DELETE')
   @ApiOperation({ summary: 'Soft delete a department' })
   remove(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.service.remove(id, user.sub, user.email);

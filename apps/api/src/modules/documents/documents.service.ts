@@ -85,6 +85,7 @@ export class DocumentsService implements OnModuleInit {
   private readonly bucket: string;
   private readonly encryptionEnabled: boolean;
   private readonly encryptionKey: string;
+  private readonly previousEncryptionKey: string;
   /**
    * Identifies the encryption key envelope used for new uploads; stamped on
    * every Document row as `keyId` (Phase 1 key-rotation tracking).
@@ -126,6 +127,8 @@ export class DocumentsService implements OnModuleInit {
     this.encryptionEnabled =
       (this.configService.get<string>('DOCUMENT_ENCRYPTION_ENABLED') ?? 'true') === 'true';
     this.encryptionKey = this.configService.get<string>('DOCUMENT_ENCRYPTION_KEY') || '';
+    this.previousEncryptionKey =
+      this.configService.get<string>('DOCUMENT_ENCRYPTION_KEY_PREVIOUS') || '';
     this.encryptionKeyId =
       this.configService.get<string>('DOCUMENT_ENCRYPTION_KEY_ID') ||
       (this.encryptionKey
@@ -355,9 +358,23 @@ export class DocumentsService implements OnModuleInit {
       }
       try {
         plaintext = decryptBuffer(bytes, this.encryptionKey, doc.iv);
-      } catch (error: any) {
-        this.logger.error(`Decryption failed for document ${id}: ${error.message}`);
-        throw new BadRequestException('Document could not be decrypted (key mismatch?)');
+      } catch (primaryErr: any) {
+        if (this.previousEncryptionKey) {
+          try {
+            plaintext = decryptBuffer(bytes, this.previousEncryptionKey, doc.iv);
+            this.logger.warn(
+              `Document ${id} successfully decrypted using DOCUMENT_ENCRYPTION_KEY_PREVIOUS (key rotation in progress)`,
+            );
+          } catch (prevErr: any) {
+            this.logger.error(
+              `Decryption failed for document ${id} with both primary and previous keys: ${prevErr.message}`,
+            );
+            throw new BadRequestException('Document could not be decrypted with primary or previous key');
+          }
+        } else {
+          this.logger.error(`Decryption failed for document ${id}: ${primaryErr.message}`);
+          throw new BadRequestException('Document could not be decrypted (key mismatch?)');
+        }
       }
     }
 

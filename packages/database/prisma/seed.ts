@@ -98,9 +98,10 @@ async function main() {
   const subjects = ['USER', 'EMPLOYEE', 'DEPARTMENT', 'DESIGNATION', 'ATTENDANCE', 'LEAVE', 'PAYROLL', 'PERFORMANCE', 'AUDIT_LOG', 'DOCUMENT'];
   const actions = ['CREATE', 'READ', 'UPDATE', 'DELETE', 'MANAGE', 'APPROVE'];
 
+  const allPerms: Record<string, any> = {};
   for (const subject of subjects) {
     for (const action of actions) {
-      await prisma.permission.upsert({
+      const p = await prisma.permission.upsert({
         where: { action_subject: { action, subject } },
         update: {},
         create: {
@@ -109,9 +110,56 @@ async function main() {
           description: `Permission to ${action} ${subject}`,
         },
       });
+      allPerms[`${subject}:${action}`] = p;
     }
   }
   console.log('✅ Permissions seeded');
+
+  // 2b. Seed role permissions (PBAC activation)
+  const rolePermissionGrants: Record<string, string[]> = {
+    [SystemRole.SUPER_ADMIN]: Object.keys(allPerms),
+    [SystemRole.HR_ADMIN]: [
+      'EMPLOYEE:CREATE', 'EMPLOYEE:READ', 'EMPLOYEE:UPDATE', 'EMPLOYEE:DELETE', 'EMPLOYEE:MANAGE',
+      'DEPARTMENT:CREATE', 'DEPARTMENT:READ', 'DEPARTMENT:UPDATE', 'DEPARTMENT:DELETE', 'DEPARTMENT:MANAGE',
+      'DESIGNATION:CREATE', 'DESIGNATION:READ', 'DESIGNATION:UPDATE', 'DESIGNATION:DELETE', 'DESIGNATION:MANAGE',
+      'LEAVE:READ', 'LEAVE:APPROVE', 'LEAVE:MANAGE',
+      'DOCUMENT:CREATE', 'DOCUMENT:READ', 'DOCUMENT:UPDATE', 'DOCUMENT:DELETE', 'DOCUMENT:MANAGE',
+      'ATTENDANCE:READ', 'ATTENDANCE:MANAGE',
+      'PERFORMANCE:READ', 'PERFORMANCE:MANAGE',
+      'USER:READ', 'USER:UPDATE', 'USER:MANAGE',
+      'AUDIT_LOG:READ',
+    ],
+    [SystemRole.MANAGER]: [
+      'EMPLOYEE:READ',
+      'LEAVE:READ', 'LEAVE:APPROVE',
+      'ATTENDANCE:READ', 'ATTENDANCE:APPROVE',
+      'PERFORMANCE:CREATE', 'PERFORMANCE:READ', 'PERFORMANCE:UPDATE', 'PERFORMANCE:APPROVE',
+      'DOCUMENT:READ', 'DOCUMENT:CREATE',
+    ],
+    [SystemRole.EMPLOYEE]: [
+      'EMPLOYEE:READ',
+      'LEAVE:CREATE', 'LEAVE:READ',
+      'ATTENDANCE:CREATE', 'ATTENDANCE:READ',
+      'PERFORMANCE:READ',
+      'DOCUMENT:READ', 'DOCUMENT:CREATE',
+    ],
+    [SystemRole.AUDITOR]: subjects.map((s) => `${s}:READ`),
+  };
+
+  for (const [roleName, permKeys] of Object.entries(rolePermissionGrants)) {
+    const role = roles[roleName];
+    if (!role) continue;
+    for (const key of permKeys) {
+      const perm = allPerms[key];
+      if (!perm) continue;
+      await prisma.rolePermission.upsert({
+        where: { roleId_permissionId: { roleId: role.id, permissionId: perm.id } },
+        update: {},
+        create: { roleId: role.id, permissionId: perm.id },
+      });
+    }
+  }
+  console.log('✅ Role permissions seeded (PBAC activated)');
 
   // 3. Departments (8 Core Departments)
   const departmentsData = [

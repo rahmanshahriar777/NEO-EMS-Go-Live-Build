@@ -17,18 +17,25 @@ import {
   PhoneCall,
   FileSignature,
 } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import { DashboardLayout } from '../../../../components/layout/dashboard-layout';
 import { api } from '../../../../lib/api-client';
 import { ErrorBanner } from '../../../../components/ui/error-banner';
 import { useAuth } from '../../../../context/auth-context';
 import { formatCurrency } from '../../../../lib/date-utils';
-import { AvatarModal } from '../../../../components/profile/avatar-modal';
-import {
-  EmployeeFormModal,
-  employeeToForm,
-} from '../../../../components/employees/employee-form-modal';
+import { employeeToForm } from '../../../../components/employees/employee-form-modal';
 import { SystemRole } from '@ems/shared';
 import { useEmployeeDetailQuery, employeeKeys } from '../../../../lib/queries';
+
+const AvatarModal = dynamic(
+  () => import('../../../../components/profile/avatar-modal').then((mod) => mod.AvatarModal),
+  { ssr: false },
+);
+
+const EmployeeFormModal = dynamic(
+  () => import('../../../../components/employees/employee-form-modal').then((mod) => mod.EmployeeFormModal),
+  { ssr: false },
+);
 
 export default function EmployeeDetailPage() {
   const params = useParams();

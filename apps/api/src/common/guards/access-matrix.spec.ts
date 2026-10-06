@@ -442,4 +442,17 @@ describe('access matrix: guard-chain behavior on real metadata', () => {
     // notes) -> guard must pass through for any authenticated user.
     expect(guard.canActivate(makeCtx(handler, employeeUser))).toBe(true);
   });
+
+  it('PermissionsGuard enforces permissions when @Permissions() metadata is present', () => {
+    const guard = new PermissionsGuard(reflector);
+    const handler = (DocumentsController.prototype as any).upload;
+    // User without DOCUMENT:CREATE permission is forbidden
+    expect(() => guard.canActivate(makeCtx(handler, employeeUser))).toThrow(ForbiddenException);
+    // User with DOCUMENT:CREATE permission passes
+    const userWithPerm = { sub: 'u-1', roles: [SystemRole.EMPLOYEE], permissions: ['DOCUMENT:CREATE'] };
+    expect(guard.canActivate(makeCtx(handler, userWithPerm))).toBe(true);
+    // SUPER_ADMIN always passes
+    const superAdmin = { sub: 'u-sa', roles: [SystemRole.SUPER_ADMIN], permissions: [] };
+    expect(guard.canActivate(makeCtx(handler, superAdmin))).toBe(true);
+  });
 });

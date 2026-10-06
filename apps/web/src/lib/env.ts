@@ -22,8 +22,12 @@ function cleanUrl(val?: string): string | null {
   return trimmed.length > 0 ? trimmed.replace(/\/+$/, '') : null;
 }
 
-/** Base URL of the REST API, defaulting to `/api/v1` (same-origin rewrite). */
+/** Base URL of the REST API, defaulting to `/api/v1` (same-origin rewrite or runtime config). */
 export function getApiBaseUrl(): string {
+  if (typeof window !== 'undefined' && (window as any).__ENV?.NEXT_PUBLIC_API_BASE_URL) {
+    const runtimeUrl = cleanUrl((window as any).__ENV.NEXT_PUBLIC_API_BASE_URL);
+    if (runtimeUrl) return runtimeUrl;
+  }
   const primary = cleanUrl(process.env.NEXT_PUBLIC_API_BASE_URL);
   if (primary) return primary;
   const legacy = cleanUrl(process.env.NEXT_PUBLIC_API_URL);

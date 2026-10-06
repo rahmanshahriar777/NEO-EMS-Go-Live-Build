@@ -378,4 +378,118 @@ export class ReportsService {
 
     return { ran: schedules.length, emailed, errors };
   }
+
+  /**
+   * Ad-hoc report query builder for customized multi-dimensional analysis.
+   */
+  async buildAdHocReport(query: {
+    entity: 'employees' | 'leaves' | 'attendance' | 'payroll';
+    filters?: Record<string, any>;
+    limit?: number;
+  }) {
+    const take = Math.min(Math.max(query.limit || 100, 1), 1000);
+    switch (query.entity) {
+      case 'employees':
+        return this.prisma.employee.findMany({
+          take,
+          where: { deletedAt: null, ...query.filters },
+          select: {
+            id: true,
+            employeeNumber: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            status: true,
+            department: { select: { name: true, code: true } },
+            designation: { select: { title: true } },
+            createdAt: true,
+          },
+        });
+      case 'leaves':
+        return this.prisma.leaveRequest.findMany({
+          take,
+          where: query.filters,
+          select: {
+            id: true,
+            startDate: true,
+            endDate: true,
+            totalDays: true,
+            status: true,
+            employee: { select: { employeeNumber: true, firstName: true, lastName: true } },
+            leaveType: { select: { name: true } },
+          },
+        });
+      case 'attendance':
+        return this.prisma.attendanceRecord.findMany({
+          take,
+          where: query.filters,
+          select: {
+            id: true,
+            date: true,
+            clockInTime: true,
+            clockOutTime: true,
+            status: true,
+            employee: { select: { employeeNumber: true, firstName: true, lastName: true } },
+          },
+        });
+      case 'payroll':
+        return this.prisma.payrollRun.findMany({
+          take,
+          where: query.filters,
+          select: {
+            id: true,
+            month: true,
+            year: true,
+            status: true,
+            totalGross: true,
+            totalNet: true,
+            totalDeductions: true,
+            createdAt: true,
+          },
+        });
+      default:
+        throw new BadRequestException(`Unsupported ad-hoc entity: ${query.entity}`);
+    }
+  }
+
+  /**
+   * High-throughput data warehouse export endpoint for ELT/BI pipelines.
+   */
+  async exportWarehouseData(entity: 'employees' | 'leaves' | 'attendance' | 'payroll' | 'audit') {
+    const extractedAt = new Date().toISOString();
+    let records: any[] = [];
+    switch (entity) {
+      case 'employees':
+        records = await this.prisma.employee.findMany({
+          where: { deletedAt: null },
+          include: { department: true, designation: true },
+        });
+        break;
+      case 'leaves':
+        records = await this.prisma.leaveRequest.findMany({
+          include: { leaveType: true },
+        });
+        break;
+      case 'attendance':
+        records = await this.prisma.attendanceRecord.findMany({
+          take: 10000,
+          orderBy: { date: 'desc' },
+        });
+        break;
+      case 'payroll':
+        records = await this.prisma.payrollRun.findMany({
+          include: { payslips: true },
+        });
+        break;
+      case 'audit':
+        records = await this.prisma.auditLog.findMany({
+          take: 5000,
+          orderBy: { createdAt: 'desc' },
+        });
+        break;
+      default:
+        throw new BadRequestException(`Invalid warehouse entity: ${entity}`);
+    }
+    return { entity, count: records.length, extractedAt, data: records };
+  }
 }

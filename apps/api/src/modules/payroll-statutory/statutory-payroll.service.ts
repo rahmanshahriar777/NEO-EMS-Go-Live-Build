@@ -10,6 +10,7 @@ import {
   StatutorySubmissionStatus,
 } from './statutory-payroll-provider.interface';
 import { SandboxStatutoryPayrollProvider } from './sandbox.provider';
+import { HmrcRtiProvider } from './hmrc-rti.provider';
 
 /**
  * Statutory payroll orchestration (Phase 3 item 3).
@@ -49,6 +50,7 @@ export class StatutoryPayrollService {
     // Registry: add real providers here as they are implemented.
     const registry: Record<string, () => StatutoryPayrollProvider> = {
       sandbox: () => new SandboxStatutoryPayrollProvider(),
+      'hmrc-rti': () => new HmrcRtiProvider(this.configService),
     };
     const factory = registry[this.providerName];
     if (!factory) {
