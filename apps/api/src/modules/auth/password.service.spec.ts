@@ -140,20 +140,24 @@ describe('PasswordService', () => {
       await expect(svc.isBreached('DefinitelyNotBreached999!')).resolves.toBe(false);
     });
 
-    it('fails open (false) when the network is down', async () => {
+    it('fails open (false) when the network is down and logs [SECURITY_EVENT]', async () => {
       const unmocked = jest.requireActual('./password.service').PasswordService;
       const svc = new unmocked();
+      const warnSpy = jest.spyOn((svc as any).logger, 'warn');
       global.fetch = jest.fn().mockRejectedValue(new Error('DNS failure'));
 
       await expect(svc.isBreached('AnyPassword123!')).resolves.toBe(false);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[SECURITY_EVENT]'));
     });
 
-    it('fails open (false) on a non-200 HIBP response', async () => {
+    it('fails open (false) on a non-200 HIBP response and logs [SECURITY_EVENT]', async () => {
       const unmocked = jest.requireActual('./password.service').PasswordService;
       const svc = new unmocked();
+      const warnSpy = jest.spyOn((svc as any).logger, 'warn');
       global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 503 });
 
       await expect(svc.isBreached('AnyPassword123!')).resolves.toBe(false);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[SECURITY_EVENT]'));
     });
   });
 });

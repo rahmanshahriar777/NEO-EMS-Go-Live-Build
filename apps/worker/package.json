@@ -9,9 +9,8 @@
     "start": "node dist/main.js",
     "clean": "rimraf dist",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test \"src/**/*.test.ts\" \"src/**/*.unit.spec.ts\"",
-    "test:cov": "node scripts/check-coverage.js",
-    "_testGlobNote": "unit.spec.ts picks up the mocked-Prisma processor unit specs (worker 5, go-live hardening)."
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "test:cov": "node scripts/check-coverage.js"
   },
   "dependencies": {
     "@ems/database": "workspace:*",

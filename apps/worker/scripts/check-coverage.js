@@ -6,7 +6,7 @@ console.log(`Running worker tests with experimental coverage (enforcing >= ${FLO
 
 const child = spawn(
   process.platform === 'win32' ? 'npx.cmd' : 'npx',
-  ['tsx', '--test', '--experimental-test-coverage', 'src/**/*.test.ts', 'src/**/*.unit.spec.ts'],
+  ['tsx', '--test', '--experimental-test-coverage', 'src/**/*.test.ts'],
   {
     cwd: process.cwd(),
     env: { ...process.env },

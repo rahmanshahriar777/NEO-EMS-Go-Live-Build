@@ -14,6 +14,8 @@ import { PasswordService } from './password.service';
 import { PasswordResetService } from './password-reset.service';
 import { OAuthService } from './oauth.service';
 import { UsersService } from './users.service';
+import { LockoutService } from './lockout.service';
+import { AccountVerificationService } from './account-verification.service';
 import { JwtStrategy } from './jwt.strategy';
 
 @Module({
@@ -37,6 +39,8 @@ import { JwtStrategy } from './jwt.strategy';
   controllers: [AuthController, PasswordResetController, OAuthController, UsersController],
   providers: [
     AuthService,
+    LockoutService,
+    AccountVerificationService,
     UserService,
     TokenService,
     PasswordService,
@@ -47,6 +51,8 @@ import { JwtStrategy } from './jwt.strategy';
   ],
   exports: [
     AuthService,
+    LockoutService,
+    AccountVerificationService,
     UserService,
     TokenService,
     PasswordService,

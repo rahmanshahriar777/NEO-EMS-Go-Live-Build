@@ -22,7 +22,16 @@ export interface AccessPolicyViewer {
   employeeId?: string;
 }
 
-export type AccessPolicyAction = 'view' | 'edit' | 'approve' | 'review';
+export type AccessPolicyAction =
+  | 'view'
+  | 'edit'
+  | 'approve'
+  | 'review'
+  | 'dashboard:company'
+  | 'dashboard:team'
+  | 'dashboard:self';
+
+const DASHBOARD_HR_ROLES = [SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN, SystemRole.AUDITOR];
 
 @Injectable()
 export class AccessPolicyService {
@@ -38,15 +47,27 @@ export class AccessPolicyService {
 
   /**
    * Returns true when `viewer` may perform `action` on the employee record
-   * `targetEmployeeId`. All four actions share the same rule set for now;
-   * the `action` parameter is kept so callers express intent and future
-   * policy can diverge per action without touching call sites.
+   * `targetEmployeeId` or dashboard KPI scope.
    */
   async can(
     viewer: AccessPolicyViewer,
-    targetEmployeeId: string,
-    _action: AccessPolicyAction,
+    targetEmployeeId: string | null,
+    action: AccessPolicyAction,
   ): Promise<boolean> {
+    const roles = viewer.roles ?? [];
+    const isHrOrAuditor = roles.some((r) => (DASHBOARD_HR_ROLES as string[]).includes(r));
+
+    // Dashboard actions (Phase 2 item 1; merged from dashboard module)
+    if (action === 'dashboard:company') {
+      return isHrOrAuditor;
+    }
+    if (action === 'dashboard:team') {
+      return isHrOrAuditor || (roles.includes(SystemRole.MANAGER) && !!viewer.employeeId);
+    }
+    if (action === 'dashboard:self') {
+      return !!viewer.employeeId || isHrOrAuditor;
+    }
+
     if (!targetEmployeeId) return false;
 
     // HR / SUPER_ADMIN: unrestricted.
@@ -66,11 +87,12 @@ export class AccessPolicyService {
     // carrying the MANAGER role count as managers — an employeeId match
     // alone is not enough.
     if (viewer.roles.includes(SystemRole.MANAGER)) {
-      const target = await this.prisma.employee.findFirst({
-        where: { id: targetEmployeeId, deletedAt: null },
-        select: { managerId: true },
-      });
-      if (target?.managerId === viewer.employeeId) return true;
+      return this.prisma.employee
+        .findFirst({
+          where: { id: targetEmployeeId, deletedAt: null },
+          select: { managerId: true },
+        })
+        .then((target) => Boolean(target?.managerId === viewer.employeeId));
     }
 
     return false;

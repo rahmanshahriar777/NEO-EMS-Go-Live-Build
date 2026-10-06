@@ -38,6 +38,8 @@ describe('refresh-token rotation race: double submit of the same token', () => {
   const userRow = () => ({
     id: 'user-1',
     email: 'victim@ems.local',
+    isActive: true,
+    lockedUntil: null,
     roles: [{ role: { name: SystemRole.EMPLOYEE, permissions: [] } }],
     employee: { id: 'emp-1' },
   });

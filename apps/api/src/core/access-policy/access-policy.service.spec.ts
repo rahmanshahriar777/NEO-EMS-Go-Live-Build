@@ -96,4 +96,41 @@ describe('AccessPolicyService', () => {
     expect(allowed).toEqual(['a', 'b']);
     expect(prisma.employee.findMany).not.toHaveBeenCalled();
   });
+
+  describe('dashboard actions', () => {
+    it('allows company dashboard for SUPER_ADMIN, HR_ADMIN, and AUDITOR', async () => {
+      for (const role of [SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN, SystemRole.AUDITOR]) {
+        await expect(
+          service.can(viewer({ roles: [role], employeeId: undefined }), null, 'dashboard:company'),
+        ).resolves.toBe(true);
+      }
+      await expect(
+        service.can(viewer({ roles: [SystemRole.MANAGER] }), null, 'dashboard:company'),
+      ).resolves.toBe(false);
+      await expect(
+        service.can(viewer({ roles: [SystemRole.EMPLOYEE] }), null, 'dashboard:company'),
+      ).resolves.toBe(false);
+    });
+
+    it('allows team dashboard for HR roles and managers with linked profiles', async () => {
+      await expect(
+        service.can(viewer({ roles: [SystemRole.MANAGER], employeeId: 'emp-1' }), null, 'dashboard:team'),
+      ).resolves.toBe(true);
+      await expect(
+        service.can(viewer({ roles: [SystemRole.MANAGER], employeeId: undefined }), null, 'dashboard:team'),
+      ).resolves.toBe(false);
+      await expect(
+        service.can(viewer({ roles: [SystemRole.EMPLOYEE], employeeId: 'emp-1' }), null, 'dashboard:team'),
+      ).resolves.toBe(false);
+    });
+
+    it('allows self dashboard for any caller with an employee profile or HR role', async () => {
+      await expect(
+        service.can(viewer({ roles: [SystemRole.EMPLOYEE], employeeId: 'emp-1' }), null, 'dashboard:self'),
+      ).resolves.toBe(true);
+      await expect(
+        service.can(viewer({ roles: [], employeeId: undefined }), null, 'dashboard:self'),
+      ).resolves.toBe(false);
+    });
+  });
 });

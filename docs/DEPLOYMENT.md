@@ -1,8 +1,8 @@
 # NEO EMS — Deployment Guide (single supported topology)
 
 > Status: Phase 1 (release 1.0). This is the ONLY supported production
-> topology. The legacy all-in-one Cloud Run image (`Dockerfile` at repo root)
-> is deprecated — see the header comment in that file.
+> topology. Legacy all-in-one Cloud Run artifacts (`Dockerfile` at repo root,
+> `docker/nginx-gcp.conf`, `docker/entrypoint.sh`) have been removed.
 
 ## Topology
 

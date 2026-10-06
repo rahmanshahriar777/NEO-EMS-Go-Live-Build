@@ -220,10 +220,19 @@ export class RosteringService {
     this.validateTimes(startTime, endTime);
     await this.assertEmployeeExists(dto.employeeId);
 
+    const entryDate = new Date(dto.date);
+    const existing = await this.prisma.rosterEntry.findFirst({
+      where: { employeeId: dto.employeeId, date: entryDate },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new BadRequestException('A roster entry already exists for this employee on this date.');
+    }
+
     const entry = await this.prisma.rosterEntry.create({
       data: {
         employeeId: dto.employeeId,
-        date: new Date(dto.date),
+        date: entryDate,
         shiftName: dto.shiftName ?? null,
         startTime,
         endTime,

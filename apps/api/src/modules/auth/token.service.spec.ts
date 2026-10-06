@@ -32,6 +32,8 @@ describe('TokenService', () => {
     user: {
       id: 'user-1',
       email: 'test@ems.local',
+      isActive: true,
+      lockedUntil: null,
       roles: [
         {
           role: {
@@ -238,6 +240,50 @@ describe('TokenService', () => {
         }),
         expect.anything(),
       );
+    });
+
+    it('rejects rotation if user account is deactivated', async () => {
+      prisma.refreshToken.findUnique.mockResolvedValue(
+        storedToken({
+          user: { ...storedToken().user, isActive: false },
+        }),
+      );
+
+      await expect(service.rotateRefreshToken('fam-1.validraw')).rejects.toThrow(
+        /Account has been deactivated/i,
+      );
+      expect(prisma.refreshToken.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('rejects rotation if user account is temporarily locked', async () => {
+      prisma.refreshToken.findUnique.mockResolvedValue(
+        storedToken({
+          user: {
+            ...storedToken().user,
+            lockedUntil: new Date(Date.now() + 10 * 60 * 1000), // locked for 10m
+          },
+        }),
+      );
+
+      await expect(service.rotateRefreshToken('fam-1.validraw')).rejects.toThrow(
+        /Account is temporarily locked/i,
+      );
+      expect(prisma.refreshToken.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('permits rotation if user lockout has expired', async () => {
+      prisma.refreshToken.findUnique.mockResolvedValue(
+        storedToken({
+          user: {
+            ...storedToken().user,
+            lockedUntil: new Date(Date.now() - 60 * 1000), // lockout expired 1m ago
+          },
+        }),
+      );
+
+      const tokens = await service.rotateRefreshToken('fam-1.validraw');
+      expect(tokens).toBeDefined();
+      expect(tokens.accessToken).toBe('signed-access-token');
     });
   });
 

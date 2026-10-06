@@ -122,7 +122,7 @@ export class PasswordService {
           signal: controller.signal,
         });
         if (!res.ok) {
-          this.logger.warn(`HIBP range request failed with status ${res.status}; skipping breach check.`);
+          this.logger.warn(`[SECURITY_EVENT] HIBP range request failed with status ${res.status}; skipping breach check.`);
           return false;
         }
         const body = await res.text();
@@ -139,7 +139,7 @@ export class PasswordService {
       }
     } catch (e) {
       // Network/DNS/TLS failure or abort: graceful offline fallback.
-      this.logger.warn(`HIBP breach check skipped (offline): ${(e as Error).message}`);
+      this.logger.warn(`[SECURITY_EVENT] HIBP breach check skipped (offline): ${(e as Error).message}`);
       return false;
     }
   }

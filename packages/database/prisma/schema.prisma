@@ -1033,7 +1033,7 @@ model RosterEntry {
   createdBy User     @relation(fields: [createdById], references: [id])
   entity    Entity?  @relation(fields: [entityId], references: [id], onDelete: SetNull)
 
-  @@index([employeeId, date])
+  @@unique([employeeId, date])
   @@index([date])
   @@index([entityId])
   @@map("roster_entries")

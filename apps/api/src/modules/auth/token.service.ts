@@ -53,6 +53,16 @@ export class TokenService {
     return this.configService.get<number>('jwt.refreshTtlMs', 7 * 24 * 60 * 60 * 1000);
   }
 
+  /** Access-token lifetime in seconds, honoring the jwt.accessExpiration config. */
+  private accessExpirationSeconds(): number {
+    return Math.floor(
+      parseDurationMs(
+        this.configService.get<string>('jwt.accessExpiration', '15m'),
+        'jwt.accessExpiration',
+      ) / 1000,
+    );
+  }
+
   async generateTokens(
     userId: string,
     email: string,
@@ -70,12 +80,11 @@ export class TokenService {
       employeeId,
     };
 
+    const expiresIn = this.accessExpirationSeconds();
     const accessToken = this.jwtService.sign(payload, {
       secret: this.configService.get<string>('jwt.accessSecret'),
       // Seconds as a number; duration string validated at startup.
-      expiresIn: Math.floor(
-        parseDurationMs(this.configService.get<string>('jwt.accessExpiration', '15m'), 'jwt.accessExpiration') / 1000,
-      ),
+      expiresIn,
     });
 
     const rawRefreshToken = crypto.randomBytes(40).toString('hex');
@@ -99,7 +108,7 @@ export class TokenService {
       accessToken,
       refreshToken: `${familyId}.${rawRefreshToken}`,
       tokenType: 'Bearer',
-      expiresIn: 15 * 60, // 15 minutes in seconds
+      expiresIn,
     };
   }
 
@@ -138,6 +147,14 @@ export class TokenService {
 
     if (!storedToken) {
       throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    if (storedToken.user.isActive === false) {
+      throw new UnauthorizedException('Account has been deactivated');
+    }
+
+    if (storedToken.user.lockedUntil && storedToken.user.lockedUntil > new Date()) {
+      throw new UnauthorizedException('Account is temporarily locked');
     }
 
     // Reuse detection: a revoked token presented again means the token was

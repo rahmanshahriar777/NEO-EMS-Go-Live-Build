@@ -95,6 +95,7 @@ describe('RosteringService', () => {
         create: jest.fn(),
         findMany: jest.fn(),
         findUnique: jest.fn(),
+        findFirst: jest.fn().mockResolvedValue(null),
         update: jest.fn(),
         delete: jest.fn(),
         count: jest.fn(),
@@ -188,6 +189,24 @@ describe('RosteringService', () => {
         }),
       );
       expect(result).toMatchObject({ hoursWorked: 8, overtimeMinutes: 0, overtime: false });
+    });
+
+    it('rejects creating a second entry for the same employee on the same date', async () => {
+      prisma.employee.findFirst.mockResolvedValue({ id: 'emp-1', deletedAt: null });
+      prisma.rosterEntry.findFirst.mockResolvedValue({ id: 'existing-re-1' });
+
+      await expect(
+        service.create(
+          {
+            employeeId: 'emp-1',
+            date: '2026-10-05',
+            startTime: '2026-10-05T08:00:00.000Z',
+            endTime: '2026-10-05T16:00:00.000Z',
+          },
+          managerViewer(),
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.rosterEntry.create).not.toHaveBeenCalled();
     });
   });
 
