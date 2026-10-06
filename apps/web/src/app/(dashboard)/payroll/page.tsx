@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import {
   Banknote,
   Plus,
@@ -10,6 +11,7 @@ import {
   TrendingUp,
   ShieldCheck,
   ArrowUpRight,
+  FileCheck2,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { DashboardLayout } from '../../../components/layout/dashboard-layout';
@@ -237,10 +239,20 @@ export default function PayrollPage() {
                 </div>
 
                 {hasRole(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN) && (
-                  <button onClick={() => setShowRunModal(true)} className="pay-btn-primary">
-                    <Plus className="w-4 h-4" />
-                    <span>Run Payroll Cycle</span>
-                  </button>
+                  <>
+                    <Link
+                      href="/payroll/statutory"
+                      className="adm-btn adm-btn-ghost adm-btn-sm"
+                      style={{ textDecoration: 'none' }}
+                    >
+                      <FileCheck2 className="w-4 h-4 text-indigo-600" />
+                      <span>Statutory Filings</span>
+                    </Link>
+                    <button onClick={() => setShowRunModal(true)} className="pay-btn-primary">
+                      <Plus className="w-4 h-4" />
+                      <span>Run Payroll Cycle</span>
+                    </button>
+                  </>
                 )}
               </div>
             </div>

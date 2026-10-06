@@ -20,7 +20,13 @@ import {
   FileText,
   KeyRound,
   MonitorSmartphone,
-  UserCog
+  UserCog,
+  Briefcase,
+  ClipboardCheck,
+  BarChart3,
+  Webhook,
+  FileCheck2,
+  Shield,
 } from 'lucide-react';
 import { useAuth } from '../../context/auth-context';
 import { SystemRole } from '@ems/shared';
@@ -84,43 +90,63 @@ export const Sidebar: React.FC = () => {
         { label: 'Attendance', href: '/attendance', icon: Clock },
         { label: 'Leaves', href: '/leaves', icon: CalendarDays },
         { label: 'Payroll', href: '/payroll', icon: Banknote },
-        { label: 'Performance', href: '/performance', icon: TrendingUp },
-        { label: 'Documents', href: '/documents', icon: FileText },
       ]
     }
   ];
 
-  // Account security (everyone)
+  // Statutory filings for payroll administrators
+  if (hasRole(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN)) {
+    navSections[1].items.push({
+      label: 'Statutory Filings',
+      href: '/payroll/statutory',
+      icon: FileCheck2,
+    });
+  }
+
+  // Recruitment & Onboarding for hiring managers and HR admins
+  if (hasRole(SystemRole.MANAGER, SystemRole.HR_ADMIN, SystemRole.SUPER_ADMIN)) {
+    navSections[1].items.push(
+      { label: 'Recruitment', href: '/recruitment', icon: Briefcase },
+      { label: 'Onboarding', href: '/onboarding', icon: ClipboardCheck },
+      { label: 'Rostering', href: '/rostering', icon: ClipboardList }
+    );
+  }
+
+  // Performance & Documents for all members
+  navSections[1].items.push(
+    { label: 'Performance', href: '/performance', icon: TrendingUp },
+    { label: 'Documents', href: '/documents', icon: FileText }
+  );
+
+  // Account security and GDPR (everyone)
   navSections.push({
-    title: 'Security',
+    title: 'Security & Privacy',
     items: [
       { label: 'Two-Factor Auth', href: '/security/mfa', icon: KeyRound },
       { label: 'Active Sessions', href: '/security/sessions', icon: MonitorSmartphone },
+      { label: 'GDPR & Privacy', href: '/security/gdpr', icon: Shield },
     ],
   });
 
-  // User & role administration
+  // User & role administration and system integrations
   if (hasRole(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN)) {
     navSections.push({
       title: 'Administration',
       items: [
         { label: 'Users', href: '/admin/users', icon: UserCog },
         { label: 'Roles & Permissions', href: '/admin/roles', icon: ShieldCheck },
+        { label: 'Integrations', href: '/integrations', icon: Webhook },
       ],
     });
   }
 
-  // Rostering for managers and HR admins only
-  if (hasRole(SystemRole.MANAGER, SystemRole.HR_ADMIN, SystemRole.SUPER_ADMIN)) {
-    navSections[1].items.push({ label: 'Rostering', href: '/rostering', icon: ClipboardList });
-  }
-
-  // Compliance section for authorized roles
+  // Compliance & Reporting section for authorized roles
   if (hasRole(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN, SystemRole.AUDITOR)) {
     navSections.push({
       title: 'Compliance & Audit',
       items: [
-        { label: 'Audit Trail', href: '/admin/audit-logs', icon: ShieldCheck }
+        { label: 'Audit Trail', href: '/admin/audit-logs', icon: ShieldCheck },
+        { label: 'Reports & BI', href: '/reports', icon: BarChart3 },
       ]
     });
   }
@@ -136,6 +162,9 @@ export const Sidebar: React.FC = () => {
   const isItemActive = (href: string) => {
     if (href === '/dashboard') {
       return pathname === '/dashboard';
+    }
+    if (href === '/payroll') {
+      return pathname === '/payroll';
     }
     if (href === '/admin/audit-logs') {
       return pathname.includes('audit-logs');

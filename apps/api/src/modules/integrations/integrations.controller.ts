@@ -6,12 +6,24 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Public } from '../../common/decorators/public.decorator';
-import { SystemRole } from '@ems/shared';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { SystemRole, JwtPayload } from '@ems/shared';
 
 @ApiTags('Integrations')
 @Controller('integrations')
 export class IntegrationsController {
   constructor(private readonly service: IntegrationsService) {}
+
+  @Get('ical-token')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get personal leave calendar feed token and URL for current user',
+  })
+  getMyIcalToken(@CurrentUser() user: JwtPayload) {
+    const token = this.service.buildFeedToken(user.sub);
+    return { token, path: `/integrations/ical/${token}` };
+  }
 
   /**
    * Leave calendar iCal feed. Public route by design (calendar apps cannot do
