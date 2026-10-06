@@ -70,7 +70,7 @@ export default function AdminUsersPage() {
     try {
       // Invitation-based onboarding (Phase 1 B2): HR invites by email; the
       // invitee sets their password via /invitation-accept.
-      await api.post('/auth/invitations', { email: inviteEmail, roleIds: [inviteRole] });
+      await api.post('/auth/invitations', { email: inviteEmail, role: inviteRole, roleIds: [inviteRole] });
       setInviteSent(true);
       setInviteEmail('');
       await queryClient.invalidateQueries({ queryKey: adminKeys.all });

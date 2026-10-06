@@ -88,8 +88,12 @@ export class InvitationsService {
     createdById: string,
     dto: CreateInvitationDto,
   ): Promise<{ id: string; email: string; role: SystemRole; expiresAt: Date }> {
+    const rawRole = dto.role || (Array.isArray(dto.roleIds) && dto.roleIds[0]);
+    if (!rawRole) {
+      throw new BadRequestException('role should not be empty');
+    }
     const email = dto.email.toLowerCase().trim();
-    const role = this.resolveRole(dto.role);
+    const role = this.resolveRole(rawRole);
 
     // Go-live Phase 1 item 7 — invitation privilege escalation gate: only a
     // SUPER_ADMIN may invite another SUPER_ADMIN. The creator's roles are
