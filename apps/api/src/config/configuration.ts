@@ -137,7 +137,11 @@ function parseAllowedOrigins(frontendUrl: string): string[] {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  return [...new Set([frontendUrl, 'http://localhost:3000', 'http://127.0.0.1:3000', ...extra])];
+  const cloudRunOrigins = [
+    'https://ndems-app-knbmj7xqka-uc.a.run.app',
+    'https://ndems-app-479560345714.us-central1.run.app',
+  ];
+  return [...new Set([frontendUrl, 'http://localhost:3000', 'http://127.0.0.1:3000', ...cloudRunOrigins, ...extra])];
 }
 
 function parseBool(raw: string | undefined, fallback: boolean): boolean {

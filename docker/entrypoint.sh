@@ -29,6 +29,8 @@ if [ -z "$DATABASE_URL" ]; then
 
     export DATABASE_URL="postgresql://ems_admin:ems_admin_secret_2026@127.0.0.1:5432/ems_db?schema=public"
 
+    su-exec postgres psql -U postgres -d ems_db -c "CREATE SEQUENCE IF NOT EXISTS employee_number_seq START WITH 1000;" || true
+
     echo "🌱 Syncing database schema and seeding demo data..."
     cd /app/packages/database
     DATABASE_URL="${DATABASE_URL}" npx prisma db push --skip-generate
@@ -55,6 +57,7 @@ export SMTP_FROM="${SMTP_FROM:-noreply@ems.local}"
 export JWT_ACCESS_SECRET="${JWT_ACCESS_SECRET:-ems_super_secret_access_jwt_key_development_only_change_in_prod_123!}"
 export JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET:-ems_super_secret_refresh_jwt_key_development_only_change_in_prod_456!}"
 export DOCUMENT_ENCRYPTION_KEY="${DOCUMENT_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}"
+export ALLOWED_ORIGINS="https://ndems-app-knbmj7xqka-uc.a.run.app,https://ndems-app-479560345714.us-central1.run.app,http://localhost:3000,http://127.0.0.1:3000,${ALLOWED_ORIGINS:-}"
 
 # 2. Start NestJS API Backend in background
 echo "⚡ Starting NestJS API Backend on port 4000..."

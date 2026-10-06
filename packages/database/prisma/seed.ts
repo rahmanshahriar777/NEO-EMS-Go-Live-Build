@@ -1230,6 +1230,9 @@ async function main() {
   // (UNIQUE violation). Floor at 999 (same as the migration) so the sequence
   // effectively starts at 1000; idempotent on re-runs.
   await prisma.$executeRawUnsafe(
+    `CREATE SEQUENCE IF NOT EXISTS employee_number_seq START WITH 1000;`,
+  );
+  await prisma.$executeRawUnsafe(
     `SELECT setval('employee_number_seq', GREATEST(999, COALESCE((SELECT MAX(CAST(SUBSTRING("employeeNumber" FROM '[0-9]+$') AS INTEGER)) FROM "employees"), 0)))`,
   );
   console.log('✅ employee_number_seq re-synced above seeded employee numbers');
