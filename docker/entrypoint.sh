@@ -53,6 +53,9 @@ export S3_ACCESS_KEY="${S3_ACCESS_KEY:-ems_minio_access_key_2026}"
 export S3_SECRET_KEY="${S3_SECRET_KEY:-ems_minio_secret_key_2026}"
 export SMTP_HOST="${SMTP_HOST:-localhost}"
 export SMTP_PORT="${SMTP_PORT:-587}"
+export SMTP_SECURE="${SMTP_SECURE:-false}"
+export SMTP_USER="${SMTP_USER:-}"
+export SMTP_PASSWORD="${SMTP_PASSWORD:-${SMTP_PASS:-}}"
 export SMTP_FROM="${SMTP_FROM:-noreply@ems.local}"
 export JWT_ACCESS_SECRET="${JWT_ACCESS_SECRET:-ems_super_secret_access_jwt_key_development_only_change_in_prod_123!}"
 export JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET:-ems_super_secret_refresh_jwt_key_development_only_change_in_prod_456!}"
@@ -89,7 +92,14 @@ WEB_PID=$!
 
 cd /app
 
-# 4. Wait for internal services to become ready
+# 4. Start Background Worker for BullMQ queues (email notifications, payroll, ai, maintenance)
+echo "⚙️ Starting Background Worker..."
+cd /app/apps/worker
+DATABASE_URL="${DATABASE_URL}" node dist/main.js &
+WORKER_PID=$!
+cd /app
+
+# 5. Wait for internal services to become ready
 echo "⏳ Waiting for API to become ready on port 4000..."
 for i in $(seq 1 60); do
   if curl -s http://127.0.0.1:4000/api/v1/health/liveness > /dev/null 2>&1; then
@@ -109,8 +119,8 @@ for i in $(seq 1 60); do
 done
 
 # Graceful termination handler
-trap "echo 'Shutting down...'; kill $API_PID $WEB_PID 2>/dev/null || true; exit 0" SIGTERM SIGINT
+trap "echo 'Shutting down...'; kill $API_PID $WEB_PID $WORKER_PID 2>/dev/null || true; exit 0" SIGTERM SIGINT
 
-# 5. Start Nginx reverse proxy in foreground
+# 6. Start Nginx reverse proxy in foreground
 echo "🛡️ Starting Nginx on port ${PORT}..."
 nginx -g "daemon off;"

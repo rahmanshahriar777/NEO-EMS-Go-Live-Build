@@ -72,19 +72,21 @@ export const sendEmailChannelHook: ChannelHook = async (payload: NotificationJob
 
   const smtp = resolveSmtpConfig();
   if (!smtp) {
+    const actionUrl = (data as any)?.actionUrl;
     log.info('email.dev-log', {
       to,
       template,
       subject: rendered.subject,
       body: rendered.text,
+      actionUrl,
       attachments: attachments.map((a) => a.filename),
       correlationId,
-      note: 'SMTP_HOST unset — email logged, not sent.',
+      note: 'SMTP not configured with external credentials — email logged to worker log.',
     });
     return {
       channel: 'email',
       status: 'not_configured',
-      detail: 'SMTP_HOST is not set; email content logged to the worker log instead of being sent.',
+      detail: `SMTP_HOST is not set; email content logged to the worker log instead of being sent.${actionUrl ? ` Action URL: ${actionUrl}` : ''}`,
     };
   }
 

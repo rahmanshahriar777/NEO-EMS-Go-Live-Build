@@ -35,6 +35,7 @@ RUN pnpm --filter @ems/database db:generate
 RUN pnpm --filter @ems/shared build
 RUN pnpm --filter @ems/database build
 RUN pnpm --filter @ems/mailer build
+RUN pnpm --filter @ems/worker build
 RUN pnpm --filter @ems/api build
 RUN NEXT_PUBLIC_API_URL="/api/v1" NEXT_PUBLIC_API_BASE_URL="/api/v1" pnpm --filter @ems/web build
 

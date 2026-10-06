@@ -87,7 +87,7 @@ export class InvitationsService {
   async createInvitation(
     createdById: string,
     dto: CreateInvitationDto,
-  ): Promise<{ id: string; email: string; role: SystemRole; expiresAt: Date }> {
+  ): Promise<{ id: string; email: string; role: SystemRole; expiresAt: Date; inviteUrl: string }> {
     const rawRole = dto.role || (Array.isArray(dto.roleIds) && dto.roleIds[0]);
     if (!rawRole) {
       throw new BadRequestException('role should not be empty');
@@ -152,6 +152,7 @@ export class InvitationsService {
     });
 
     const frontendUrl = this.configService.get<string>('frontendUrl', 'http://localhost:3000');
+    const actionUrl = `${frontendUrl}/invitation-accept?token=${token}`;
     await this.emailService.sendTemplated({
       // No user row exists yet for the invitee: the inviter's id is the
       // notification-job routing key (worker contract requires userId); the
@@ -160,7 +161,7 @@ export class InvitationsService {
       userId: createdById,
       template: 'invitation',
       data: {
-        actionUrl: `${frontendUrl}/invitation-accept?token=${token}`,
+        actionUrl,
         role,
         expiresNote: `${ttlHours} hours`,
       },
@@ -169,7 +170,7 @@ export class InvitationsService {
     });
 
     this.logger.log(`Invitation ${invitation.id} created for ${email} by ${createdById}`);
-    return { id: invitation.id, email, role, expiresAt };
+    return { id: invitation.id, email, role, expiresAt, inviteUrl: actionUrl };
   }
 
   async listInvitations(): Promise<InvitationRecord[]> {

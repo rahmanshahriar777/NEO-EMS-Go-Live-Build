@@ -56,6 +56,9 @@ export default function AdminUsersPage() {
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSent, setInviteSent] = useState(false);
+  const [createdInviteUrl, setCreatedInviteUrl] = useState<string | null>(null);
+  const [lastInvitedEmail, setLastInvitedEmail] = useState('');
+  const [copied, setCopied] = useState(false);
 
   const inviteModalRef = useRef<HTMLDivElement>(null);
   useFocusTrap(inviteModalRef, { isActive: showInvite, onEscape: () => setShowInvite(false) });
@@ -67,11 +70,18 @@ export default function AdminUsersPage() {
     setInviteBusy(true);
     setInviteError(null);
     setInviteSent(false);
+    setCreatedInviteUrl(null);
     try {
+      const emailToSend = inviteEmail.trim();
+      setLastInvitedEmail(emailToSend);
       // Invitation-based onboarding (Phase 1 B2): HR invites by email; the
       // invitee sets their password via /invitation-accept.
-      await api.post('/auth/invitations', { email: inviteEmail, role: inviteRole, roleIds: [inviteRole] });
+      const res: any = await api.post('/auth/invitations', { email: emailToSend, role: inviteRole, roleIds: [inviteRole] });
       setInviteSent(true);
+      const returnedUrl = res?.data?.inviteUrl || res?.inviteUrl;
+      if (returnedUrl) {
+        setCreatedInviteUrl(returnedUrl);
+      }
       setInviteEmail('');
       await queryClient.invalidateQueries({ queryKey: adminKeys.all });
     } catch (err: any) {
@@ -224,9 +234,53 @@ export default function AdminUsersPage() {
                 <div
                   className="adm-error"
                   role="status"
-                  style={{ background: '#e8f0ec', borderColor: '#cfe0d5', color: '#2c5f4a' }}
+                  style={{
+                    background: '#e8f0ec',
+                    borderColor: '#cfe0d5',
+                    color: '#2c5f4a',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    marginBottom: '16px',
+                  }}
                 >
-                  Invitation sent. The invitee can now activate their account from the email link.
+                  <div style={{ fontWeight: 600, marginBottom: '2px' }}>
+                    Invitation sent to {lastInvitedEmail || 'the user'}!
+                  </div>
+                  <div style={{ fontSize: '13px', opacity: 0.9 }}>
+                    An activation email is queued for delivery.
+                  </div>
+                  {createdInviteUrl && (
+                    <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid #b6d3c3' }}>
+                      <div style={{ fontSize: '12px', fontWeight: 600, color: '#1a4131', marginBottom: '4px' }}>
+                        One-time invitation link (valid 72 hours):
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <input
+                          type="text"
+                          readOnly
+                          value={createdInviteUrl}
+                          className="adm-input"
+                          style={{ fontSize: '12px', padding: '6px 8px', fontFamily: 'monospace', flex: 1, background: '#fff' }}
+                          onClick={(e) => (e.target as HTMLInputElement).select()}
+                        />
+                        <button
+                          type="button"
+                          className="adm-btn adm-btn-primary"
+                          style={{ fontSize: '12px', padding: '6px 12px', whiteSpace: 'nowrap' }}
+                          onClick={() => {
+                            navigator.clipboard.writeText(createdInviteUrl);
+                            setCopied(true);
+                            setTimeout(() => setCopied(false), 2000);
+                          }}
+                        >
+                          {copied ? 'Copied!' : 'Copy Link'}
+                        </button>
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#4a6f5d', marginTop: '4px' }}>
+                        You can copy and send this link directly to the invitee if email delivery is delayed.
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               <form onSubmit={sendInvite}>

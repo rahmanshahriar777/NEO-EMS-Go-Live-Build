@@ -52,7 +52,7 @@ export function resolveSmtpConfig(env: NodeJS.ProcessEnv = process.env): SmtpCon
     port: parseInt(env.SMTP_PORT || '587', 10) || 587,
     secure: (env.SMTP_SECURE || '').toLowerCase() === 'true',
     user: env.SMTP_USER || undefined,
-    pass: env.SMTP_PASSWORD || undefined,
+    pass: env.SMTP_PASSWORD || env.SMTP_PASS || undefined,
     from: (env.EMAIL_FROM || env.SMTP_FROM || 'no-reply@ems.local').trim(),
     timeoutMs: parseInt(env.SMTP_TIMEOUT_MS || '15000', 10) || 15000,
   };
