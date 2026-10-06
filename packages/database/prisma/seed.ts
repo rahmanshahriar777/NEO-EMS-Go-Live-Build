@@ -35,9 +35,9 @@ if (!isDevSeedAllowed) {
   );
 }
 
-// Random admin password, printed exactly once below. Only valid on a fresh
-// seed: existing users keep their current passwordHash (never reset).
-const SEED_ADMIN_PASSWORD = crypto.randomBytes(18).toString('base64url');
+// Admin password: defaults to SEED_DEFAULT_PASSWORD env var if set, otherwise random.
+const defaultSeedPassword = process.env.SEED_DEFAULT_PASSWORD;
+const SEED_ADMIN_PASSWORD = defaultSeedPassword || crypto.randomBytes(18).toString('base64url');
 
 function hashPassword(password: string): string {
   // Per-user random salt; format matches the API's PasswordService verifier.
@@ -587,7 +587,7 @@ async function main() {
       (await prisma.user.create({
         data: {
           email: p.email,
-          passwordHash: hashPassword(p.email === 'superadmin@ems.local' ? SEED_ADMIN_PASSWORD : crypto.randomBytes(18).toString('base64url')),
+          passwordHash: hashPassword(defaultSeedPassword || (p.email === 'superadmin@ems.local' ? SEED_ADMIN_PASSWORD : crypto.randomBytes(18).toString('base64url'))),
           roles: { create: { roleId: roles[p.role].id } },
         },
       }));
