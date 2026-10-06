@@ -117,7 +117,13 @@ class ApiClient {
   }
 
   private isAuthEndpoint(endpoint: string): boolean {
-    return endpoint.includes('/auth/login') || endpoint.includes('/auth/refresh') || endpoint.includes('/auth/register');
+    return (
+      endpoint.includes('/auth/login') ||
+      endpoint.includes('/auth/refresh') ||
+      endpoint.includes('/auth/register') ||
+      endpoint.includes('/auth/logout') ||
+      endpoint.includes('/auth/invitations')
+    );
   }
 
   private isRetryableStatus(status: number): boolean {
@@ -177,9 +183,7 @@ class ApiClient {
     this.sessionExpired = true;
     if (typeof window !== 'undefined') {
       const currentPath = window.location.pathname + window.location.search;
-      if (currentPath.startsWith('/login') || currentPath.startsWith('/register')) {
-        window.location.href = '/login';
-      } else {
+      if (!currentPath.startsWith('/login') && !currentPath.startsWith('/register')) {
         window.location.href = `/login?next=${encodeURIComponent(currentPath)}`;
       }
     }

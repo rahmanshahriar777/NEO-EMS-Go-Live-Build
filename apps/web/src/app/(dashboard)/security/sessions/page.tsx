@@ -36,10 +36,12 @@ export default function SessionsPage() {
   const { data: rawSessions, isPending: loading, error: queryError, refetch } = useSessionsQuery();
   const sessions: Session[] = rawSessions || [];
   const error = queryError ? (queryError as Error).message || 'Could not load active sessions.' : null;
+  const [actionError, setActionError] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const revoke = async (session: Session) => {
+    setActionError(null);
     if (session.current) {
       // The current session is ended via the shared honest-logout flow:
       // it retries transient failures and only navigates once the API has
@@ -49,7 +51,7 @@ export default function SessionsPage() {
       try {
         await logout();
       } catch (err: any) {
-        alert(err?.message || 'Sign out failed. You are still signed in — please try again.');
+        setActionError(err?.message || 'Sign out failed. You are still signed in — please try again.');
       }
       return;
     }
@@ -90,6 +92,12 @@ export default function SessionsPage() {
           </p>
 
           {notice && <div className="sec-success mb-3" role="status">{notice}</div>}
+
+          {actionError && (
+            <div className="mb-3">
+              <ErrorBanner resource="sign out" detail={actionError} />
+            </div>
+          )}
 
           {error && (
             <div className="mb-3">

@@ -1,6 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import SessionsPage from './page';
+
+const createTestQueryClient = () =>
+  new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  });
+
+function renderSessionsPage() {
+  const queryClient = createTestQueryClient();
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <SessionsPage />
+    </QueryClientProvider>,
+  );
+}
 
 const { logoutMock, apiGetMock, apiDeleteMock } = vi.hoisted(() => ({
   logoutMock: vi.fn(),
@@ -44,7 +63,7 @@ describe('sessions page sign-out', () => {
   it('routes "Sign out" on the current session through useAuth().logout()', async () => {
     logoutMock.mockResolvedValue(undefined);
 
-    render(<SessionsPage />);
+    renderSessionsPage();
     const signOutBtn = await screen.findByRole('button', { name: /sign out/i });
     await act(async () => {
       fireEvent.click(signOutBtn);
@@ -61,7 +80,7 @@ describe('sessions page sign-out', () => {
       new Error('Sign out failed. You are still signed in — please try again.'),
     );
 
-    render(<SessionsPage />);
+    renderSessionsPage();
     const signOutBtn = await screen.findByRole('button', { name: /sign out/i });
     await act(async () => {
       fireEvent.click(signOutBtn);
