@@ -145,19 +145,6 @@ export class PayrollController {
   @Get('runs/:id/bank-csv')
   @Roles(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN)
   @ApiOperation({ summary: 'Export bank payment file (CSV) for a payroll run' })
-  async getBankCsv(@Param('id') id: string, @Res() res: Response) {
-    const { csv, filename } = await this.service.getBankPaymentCsv(id);
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send(csv);
-  }
-
-  @Get('runs/:id/bank-payments.csv')
-  @Roles(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN)
-  @ApiOperation({
-    summary: 'Export bank payment file (CSV) for a payroll run (alias of bank-csv)',
-    deprecated: true,
-  })
   async getBankPaymentCsv(@Param('id') id: string, @Res() res: Response) {
     const { csv, filename } = await this.service.getBankPaymentCsv(id);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');

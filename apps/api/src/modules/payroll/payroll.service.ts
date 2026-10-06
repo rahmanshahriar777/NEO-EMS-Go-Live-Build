@@ -19,12 +19,12 @@ import {
 } from './dto/payroll.dto';
 import {
   PayrollStatus,
-  SalaryComponentType,
   AuditAction,
   createPaginatedResponse,
   toMinorUnits,
   fromMinorUnits,
 } from '@ems/shared';
+import { CalculationType, SalaryComponentType } from '@prisma/client';
 import { getCorrelationId } from '../../common/correlation/correlation';
 import { renderPayslipPdf } from './payroll-pdf';
 import { toCsv } from '../reports/export/csv';
@@ -116,8 +116,8 @@ export class PayrollService {
         components: {
           create: dto.components.map((c) => ({
             name: c.name,
-            type: c.type as any,
-            calculationType: c.calculationType as any,
+            type: c.type as unknown as SalaryComponentType,
+            calculationType: c.calculationType as unknown as CalculationType,
             value: c.value,
             isTaxable: c.isTaxable ?? true,
           })),
@@ -449,7 +449,7 @@ export class PayrollService {
       where: {
         entityType: 'PAYROLL_RUN',
         entityId: id,
-        action: AuditAction.RUN_PAYROLL as any,
+        action: AuditAction.RUN_PAYROLL,
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -552,7 +552,7 @@ export class PayrollService {
             where: {
               entityType: 'PAYROLL_RUN',
               entityId: id,
-              action: AuditAction.APPROVE as any,
+              action: AuditAction.APPROVE,
             },
             orderBy: { createdAt: 'desc' },
           });

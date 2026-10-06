@@ -51,3 +51,5 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+.agents/
+.archify/

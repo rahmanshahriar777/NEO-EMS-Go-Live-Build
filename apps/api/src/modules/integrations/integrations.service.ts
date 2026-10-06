@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { toCsv } from '../reports/export/csv';
+import { LeaveStatus } from '@prisma/client';
+import { SendAlertDto, HrisEmployeeImportItemDto } from './dto/integrations.dto';
 
 /**
  * Integrations (Phase 3 item 5).
@@ -100,7 +102,7 @@ export class IntegrationsService {
       this.prisma.leaveRequest.findMany({
         where: {
           employeeId: employee.id,
-          status: 'APPROVED' as any,
+          status: LeaveStatus.APPROVED,
           endDate: { gte: since },
         },
         include: { leaveType: { select: { name: true } } },
@@ -299,7 +301,7 @@ export class IntegrationsService {
   }
 
   /** Dispatches an alert to Slack and Teams webhooks. */
-  async dispatchAlert(input: { title: string; message: string; linkUrl?: string }) {
+  async dispatchAlert(input: SendAlertDto) {
     return this.sendAlert(input);
   }
 
@@ -307,14 +309,7 @@ export class IntegrationsService {
    * Bulk synchronises employee records from an external HRIS provider.
    */
   async importHrisEmployees(
-    records: Array<{
-      firstName: string;
-      lastName: string;
-      email: string;
-      departmentCode?: string;
-      designationTitle?: string;
-      phone?: string;
-    }>,
+    records: HrisEmployeeImportItemDto[],
   ): Promise<{ imported: number; updated: number; failed: number; errors: string[] }> {
     let imported = 0;
     let updated = 0;

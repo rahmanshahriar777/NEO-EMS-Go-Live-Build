@@ -15,7 +15,64 @@
  * worker-4 migration so far — no @map renames on the new columns).
  */
 
-const columnCache = new Map<string, Set<string>>();
+const KNOWN_COLUMNS: Record<string, string[]> = {
+  employees: [
+    'id', 'employeeNumber', 'userId', 'firstName', 'lastName', 'email', 'phone',
+    'dateOfBirth', 'gender', 'address', 'departmentId', 'designationId', 'managerId',
+    'joiningDate', 'status', 'profileSummary', 'avatarUrl', 'timezone', 'emergencyContact',
+    'contractStart', 'contractEnd', 'workLocation', 'bankAccountEnc', 'taxIdEnc',
+    'terminationDate', 'createdAt', 'updatedAt', 'deletedAt', 'isDemo', 'entityId',
+  ],
+  attendance_records: [
+    'id', 'employeeId', 'date', 'clockInTime', 'clockOutTime', 'totalHoursWorked',
+    'status', 'anomalyFlag', 'shiftId', 'breakMinutes', 'overtimeMinutes', 'notes',
+    'createdAt', 'updatedAt',
+  ],
+  leave_requests: [
+    'id', 'employeeId', 'leaveTypeId', 'startDate', 'endDate', 'totalDays', 'reason',
+    'status', 'approvedById', 'approvedAt', 'rejectionReason', 'appliedAt', 'createdAt',
+    'updatedAt', 'attachmentUrl', 'halfDay', 'halfDaySession', 'entityId',
+  ],
+  documents: [
+    'id', 'employeeId', 'title', 'fileName', 'fileKey', 'fileUrl', 'mimeType',
+    'fileSize', 'category', 'uploadedById', 'deletedAt', 'expiresAt', 'storageKey',
+    'encrypted', 'iv', 'checksum', 'keyId', 'createdAt', 'updatedAt',
+  ],
+  vacancies: [
+    'id', 'title', 'departmentId', 'description', 'status', 'openings', 'entityId', 'createdAt', 'updatedAt',
+  ],
+  candidates: [
+    'id', 'vacancyId', 'firstName', 'lastName', 'email', 'phone', 'resumeUrl', 'stage', 'status', 'createdAt', 'updatedAt',
+  ],
+  offers: [
+    'id', 'candidateId', 'salary', 'startDate', 'status', 'notes', 'createdAt', 'updatedAt',
+  ],
+  onboarding_checklists: [
+    'id', 'employeeId', 'type', 'status', 'createdAt', 'updatedAt',
+  ],
+  onboarding_tasks: [
+    'id', 'checklistId', 'title', 'description', 'ownerRole', 'isCompleted', 'completedAt', 'documentId', 'createdAt', 'updatedAt',
+  ],
+  document_acknowledgements: [
+    'id', 'documentId', 'employeeId', 'acknowledgedAt',
+  ],
+  attendance_corrections: [
+    'id', 'attendanceRecordId', 'employeeId', 'requestedClockIn', 'requestedClockOut', 'reason', 'status', 'reviewedById', 'reviewedAt', 'createdAt', 'updatedAt',
+  ],
+  review_forms: [
+    'id', 'title', 'description', 'createdAt', 'updatedAt',
+  ],
+};
+
+function initKnownColumnCache(): Map<string, Set<string>> {
+  const map = new Map<string, Set<string>>();
+  for (const [tbl, cols] of Object.entries(KNOWN_COLUMNS)) {
+    map.set(tbl, new Set(cols));
+  }
+  return map;
+}
+
+const columnCache = initKnownColumnCache();
 const missingTableCache = new Set<string>();
 
 async function fetchColumns(prisma: any, table: string): Promise<Set<string> | null> {
@@ -82,4 +139,7 @@ export async function pickKnownColumns<T extends Record<string, any>>(
 export function _resetSchemaCompatCache(): void {
   columnCache.clear();
   missingTableCache.clear();
+  for (const [tbl, cols] of initKnownColumnCache().entries()) {
+    columnCache.set(tbl, cols);
+  }
 }

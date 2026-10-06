@@ -6,6 +6,7 @@ import {
   ConflictException,
   Logger,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { pickKnownColumns } from '../../core/prisma/schema-compat.util';
 import { AuditService } from '../../core/audit/audit.service';
@@ -124,19 +125,19 @@ export class LeavesService {
   // Until the migration lands, policy reads return null and defaults apply.
   // ---------------------------------------------------------------------------
 
-  /** Reads the policy for a leave type; null when the table is not migrated. */
-  private async getLeavePolicy(tx: any, leaveTypeId: string): Promise<any | null> {
+  /** Reads the policy for a leave type; null when not found. */
+  private async getLeavePolicy(tx: Prisma.TransactionClient | PrismaService, leaveTypeId: string) {
     try {
-      return await (tx as any).leavePolicy.findUnique({ where: { leaveTypeId } });
+      return await tx.leavePolicy.findUnique({ where: { leaveTypeId } });
     } catch (error) {
-      this.logger.warn(`LeavePolicy table unavailable, using defaults: ${(error as Error).message}`);
+      this.logger.warn(`LeavePolicy lookup failed, using defaults: ${(error as Error).message}`);
       return null;
     }
   }
 
   async getLeavePolicies() {
     try {
-      return await (this.prisma as any).leavePolicy.findMany({
+      return await this.prisma.leavePolicy.findMany({
         include: { leaveType: { select: { id: true, name: true, code: true } } },
         orderBy: { createdAt: 'asc' },
       });
@@ -155,7 +156,7 @@ export class LeavesService {
       ...(dto.maxConsecutiveDays !== undefined && { maxConsecutiveDays: dto.maxConsecutiveDays }),
       ...(dto.requiresHrApproval !== undefined && { requiresHrApproval: dto.requiresHrApproval }),
     };
-    const policy = await (this.prisma as any).leavePolicy.upsert({
+    const policy = await this.prisma.leavePolicy.upsert({
       where: { leaveTypeId: dto.leaveTypeId },
       update: data,
       create: data,

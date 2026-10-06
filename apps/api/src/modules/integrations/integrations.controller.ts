@@ -8,6 +8,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SystemRole, JwtPayload } from '@ems/shared';
+import { SendAlertDto, ImportHrisDto } from './dto/integrations.dto';
 
 @ApiTags('Integrations')
 @Controller('integrations')
@@ -69,10 +70,8 @@ export class IntegrationsController {
   @ApiOperation({
     summary: 'Dispatch an alert notification to configured Slack and Microsoft Teams webhooks',
   })
-  async sendAlert(
-    @Body() body: { title: string; message: string; linkUrl?: string },
-  ) {
-    return this.service.dispatchAlert(body);
+  async sendAlert(@Body() dto: SendAlertDto) {
+    return this.service.dispatchAlert(dto);
   }
 
   @Post('hris/import')
@@ -82,19 +81,7 @@ export class IntegrationsController {
   @ApiOperation({
     summary: 'Synchronise bulk employee records from an external HRIS system',
   })
-  async importHris(
-    @Body()
-    body: {
-      employees: Array<{
-        firstName: string;
-        lastName: string;
-        email: string;
-        departmentCode?: string;
-        designationTitle?: string;
-        phone?: string;
-      }>;
-    },
-  ) {
-    return this.service.importHrisEmployees(body.employees || []);
+  async importHris(@Body() dto: ImportHrisDto) {
+    return this.service.importHrisEmployees(dto.employees || []);
   }
 }

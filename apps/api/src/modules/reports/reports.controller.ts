@@ -17,6 +17,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { SystemRole } from '@ems/shared';
+import { AdHocReportDto } from './dto/reports.dto';
 
 @ApiTags('Reports')
 @ApiBearerAuth()
@@ -61,15 +62,8 @@ export class ReportsController {
   @ApiOperation({
     summary: 'Build and execute an ad-hoc query report over core entity datasets',
   })
-  async buildAdHoc(
-    @Body()
-    body: {
-      entity: 'employees' | 'leaves' | 'attendance' | 'payroll';
-      filters?: Record<string, any>;
-      limit?: number;
-    },
-  ) {
-    return this.service.buildAdHocReport(body);
+  async buildAdHoc(@Body() dto: AdHocReportDto) {
+    return this.service.buildAdHocReport(dto);
   }
 
   @Get('warehouse/:entity')

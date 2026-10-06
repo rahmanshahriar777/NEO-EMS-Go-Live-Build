@@ -9,6 +9,7 @@ import {
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { AuditService } from '../../core/audit/audit.service';
 import { AccessPolicyService } from '../../core/access-policy/access-policy.service';
+import { EmploymentStatus, LeaveStatus } from '@prisma/client';
 import { pickKnownColumns, hasColumn, tableExists } from '../../core/prisma/schema-compat.util';
 import {
   ClockInDto,
@@ -58,11 +59,11 @@ export class AttendanceService {
    */
   private async getEmployeeTimezone(client: any, employeeId: string): Promise<string> {
     try {
-      if (!(await hasColumn(client, 'employees', 'timezone'))) return DEFAULT_TIMEZONE;
-      const rows: Array<{ timezone: string | null }> = await client.$queryRaw`
-        SELECT "timezone" FROM employees WHERE id = ${employeeId}
-      `;
-      return normalizeTimezone(rows[0]?.timezone);
+      const emp = await (client.employee ?? this.prisma.employee).findUnique({
+        where: { id: employeeId },
+        select: { timezone: true },
+      });
+      return normalizeTimezone(emp?.timezone);
     } catch (error) {
       this.logger.warn(`Timezone lookup failed for ${employeeId}: ${(error as Error).message}`);
       return DEFAULT_TIMEZONE;
@@ -120,7 +121,7 @@ export class AttendanceService {
       where: { employeeId_date: { employeeId, date: dateKey } },
       update: {
         clockInTime: now,
-        status: status as any,
+        status,
         notes: dto.notes,
         shiftId: defaultShift?.id,
       },
@@ -128,7 +129,7 @@ export class AttendanceService {
         employeeId,
         date: dateKey,
         clockInTime: now,
-        status: status as any,
+        status,
         notes: dto.notes,
         shiftId: defaultShift?.id,
       },
@@ -156,7 +157,7 @@ export class AttendanceService {
 
     let finalStatus = existing.status;
     if (hours < 4) {
-      finalStatus = AttendanceStatus.HALF_DAY as any;
+      finalStatus = AttendanceStatus.HALF_DAY;
     }
 
     // Shift window for break/overtime: roster entry first, else default shift
@@ -223,7 +224,7 @@ export class AttendanceService {
       throw new BadRequestException('At least one of clockInTime / clockOutTime is required');
     }
 
-    const correction = await (this.prisma as any).attendanceCorrection.create({
+    const correction = await this.prisma.attendanceCorrection.create({
       data: {
         attendanceRecordId: dto.attendanceRecordId,
         employeeId,
@@ -265,7 +266,7 @@ export class AttendanceService {
       where.employeeId = viewer.employeeId;
     }
 
-    return (this.prisma as any).attendanceCorrection.findMany({
+    return this.prisma.attendanceCorrection.findMany({
       where,
       include: {
         employee: { select: { id: true, firstName: true, lastName: true, employeeNumber: true } },
@@ -290,7 +291,7 @@ export class AttendanceService {
       );
     }
 
-    const correction = await (this.prisma as any).attendanceCorrection.findUnique({
+    const correction = await this.prisma.attendanceCorrection.findUnique({
       where: { id },
       include: { employee: { select: { id: true, managerId: true } } },
     });
@@ -344,7 +345,7 @@ export class AttendanceService {
         });
       }
 
-      const reviewed = await (tx as any).attendanceCorrection.update({
+      const reviewed = await tx.attendanceCorrection.update({
         where: { id },
         data: {
           status: approved ? 'APPROVED' : 'REJECTED',
@@ -383,7 +384,7 @@ export class AttendanceService {
     }
 
     const employees = await this.prisma.employee.findMany({
-      where: { deletedAt: null, status: { not: 'TERMINATED' as any } },
+      where: { deletedAt: null, status: { not: EmploymentStatus.TERMINATED } },
       select: { id: true },
     });
 
@@ -394,7 +395,7 @@ export class AttendanceService {
       }),
       this.prisma.leaveRequest.findMany({
         where: {
-          status: 'APPROVED' as any,
+          status: LeaveStatus.APPROVED,
           startDate: { lte: dateKey },
           endDate: { gte: dateKey },
         },
@@ -411,7 +412,7 @@ export class AttendanceService {
           data: {
             employeeId: emp.id,
             date: dateKey,
-            status: AttendanceStatus.ABSENT as any,
+            status: AttendanceStatus.ABSENT,
             anomalyFlag: true,
             notes: 'Auto-marked absent by nightly job (no clock-in, no approved leave)',
           },

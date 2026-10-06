@@ -7,6 +7,8 @@ import { getCorrelationId } from '../../common/correlation/correlation';
 import { toCsv } from './export/csv';
 import { toXlsx, XlsxCell } from './export/xlsx';
 import { renderPdf } from './export/pdf';
+import { Prisma, EmploymentStatus, LeaveStatus, AttendanceStatus, PayrollStatus } from '@prisma/client';
+import { AdHocReportDto } from './dto/reports.dto';
 
 /**
  * Reporting & exports (Phase 3 item 2).
@@ -381,18 +383,23 @@ export class ReportsService {
 
   /**
    * Ad-hoc report query builder for customized multi-dimensional analysis.
+   * Mitigates debt item H4: filters are strictly validated and allowlisted
+   * per entity dataset rather than passed directly into Prisma queries.
    */
-  async buildAdHocReport(query: {
-    entity: 'employees' | 'leaves' | 'attendance' | 'payroll';
-    filters?: Record<string, any>;
-    limit?: number;
-  }) {
+  async buildAdHocReport(query: AdHocReportDto) {
     const take = Math.min(Math.max(query.limit || 100, 1), 1000);
+    const filters = query.filters;
+
     switch (query.entity) {
-      case 'employees':
+      case 'employees': {
+        const where: Prisma.EmployeeWhereInput = { deletedAt: null };
+        if (filters?.status) where.status = filters.status as EmploymentStatus;
+        if (filters?.departmentId) where.departmentId = filters.departmentId;
+        if (filters?.designationId) where.designationId = filters.designationId;
+
         return this.prisma.employee.findMany({
           take,
-          where: { deletedAt: null, ...query.filters },
+          where,
           select: {
             id: true,
             employeeNumber: true,
@@ -405,10 +412,15 @@ export class ReportsService {
             createdAt: true,
           },
         });
-      case 'leaves':
+      }
+      case 'leaves': {
+        const where: Prisma.LeaveRequestWhereInput = {};
+        if (filters?.status) where.status = filters.status as LeaveStatus;
+        if (filters?.leaveTypeId) where.leaveTypeId = filters.leaveTypeId;
+
         return this.prisma.leaveRequest.findMany({
           take,
-          where: query.filters,
+          where,
           select: {
             id: true,
             startDate: true,
@@ -419,10 +431,15 @@ export class ReportsService {
             leaveType: { select: { name: true } },
           },
         });
-      case 'attendance':
+      }
+      case 'attendance': {
+        const where: Prisma.AttendanceRecordWhereInput = {};
+        if (filters?.status) where.status = filters.status as AttendanceStatus;
+        if (filters?.date) where.date = new Date(filters.date);
+
         return this.prisma.attendanceRecord.findMany({
           take,
-          where: query.filters,
+          where,
           select: {
             id: true,
             date: true,
@@ -432,10 +449,16 @@ export class ReportsService {
             employee: { select: { employeeNumber: true, firstName: true, lastName: true } },
           },
         });
-      case 'payroll':
+      }
+      case 'payroll': {
+        const where: Prisma.PayrollRunWhereInput = {};
+        if (filters?.status) where.status = filters.status as PayrollStatus;
+        if (filters?.year) where.year = filters.year;
+        if (filters?.month) where.month = filters.month;
+
         return this.prisma.payrollRun.findMany({
           take,
-          where: query.filters,
+          where,
           select: {
             id: true,
             month: true,
@@ -447,8 +470,9 @@ export class ReportsService {
             createdAt: true,
           },
         });
+      }
       default:
-        throw new BadRequestException(`Unsupported ad-hoc entity: ${query.entity}`);
+        throw new BadRequestException(`Unsupported ad-hoc entity: ${(query as any).entity}`);
     }
   }
 

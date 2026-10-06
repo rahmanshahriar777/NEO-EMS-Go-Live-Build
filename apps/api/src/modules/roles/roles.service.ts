@@ -5,24 +5,14 @@ import {
   NotFoundException,
   Logger,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { CreateRoleDto, UpdateRoleDto } from './dto/roles.dto';
 
-/**
- * Role & permission management (web UI role editor: GET/POST/PATCH/DELETE
- * /roles, plus GET /roles/permissions).
- *
- * Permissions are exposed in SUBJECT:ACTION format (the 60 seeded
- * permissions: 10 subjects × 6 actions), matching the format the JWT
- * PermissionsGuard consumes.
- *
- * SCHEMA DEPENDENCY (worker 4): `Role.name` is currently the `SystemRole`
- * enum in Prisma, which blocks custom role names. The role editor needs
- * `Role.name` changed to `String` in the migration. Service code below
- * already treats names as strings (targeted `as any` casts); with the enum
- * still in place, POST /roles with a non-enum name fails at the database
- * layer with a clear Prisma error.
- */
+export type RoleWithPermissionsRow = Prisma.RoleGetPayload<{
+  include: { permissions: { include: { permission: true } } };
+}>;
+
 export interface RoleWithPermissions {
   id: string;
   name: string;
@@ -67,14 +57,14 @@ export class RolesService {
     return rows.map((r) => r.id);
   }
 
-  private toRoleWithPermissions(row: any): RoleWithPermissions {
+  private toRoleWithPermissions(row: RoleWithPermissionsRow): RoleWithPermissions {
     return {
       id: row.id,
       name: row.name,
       description: row.description ?? null,
       isSystem: row.isSystem,
       permissions: (row.permissions || []).map(
-        (rp: any) => `${rp.permission.subject}:${rp.permission.action}`,
+        (rp) => `${rp.permission.subject}:${rp.permission.action}`,
       ),
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
@@ -84,7 +74,7 @@ export class RolesService {
   private roleInclude() {
     return {
       permissions: { include: { permission: true } },
-    };
+    } as const;
   }
 
   async listRoles(): Promise<RoleWithPermissions[]> {
@@ -110,7 +100,7 @@ export class RolesService {
     }
 
     const existing = await this.prisma.role.findFirst({
-      where: { name: name as any },
+      where: { name },
     });
     if (existing) {
       throw new ConflictException(`Role '${name}' already exists`);
@@ -119,14 +109,12 @@ export class RolesService {
     const permissionIds = dto.permissions ? await this.resolvePermissionIds(dto.permissions) : [];
 
     const role = await this.prisma.role.create({
-      // `as any`: Role.name becomes String once worker 4 lands the migration
-      // (currently the SystemRole enum — see module docstring).
       data: {
-        name: name as any,
+        name,
         description: dto.description,
         isSystem: false,
         permissions: { create: permissionIds.map((permissionId) => ({ permissionId })) },
-      } as any,
+      },
       include: this.roleInclude(),
     });
 

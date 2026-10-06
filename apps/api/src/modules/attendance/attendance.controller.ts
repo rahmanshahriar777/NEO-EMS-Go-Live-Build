@@ -14,7 +14,6 @@ import {
   ClockInDto,
   ClockOutDto,
   AttendanceQueryDto,
-  ReviewCorrectionDto,
 } from './dto/attendance.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -97,25 +96,4 @@ export class AttendanceController {
     return this.service.getReports(query);
   }
 
-  // NOTE (worker 3): the canonical GET/POST/PATCH /attendance/corrections
-  // handlers live in AttendanceCorrectionsController
-  // (attendance-corrections.controller.ts) — kept in a separate file so they
-  // are independent of edits to this controller. They implement the exact
-  // contract the web UI calls
-  // ({ attendanceRecordId, requestedClockIn?, requestedClockOut?, reason })
-  // and work today via a Redis-backed interim store, because the
-  // attendance_corrections TABLE does not exist yet (worker 4). The
-  // table-backed AttendanceService.requestCorrection()/listCorrections()
-  // methods remain available and can be re-wired once that migration lands.
-
-  @Patch('corrections/:id/review')
-  @Roles(SystemRole.MANAGER, SystemRole.HR_ADMIN, SystemRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Approve/reject an attendance correction (manager of employee or HR)' })
-  async reviewCorrection(
-    @Param('id') id: string,
-    @Body() dto: ReviewCorrectionDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.service.reviewCorrection(id, this.toViewer(user), dto);
-  }
 }

@@ -100,15 +100,4 @@ describe('AttendanceController', () => {
     await controller.getReports(query);
     expect(service.getReports).toHaveBeenCalledWith(query);
   });
-
-  it('reviewCorrection builds the viewer from the JWT and delegates', async () => {
-    service.reviewCorrection.mockResolvedValue({ id: 'c1', status: 'APPROVED' });
-    const dto: any = { action: 'APPROVE' };
-    await controller.reviewCorrection('c1', dto, employeeUser);
-    expect(service.reviewCorrection).toHaveBeenCalledWith(
-      'c1',
-      { userId: 'user-1', employeeId: 'emp-1', roles: [SystemRole.EMPLOYEE] },
-      dto,
-    );
-  });
 });

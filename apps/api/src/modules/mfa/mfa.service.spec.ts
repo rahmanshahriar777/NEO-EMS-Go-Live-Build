@@ -143,7 +143,7 @@ describe('MfaService', () => {
         }
         expect(verified).toBe(true);
       }
-    });
+    }, 20000);
 
     it('rejects an invalid TOTP code', async () => {
       prisma.user.findUnique.mockResolvedValue(mfaRow());

@@ -8,7 +8,7 @@ import { SystemRole } from '@ems/shared';
 /**
  * Role & permission management (web UI role editor).
  * SUPER_ADMIN only — role grants are the keys to the kingdom.
- * NOTE: @Get('permissions') is declared before @Get(':id') so the literal
+ * NOTE: The permissions route is declared before any parameter route so the literal
  * path is not swallowed by the parameter route.
  */
 @ApiTags('Roles')
