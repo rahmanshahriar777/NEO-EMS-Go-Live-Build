@@ -14,3 +14,5 @@ coverage/
 .nyc_output/
 .vscode/
 .idea/
+.agents/
+.archify/
