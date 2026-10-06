@@ -47,6 +47,9 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+          ports:
+            - name: metrics
+              containerPort: 9100
           resources:
             requests:
               cpu: "150m"
@@ -72,36 +75,24 @@ spec:
         - name: tmp
           emptyDir: {}
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ems-worker
+  namespace: ems-production
+  labels:
+    app: ems-worker
+spec:
+  selector:
+    app: ems-worker
+  ports:
+    - name: metrics
+      port: 9100
+      targetPort: 9100
+---
 # ==============================================================================
-# HPA for the BullMQ worker (go-live §5.4 scalability).
-#
-# CPU-BASED TODAY — queue-depth scaling is the goal but the plumbing does not
-# exist yet: the worker exposes no HTTP endpoint and exports no BullMQ queue
-# counters (no prom-client gauges, no /metrics), so neither
-# prometheus-adapter (external metrics) nor KEDA has anything to scale on.
-#
-# QUEUE-DEPTH PLACEHOLDER (to wire when the metrics land):
-#   1. Export per-queue waiting/active counts (e.g. prom-client gauges fed by
-#      queue.getJobCounts(), scraped from a /metrics endpoint on the worker or
-#      via the API's guarded metrics controller), OR
-#   2. Install KEDA and use a ScaledObject with the redis scaler on the BullMQ
-#      list length, e.g.:
-#        apiVersion: keda.sh/v1alpha1
-#        kind: ScaledObject
-#        metadata: { name: ems-worker-qdepth, namespace: ems-production }
-#        spec:
-#          scaleTargetRef: { name: ems-worker }
-#          minReplicaCount: 1
-#          maxReplicaCount: 10
-#          triggers:
-#            - type: redis
-#              metadata:
-#                addressFromEnv: REDIS_HOST   # via TriggerAuthentication
-#                listName: bull:ems-notifications:wait
-#                listLength: "50"             # one waiting job batch per replica
-#      Until then, CPU is the dependable proxy: BullMQ processors are
-#      CPU-bound while draining, and scaleDown is stabilized (5 min) so a
-#      draining queue is not yanked mid-batch.
+# HPA for the BullMQ worker: dual-scaling on CPU + BullMQ Queue Depth.
+# Worker exports metrics on :9100/metrics (bullmq_queue_waiting_jobs).
 # ==============================================================================
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
@@ -114,7 +105,7 @@ spec:
     kind: Deployment
     name: ems-worker
   minReplicas: 1
-  maxReplicas: 5
+  maxReplicas: 10
   metrics:
     - type: Resource
       resource:
@@ -122,6 +113,13 @@ spec:
         target:
           type: Utilization
           averageUtilization: 70
+    - type: External
+      external:
+        metric:
+          name: bullmq_queue_waiting_jobs
+        target:
+          type: AverageValue
+          averageValue: "25"
   behavior:
     scaleDown:
       stabilizationWindowSeconds: 300
@@ -129,3 +127,22 @@ spec:
         - type: Percent
           value: 50
           periodSeconds: 60
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: ems-worker-queue-scaler
+  namespace: ems-production
+spec:
+  scaleTargetRef:
+    name: ems-worker
+  minReplicaCount: 1
+  maxReplicaCount: 10
+  cooldownPeriod: 300
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-k8s.monitoring.svc:9090
+        metricName: bullmq_queue_waiting_jobs_total
+        query: sum(bullmq_queue_waiting_jobs)
+        threshold: "25"

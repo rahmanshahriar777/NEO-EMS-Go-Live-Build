@@ -320,10 +320,26 @@ untrusted sources), a real scanner (ClamAV sidecar or a provider hook)
 must be wired and `DOCUMENT_MALWARE_SCAN_ENABLED=true` set in production.
 `DOCUMENT_MALWARE_SCAN_ENABLED` is documented in `.env.example` (defaults to `false`).
 
+## High-Availability (HA) Redis Architecture
+
+Single Redis is a Single Point of Failure (SPOF) for BullMQ queues, rate limiting, and security replay guards. In production:
+- **Managed Redis with Multi-AZ**: Deploy AWS ElastiCache for Redis (Replication Group with Multi-AZ and Automatic Failover) or Google Cloud Memorystore for Redis HA (Primary + Read Replica).
+- **Worker Queue Depth Scaling**: `ems-worker` exposes Prometheus metrics on `:9100/metrics` including `bullmq_queue_waiting_jobs`. Kubernetes HPA scales workers based on CPU and BullMQ queue backlog via KEDA (`k8s/worker-deployment.yaml`).
+
+## Zero-Trust Secrets: OIDC Federation & External Secrets Operator
+
+- **OIDC Federation for CI/CD**: Long-lived `KUBECONFIG` credentials in GitHub Secrets are replaced with OIDC federation. GitHub Actions workflow `deploy-prod.yaml` requests short-lived tokens (`id-token: write`) via AWS STS / GCP Workload Identity / Azure AD to authenticate to the cluster.
+- **External Secrets Operator (ESO)**: Manual `kubectl create secret` is replaced by the External Secrets Operator (`k8s/external-secrets.yaml`). A `SecretStore` connects to the cloud secret manager via IAM workload identity, and `ExternalSecret` reconciles `ems-secrets` automatically on an hourly refresh schedule.
+
+## Disaster Recovery: Unified Format & Automated Drills
+
+- **Unified Custom Format**: Both automated daily backups (`scripts/backup-db.sh`) and pre-deployment snapshots (`scripts/backup-prod.sh`) emit PostgreSQL custom format (`pg_dump --format=custom -Fc`).
+- **Automated Restore Drills**: Monthly restore drills (`scripts/restore-drill.sh`) are executed in CI via `.github/workflows/restore-drill.yaml`. The drill restores the latest snapshot into a scratch database, verifies schema integrity and row counts across core tables (`users`, `employees`, `departments`, `payroll_runs`, `audit_logs`), and tears down the scratch instance.
+
 ## Summary of Hardening & Automated Pipelines
 
 - **Enum Values Script**: `scripts/apply-enum-values.sql` is automatically executed post-migration in `deploy-prod.yaml` (`psql -f scripts/apply-enum-values.sql`), ensuring `ALTER TYPE ... ADD VALUE` statements are applied outside transaction blocks.
-- **Prometheus Observability**: `/metrics` is actively mounted in `apps/api/src/core/metrics/metrics.controller.ts` (admin-authenticated) and serves metrics from `packages/shared/src/observability/metrics.ts`.
+- **Prometheus Observability**: `/metrics` is actively mounted in `apps/api/src/core/metrics/metrics.controller.ts` (admin-authenticated) and `apps/worker` `:9100/metrics` (queue depths and BullMQ gauges).
 - **Malware Scanning**: Documented in `.env.example`. Upload paths fail-closed at boot if `DOCUMENT_MALWARE_SCAN_ENABLED=true` without a registered scanner; default is `NoopMalwareScanner` with magic-byte validation (accepted risk for go-live).
 - **Image Pinning & Pipeline Gating**: `docker-build.yaml` publishes immutable per-commit SHA tags (`sha-<short-sha>`). `deploy-prod.yaml` gates on CI completion, verifies image existence prior to migrations, executes automated backups (`scripts/backup-prod.sh`), and deploys tagged manifests via `envsubst`.
 - **DPIA Sign-Off for AI Features**: See `docs/DPIA-notes.md` (requires DPO review before enabling AI in production).

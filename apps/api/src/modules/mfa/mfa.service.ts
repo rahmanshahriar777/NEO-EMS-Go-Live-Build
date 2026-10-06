@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import { generateSecret, generateURI, verifySync } from 'otplib';
+import * as argon2 from 'argon2';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { PasswordService } from '../auth/password.service';
 import { TokenService } from '../auth/token.service';
@@ -17,23 +18,17 @@ import { AuthService } from '../auth/auth.service';
  *
  * Flow:
  *   1. POST /mfa/totp/setup → returns { secret, otpauthUrl } (client renders
- *      the QR code). The secret is stored on the user but MFA stays DISABLED.
+ *      the QR code). The secret is stored ENCRYPTED with the document keyring
+ *      on the user but MFA stays DISABLED.
  *   2. POST /mfa/totp/verify { token } → verifies the TOTP code against the
- *      stored secret; on success MFA is ENABLED and 10 one-time recovery
- *      codes are returned (shown ONCE — only SHA-256 hashes are stored).
+ *      decrypted secret; on success MFA is ENABLED and 10 one-time recovery
+ *      codes are returned (shown ONCE — Argon2id hashes stored at rest).
  *   3. Login for an MFA-enabled user returns { mfaRequired: true,
  *      challengeToken } after the password check; POST /mfa/challenge
  *      { challengeToken, code } completes login with a TOTP code OR an unused
  *      recovery code (recovery codes are single-use: the hash is deleted).
  *   4. POST /mfa/totp/disable { password } → clears secret, hashes and the flag.
  *   5. GET /mfa/status → enrollment state (never the secret).
- *
- * Prisma columns needed (worker 4 — migration + client regeneration):
- *   User.mfaSecret         String?
- *   User.mfaEnabled        Boolean   @default(false)
- *   User.mfaRecoveryHashes String[]  @default([])
- * Until the migration lands, MFA fields are read/written through the narrow
- * `MfaFields` structural type via targeted `as any` casts.
  */
 const RECOVERY_CODE_COUNT = 10;
 
@@ -54,8 +49,28 @@ function newRecoveryCode(): string {
   return `${code.slice(0, 4)}-${code.slice(4)}`;
 }
 
-function hashRecoveryCode(code: string): string {
-  return crypto.createHash('sha256').update(code).digest('hex');
+async function hashRecoveryCode(code: string): Promise<string> {
+  return argon2.hash(code, {
+    type: argon2.argon2id,
+    memoryCost: 19456,
+    timeCost: 2,
+    parallelism: 1,
+  });
+}
+
+async function verifyRecoveryCode(candidate: string, hash: string): Promise<boolean> {
+  if (hash.startsWith('$argon2id$')) {
+    try {
+      return await argon2.verify(hash, candidate);
+    } catch {
+      return false;
+    }
+  }
+  // Backwards compatibility for legacy unsalted SHA-256 hashes
+  const sha = crypto.createHash('sha256').update(candidate).digest('hex');
+  const a = Buffer.from(hash, 'hex');
+  const b = Buffer.from(sha, 'hex');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 @Injectable()
@@ -74,6 +89,60 @@ export class MfaService {
     return (this.prisma as any).user;
   }
 
+  private getMfaKey(keyHex?: string): Buffer | null {
+    const hex = keyHex ?? this.configService.get<string>('DOCUMENT_ENCRYPTION_KEY');
+    if (!hex) return null;
+    try {
+      const buf = Buffer.from(hex, 'hex');
+      if (buf.length === 32) return buf;
+      return crypto.createHash('sha256').update(hex).digest();
+    } catch {
+      return null;
+    }
+  }
+
+  private encryptSecret(secret: string): string {
+    const key = this.getMfaKey();
+    if (!key) return secret;
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+    const enc = Buffer.concat([cipher.update(secret, 'utf8'), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return `enc:${iv.toString('hex')}:${tag.toString('hex')}:${enc.toString('hex')}`;
+  }
+
+  private decryptSecret(stored: string | null | undefined): string | null {
+    if (!stored) return null;
+    if (!stored.startsWith('enc:')) return stored;
+    const key = this.getMfaKey();
+    if (!key) return stored;
+    try {
+      const parts = stored.split(':');
+      if (parts.length !== 4) return stored;
+      const [, ivHex, tagHex, dataHex] = parts;
+      const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
+      decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+      const dec = Buffer.concat([decipher.update(Buffer.from(dataHex, 'hex')), decipher.final()]);
+      return dec.toString('utf8');
+    } catch {
+      const prevHex = this.configService.get<string>('DOCUMENT_ENCRYPTION_KEY_PREVIOUS');
+      if (prevHex) {
+        try {
+          const prevKey = this.getMfaKey(prevHex);
+          if (prevKey) {
+            const [, ivHex, tagHex, dataHex] = stored.split(':');
+            const decipher = crypto.createDecipheriv('aes-256-gcm', prevKey, Buffer.from(ivHex, 'hex'));
+            decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+            const dec = Buffer.concat([decipher.update(Buffer.from(dataHex, 'hex')), decipher.final()]);
+            return dec.toString('utf8');
+          }
+        } catch {}
+      }
+      this.logger.error('Failed to decrypt MFA secret');
+      return stored;
+    }
+  }
+
   private async getMfaFields(userId: string): Promise<MfaFields> {
     const user = await this.userDelegate().findUnique({
       where: { id: userId },
@@ -83,7 +152,7 @@ export class MfaService {
       throw new UnauthorizedException('User not found');
     }
     return {
-      mfaSecret: user.mfaSecret ?? null,
+      mfaSecret: this.decryptSecret(user.mfaSecret),
       mfaEnabled: user.mfaEnabled ?? false,
       mfaRecoveryHashes: user.mfaRecoveryHashes ?? [],
     };
@@ -92,7 +161,7 @@ export class MfaService {
   /**
    * Step 1: generate a TOTP secret and store it PENDING (mfaEnabled stays
    * false until the user proves possession via verifySetup). Re-running setup
-   * replaces the pending secret.
+   * replaces the pending secret. Secret is encrypted at rest via the document keyring.
    */
   async setupTotp(userId: string, email: string): Promise<{ secret: string; otpauthUrl: string }> {
     const { mfaEnabled } = await this.getMfaFields(userId);
@@ -106,7 +175,7 @@ export class MfaService {
 
     await this.userDelegate().update({
       where: { id: userId },
-      data: { mfaSecret: secret },
+      data: { mfaSecret: this.encryptSecret(secret) },
     });
 
     return { secret, otpauthUrl };
@@ -114,7 +183,7 @@ export class MfaService {
 
   /**
    * Step 2: verify the TOTP code, enable MFA, and mint one-time recovery
-   * codes. The raw codes are returned exactly once.
+   * codes. The raw codes are returned exactly once. Hashes are Argon2id.
    */
   async verifySetup(userId: string, token: string): Promise<{ recoveryCodes: string[] }> {
     const { mfaSecret, mfaEnabled } = await this.getMfaFields(userId);
@@ -133,11 +202,12 @@ export class MfaService {
     }
 
     const recoveryCodes = Array.from({ length: RECOVERY_CODE_COUNT }, newRecoveryCode);
+    const hashedCodes = await Promise.all(recoveryCodes.map(hashRecoveryCode));
     await this.userDelegate().update({
       where: { id: userId },
       data: {
         mfaEnabled: true,
-        mfaRecoveryHashes: recoveryCodes.map(hashRecoveryCode),
+        mfaRecoveryHashes: hashedCodes,
       },
     });
 
@@ -225,11 +295,11 @@ export class MfaService {
         throw new UnauthorizedException('MFA code has already been used');
       }
     } else {
-      // Recovery codes are single-use. Constant-time compare against the
-      // stored hashes, then consume atomically (see consumeRecoveryCode) so
+      // Recovery codes are single-use. Verify against stored hashes
+      // (supporting Argon2id and legacy sha256), then consume atomically (see consumeRecoveryCode) so
       // two concurrent requests can never double-spend the same code.
-      const codeHash = hashRecoveryCode(code.replace(/\s/g, ''));
-      const consumed = await this.consumeRecoveryCode(userId, mfaRecoveryHashes, codeHash);
+      const candidateCode = code.replace(/\s/g, '');
+      const consumed = await this.consumeRecoveryCode(userId, mfaRecoveryHashes, candidateCode);
       if (!consumed) {
         throw new UnauthorizedException('Invalid MFA code');
       }
@@ -249,10 +319,7 @@ export class MfaService {
   /**
    * Consume one recovery code atomically.
    *
-   * The old code read the hash array, filtered it in JS, and wrote it back
-   * unconditionally — two concurrent requests with the same code both
-   * succeeded (double-spend), and concurrent different codes clobbered each
-   * other. Now the write is a CONDITIONAL updateMany: it lands only when the
+   * The write is a CONDITIONAL updateMany: it lands only when the
    * stored array is byte-identical to what we read (count === 1 wins).
    * A lost race re-reads once and retries: if the code is gone the caller
    * gets 'Invalid MFA code'; if a *different* code was consumed concurrently,
@@ -261,16 +328,18 @@ export class MfaService {
   private async consumeRecoveryCode(
     userId: string,
     knownHashes: string[],
-    codeHash: string,
+    candidateCode: string,
   ): Promise<boolean> {
     for (let attempt = 0; attempt < 2; attempt++) {
       const hashes =
         attempt === 0 ? knownHashes : (await this.getMfaFields(userId)).mfaRecoveryHashes;
-      const matchIndex = hashes.findIndex((h) => {
-        const a = Buffer.from(h, 'hex');
-        const b = Buffer.from(codeHash, 'hex');
-        return a.length === b.length && crypto.timingSafeEqual(a, b);
-      });
+      let matchIndex = -1;
+      for (let i = 0; i < hashes.length; i++) {
+        if (await verifyRecoveryCode(candidateCode, hashes[i])) {
+          matchIndex = i;
+          break;
+        }
+      }
       if (matchIndex === -1) {
         return false;
       }

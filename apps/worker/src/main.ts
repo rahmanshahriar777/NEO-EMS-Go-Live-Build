@@ -207,10 +207,27 @@ async function bootstrap() {
 
   // Prometheus HTTP metrics & health server (exposes /metrics on port 9100)
   const metricsPort = parseInt(process.env.WORKER_METRICS_PORT || '9100', 10);
-  const metricsServer = http.createServer((req, res) => {
+  const metricsServer = http.createServer(async (req, res) => {
     if (req.url === '/metrics' && req.method === 'GET') {
-      res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4' });
-      res.end(metrics.renderPrometheus());
+      try {
+        let queueMetrics = '';
+        for (const [qName, q] of Object.entries(queues)) {
+          try {
+            const counts = await q.getJobCounts('waiting', 'active', 'delayed', 'failed');
+            queueMetrics += `bullmq_queue_waiting_jobs{queue="${qName}"} ${counts.waiting || 0}\n`;
+            queueMetrics += `bullmq_queue_active_jobs{queue="${qName}"} ${counts.active || 0}\n`;
+            queueMetrics += `bullmq_queue_delayed_jobs{queue="${qName}"} ${counts.delayed || 0}\n`;
+            queueMetrics += `bullmq_queue_failed_jobs{queue="${qName}"} ${counts.failed || 0}\n`;
+          } catch {}
+        }
+        res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4' });
+        res.end(
+          `${metrics.renderPrometheus()}\n# HELP bullmq_queue_waiting_jobs Number of waiting jobs in BullMQ queue\n# TYPE bullmq_queue_waiting_jobs gauge\n${queueMetrics}`,
+        );
+      } catch (err: any) {
+        res.writeHead(500, { 'Content-Type': 'text/plain' });
+        res.end(err?.message || 'Error collecting metrics');
+      }
     } else if (req.url === '/healthz' && req.method === 'GET') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
       res.end('OK');

@@ -12,18 +12,18 @@ set -euo pipefail
 
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-BACKUP_FILE="${BACKUP_DIR}/ems_backup_${TIMESTAMP}.sql.gz"
+BACKUP_FILE="${BACKUP_DIR}/ems_backup_${TIMESTAMP}.dump"
 
 mkdir -p "${BACKUP_DIR}"
 
-echo "📦 Starting PostgreSQL database backup..."
+echo "📦 Starting PostgreSQL database backup (custom format -Fc)..."
 
 if [ -n "${DATABASE_URL:-}" ]; then
   echo "   target: managed PostgreSQL via DATABASE_URL (value redacted)"
-  pg_dump "${DATABASE_URL}" --clean --if-exists | gzip > "${BACKUP_FILE}"
+  pg_dump "${DATABASE_URL}" --format=custom --no-owner --no-acl --file="${BACKUP_FILE}"
 else
   echo "   target: dev compose container ems-postgres"
-  docker exec -t ems-postgres pg_dump -U "${POSTGRES_USER:-ems_admin}" -d "${POSTGRES_DB:-ems_db}" --clean --if-exists | gzip > "${BACKUP_FILE}"
+  docker exec -t ems-postgres pg_dump -U "${POSTGRES_USER:-ems_admin}" -d "${POSTGRES_DB:-ems_db}" --format=custom --no-owner --no-acl > "${BACKUP_FILE}"
 fi
 
 echo "✅ Backup successfully created at: ${BACKUP_FILE}"

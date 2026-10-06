@@ -343,12 +343,12 @@ export class TokenService {
     if (this.redisService.getIsConnected()) {
       return true;
     }
-    const failClosed = this.configService.get<string>('REDIS_REPLAY_FAIL_CLOSED') === 'true';
+    const failClosed = (this.configService.get<string>('REDIS_REPLAY_FAIL_CLOSED') ?? 'true') !== 'false';
     if (failClosed) {
       this.logger.error(`[ALERT] ${what} blocked: Redis unavailable (posture: fail-closed)`);
       throw new ServiceUnavailableException('Authentication service temporarily unavailable; please try again later');
     }
-    this.logger.warn(`[ALERT] ${what} degraded: Redis unavailable (documented acceptance: fail-open)`);
+    this.logger.warn(`[ALERT] ${what} degraded: Redis unavailable (explicit opt-out: fail-open)`);
     return false;
   }
 }

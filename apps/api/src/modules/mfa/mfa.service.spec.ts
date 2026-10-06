@@ -8,6 +8,7 @@ import { TokenService } from '../auth/token.service';
 import { AuthService } from '../auth/auth.service';
 import { generateSecret, generateURI, verifySync } from 'otplib';
 import * as crypto from 'crypto';
+import * as argon2 from 'argon2';
 
 jest.mock('otplib', () => ({
   generateSecret: jest.fn(),
@@ -130,11 +131,17 @@ describe('MfaService', () => {
       const stored = prisma.user.update.mock.calls[0][0].data;
       expect(stored.mfaEnabled).toBe(true);
       expect(stored.mfaRecoveryHashes).toHaveLength(10);
-      // only hashes are stored — no raw code may appear in the DB write
+      // only Argon2id hashes are stored — no raw code may appear in the DB write
       for (const raw of result.recoveryCodes) {
         expect(stored.mfaRecoveryHashes).not.toContain(raw);
-        const h = crypto.createHash('sha256').update(raw).digest('hex');
-        expect(stored.mfaRecoveryHashes).toContain(h);
+        let verified = false;
+        for (const h of stored.mfaRecoveryHashes) {
+          if (await argon2.verify(h, raw)) {
+            verified = true;
+            break;
+          }
+        }
+        expect(verified).toBe(true);
       }
     });
 
@@ -344,6 +351,28 @@ describe('MfaService', () => {
     it('revokes all sessions', async () => {
       await service.revokeAllSessions('user-1');
       expect(tokenService.revokeAllUserTokens).toHaveBeenCalledWith('user-1');
+    });
+  });
+
+  describe('keyring encryption', () => {
+    it('encrypts secret with DOCUMENT_ENCRYPTION_KEY and decrypts successfully', async () => {
+      configGet.mockImplementation((key: string, fallback?: any) => {
+        if (key === 'DOCUMENT_ENCRYPTION_KEY') return '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+        if (key === 'mfa.issuer') return 'NEO EMS';
+        if (key === 'mfa.totpWindow') return 1;
+        return fallback;
+      });
+
+      prisma.user.findUnique.mockResolvedValue(mfaRow());
+      await service.setupTotp('user-1', 'jane@ems.local');
+
+      const savedSecret = prisma.user.update.mock.calls[prisma.user.update.mock.calls.length - 1][0].data.mfaSecret;
+      expect(savedSecret).toMatch(/^enc:[0-9a-f]+:[0-9a-f]+:[0-9a-f]+$/);
+
+      // Now verify getStatus decrypts it without exposing secret
+      prisma.user.findUnique.mockResolvedValue(mfaRow({ mfaSecret: savedSecret }));
+      const status = await service.getStatus('user-1');
+      expect(status.hasPendingSetup).toBe(true);
     });
   });
 });

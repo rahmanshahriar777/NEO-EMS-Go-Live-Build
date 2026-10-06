@@ -101,7 +101,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
    */
   async setIfAbsent(key: string, value: string, ttlSeconds: number): Promise<boolean> {
     const client = this.getClient();
-    const failClosed = this.configService.get<string>('REDIS_REPLAY_FAIL_CLOSED') === 'true';
+    const failClosed = (this.configService.get<string>('REDIS_REPLAY_FAIL_CLOSED') ?? 'true') !== 'false';
     if (!client || !this.isConnected) {
       if (failClosed) {
         this.logger.error(
@@ -109,9 +109,9 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
         );
         return false;
       }
-      // Documented accepted risk when REDIS_REPLAY_FAIL_CLOSED is false (or unset)
+      // Documented accepted risk when REDIS_REPLAY_FAIL_CLOSED is explicitly set to false
       this.logger.warn(
-        `[ALERT] setIfAbsent FAIL-OPEN for key '${key}': Redis unreachable — replay guard is DEGRADED (documented acceptance)`,
+        `[ALERT] setIfAbsent FAIL-OPEN for key '${key}': Redis unreachable — replay guard is DEGRADED (explicit opt-out)`,
       );
       return true;
     }

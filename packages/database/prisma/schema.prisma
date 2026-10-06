@@ -894,7 +894,7 @@ model Goal {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
-  employee    Employee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employee    Employee   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
 
   @@index([employeeId])
   @@map("goals")
@@ -947,7 +947,7 @@ model Document {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  employee     Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employee     Employee? @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   acknowledgements DocumentAcknowledgement[]
   onboardingTasks  OnboardingTask[]
 
@@ -964,7 +964,7 @@ model DocumentAcknowledgement {
   acknowledgedAt DateTime @default(now())
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
 
   @@unique([documentId, employeeId])
   @@index([employeeId])

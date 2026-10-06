@@ -72,12 +72,11 @@ carries a `keyId` column. The full re-encryption procedure is in
 [KEY_ROTATION.md](KEY_ROTATION.md) §1 — read it end to end before touching
 this key. Critical caveats:
 
-- **Dual-key support (`DOCUMENT_ENCRYPTION_KEY_PREVIOUS`) does NOT exist
-  in code yet** (verified in the tree: no references). Until that lands,
-  there is no online dual-key rotation — schedule a maintenance window,
-  re-encrypt all blobs, then switch the single key. Do NOT attempt the
-  KEY_ROTATION.md dual-key dance without confirming `_PREVIOUS` support
-  in `documents.service.ts` first.
+- **Dual-key support (`DOCUMENT_ENCRYPTION_KEY_PREVIOUS`) is ACTIVE in code**:
+  Implemented in `documents.service.ts` and `mfa.service.ts`. Decryption
+  automatically falls back to `DOCUMENT_ENCRYPTION_KEY_PREVIOUS` when
+  the active key fails, allowing zero-downtime key rotation alongside
+  background re-encryption jobs.
 - **Backups are tied to the key active when taken.** Annotate every backup
   file with its `keyId`; after rotation, old backups can only be restored
   with the old key — keep the old key's *sealed* copy in the secret

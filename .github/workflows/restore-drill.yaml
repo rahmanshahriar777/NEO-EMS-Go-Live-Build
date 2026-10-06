@@ -1,0 +1,67 @@
+name: Automated Monthly Restore Drill
+
+on:
+  schedule:
+    # Runs at 04:00 UTC on the 1st of every month
+    - cron: '0 4 1 * *'
+  workflow_dispatch:
+
+jobs:
+  restore-drill:
+    name: Execute Disaster Recovery Restore Drill
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ems_admin
+          POSTGRES_PASSWORD: ems_secure_password_123!
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup PostgreSQL client tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      - name: Setup pnpm & Node.js
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10.5.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Seed baseline test database
+        run: |
+          export DATABASE_URL="postgresql://ems_admin:ems_secure_password_123!@localhost:5432/ems_baseline?schema=public"
+          psql "postgresql://ems_admin:ems_secure_password_123!@localhost:5432/postgres" -c "CREATE DATABASE ems_baseline;"
+          pnpm --filter @ems/database prisma migrate deploy
+          pnpm --filter @ems/database prisma db seed
+
+      - name: Generate custom-format backup (-Fc)
+        run: |
+          mkdir -p /tmp/backups
+          pg_dump "postgresql://ems_admin:ems_secure_password_123!@localhost:5432/ems_baseline" \
+            --format=custom --no-owner --no-acl --file=/tmp/backups/drill_source.dump
+
+      - name: Run Restore Drill into Scratch Namespace
+        env:
+          DATABASE_URL: "postgresql://ems_admin:ems_secure_password_123!@localhost:5432/postgres"
+        run: |
+          bash scripts/restore-drill.sh /tmp/backups/drill_source.dump

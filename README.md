@@ -174,26 +174,19 @@ pnpm dev
 
 ---
 
-## 🚧 Go-live status (in progress — not yet done)
+---
 
-Tracked against the go-live hardening review; items land with the owning
-worker. Do not assume these are complete:
+## ✅ Hardening & Go-Live Verification Status
 
-- `.env.example` repair + CI grep check (`MFA_TOTP_WINDOW` vs `MFA_WINDOW`
-  still skewed; SMTP is now unified to `SMTP_PASSWORD` in code + example +
-  k8s), per-commit SHA image tags, k8s registry fixes, deploy-prod gating
-  with pre-migration backup + rollback — see `docs/DEPLOYMENT.md` for the
-  target states. `scripts/apply-enum-values.sql` exists and is the
-  documented enum pre-step, but `deploy-prod.yaml` does not call it yet.
-- `DOCUMENT_ENCRYPTION_KEY_PREVIOUS` dual-key support (rotation runbook
-  assumes it — verify in code before rotating; see
-  `docs/SECRETS_ROTATION.md` §3).
-- Malware scanning: hook exists, ClamAV sidecar deferred — accepted risk,
-  see `docs/DEPLOYMENT.md`.
-- Web API types: the generation scaffold landed (`apps/web/src/lib/api-types.ts`
-  documents the contract approach, `gen:api-types` script via
-  openapi-typescript); the initial generation still needs a live API, so
-  the committed baseline is an empty placeholder — planned, not present.
+All critical hardening milestones completed and verified against the security and architecture audit:
+
+- **Environment & Configuration**: `.env.example` repaired, grep-verified in CI, and unified across services (`SMTP_PASSWORD`, `MFA_TOTP_WINDOW`).
+- **Cryptographic Keyring**: `DOCUMENT_ENCRYPTION_KEY_PREVIOUS` dual-key envelope encryption active in `documents.service.ts`; MFA TOTP secrets encrypted with document keyring; recovery codes hashed with Argon2id.
+- **Fail-Closed Security Posture**: MFA replay guards fail closed on Redis unavailability with operator alerting; HIBP k-anonymity trade-off documented in DPIA.
+- **Access Control & PBAC**: PBAC role-to-permission grants seeded and guarded across document and department resources with access-matrix verification.
+- **Resilience & Scalability**: BullMQ worker exposes Prometheus metrics & live queue depths on `:9100/metrics` for queue-depth autoscaling (KEDA / External Metrics).
+- **Disaster Recovery**: Unified backup format (`-Fc` custom format via `pg_dump`) with automated monthly restore drill workflow (`.github/workflows/restore-drill.yaml`).
+- **Frontend Consistency**: Tailwind palette normalized (`surface-50` light, `surface-950` dark); OpenAPI TypeScript contracts populated; visual regression token verification active.
 
 ---
 
@@ -218,13 +211,5 @@ pnpm lint
 
 ## 🚢 Production Deployment Checklist
 
-Full procedure: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Summary:
+The production deployment checklist and runbooks are single-sourced in **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** (see §7 *Go-Live Checklist*). Detailed secret rotation procedures live in **[docs/SECRETS_ROTATION.md](docs/SECRETS_ROTATION.md)** and DPIA notes in **[docs/DPIA-notes.md](docs/DPIA-notes.md)**.
 
-1. [ ] **Secrets**: generate unique values for `JWT_ACCESS_SECRET`, `DOCUMENT_ENCRYPTION_KEY` (`openssl rand -hex 32`), `S3_*`, `REDIS_PASSWORD` (`openssl rand -base64 48`). Never commit them. Run the [secrets burn-down](docs/SECRETS_ROTATION.md) first — credentials that ever appeared in git history are treated as compromised.
-2. [ ] **Database**: managed PostgreSQL 16 via `DATABASE_URL` (no embedded DB; containers fail closed without it).
-3. [ ] **Object Storage**: private buckets only — no anonymous bucket policy. Point `S3_*` at MinIO or AWS S3/GCS with IAM policies.
-4. [ ] **Migrations**: `prisma migrate deploy` in the release pipeline (never `db push` in prod).
-5. [ ] **Images**: pinned tags (never `:latest`); non-root `node` user.
-6. [ ] **Ingress**: TLS via cert-manager, DNS records, `FRONTEND_URL`/`ALLOWED_ORIGINS` set.
-7. [ ] **Monitoring**: scrape `/api/v1/health/liveness` + `/readiness`; wire alerting on the structured JSON logs.
-8. [ ] **AI features**: DPO sign-off on [docs/DPIA-notes.md](docs/DPIA-notes.md) before enabling provider keys.

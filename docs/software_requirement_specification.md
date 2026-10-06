@@ -5,19 +5,17 @@
 **Date:** September 24, 2026  
 **Authors:** Neoteric Digital Architecture & Product Engineering Team  
 
-> ⚠️ **HISTORICAL DOCUMENT — do not treat as current.** This SRS predates
-> the go-live hardening review and describes the *original* architecture
-> (all-in-one Cloud Run container with embedded PostgreSQL, self-contained
-> Knative deployment), which has been **deprecated and replaced** by the
-> three-service topology (Next.js web + NestJS API + BullMQ worker, managed
-> PostgreSQL, compose/k8s) documented in [DEPLOYMENT.md](DEPLOYMENT.md).
-> The environment-variable tables in §13.4 are superseded by `.env.example`
-> (under repair — see DEPLOYMENT.md §1) and by
-> `apps/api/src/config/configuration.ts` as the runtime source of truth.
-> Security-relevant corrections: `JWT_REFRESH_SECRET` (see §13.4) **no
-> longer exists** — refresh tokens are opaque server-side tokens, not JWTs.
-> Kept for requirements traceability only; normative operational detail
-> lives in DEPLOYMENT.md and the go-live docs.
+> ⚠️ **ARCHIVED & HISTORICAL SPECIFICATION — DO NOT TREAT AS OPERATIONAL TRUTH.**
+> This Software Requirement Specification (SRS) is officially **ARCHIVED**.
+> It describes the original monolithic single-container topology which was
+> deprecated and replaced by the production three-tier micro-architecture
+> (Next.js 15 Web, NestJS 11 Core API, BullMQ Worker, managed PostgreSQL 16,
+> Redis 7 HA, and MinIO/S3 object vault).
+> 
+> Current operational architecture, deployment topology, and go-live checklists
+> are authoritatively single-sourced in [DEPLOYMENT.md](DEPLOYMENT.md). Runtime
+> configuration is governed by `.env.example` and `apps/api/src/config/configuration.ts`.
+> Retained exclusively for historical functional requirements traceability.
 
 ---
 

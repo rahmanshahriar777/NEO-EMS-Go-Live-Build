@@ -4,7 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
-import { UnauthorizedException } from '@nestjs/common';
+import { UnauthorizedException, ServiceUnavailableException } from '@nestjs/common';
 import { SystemRole } from '@ems/shared';
 import * as crypto from 'crypto';
 
@@ -360,8 +360,20 @@ describe('TokenService', () => {
       );
     });
 
-    it('replay guards fail open (with Redis down) rather than bricking MFA login', async () => {
+    it('replay guards fail closed by default (with Redis down) and alert on loss', async () => {
       redisService.getIsConnected.mockReturnValue(false);
+
+      await expect(service.consumeMfaChallengeToken('jti-x')).rejects.toThrow(ServiceUnavailableException);
+      await expect(service.claimTotpTimeStep('user-1', 1, 90)).rejects.toThrow(ServiceUnavailableException);
+      expect(redisService.setIfAbsent).not.toHaveBeenCalled();
+    });
+
+    it('replay guards fail open only when REDIS_REPLAY_FAIL_CLOSED=false', async () => {
+      redisService.getIsConnected.mockReturnValue(false);
+      (configService.get as jest.Mock).mockImplementation((key: string, fallback?: any) => {
+        if (key === 'REDIS_REPLAY_FAIL_CLOSED') return 'false';
+        return fallback;
+      });
 
       await expect(service.consumeMfaChallengeToken('jti-x')).resolves.toBeUndefined();
       await expect(service.claimTotpTimeStep('user-1', 1, 90)).resolves.toBe(true);
