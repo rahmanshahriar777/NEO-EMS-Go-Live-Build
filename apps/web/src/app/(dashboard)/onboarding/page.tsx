@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   ClipboardCheck,
   UserCheck,
@@ -11,20 +11,17 @@ import {
   AlertCircle,
   X,
   Search,
-  Filter,
   Check,
-  Calendar,
   User,
   Shield,
   Laptop,
   Briefcase,
-  FileText,
 } from 'lucide-react';
 import { DashboardLayout } from '../../../components/layout/dashboard-layout';
 import { api } from '../../../lib/api-client';
 import { useAuth } from '../../../context/auth-context';
 import { SystemRole } from '@ems/shared';
-import '../../../styles/admin.css';
+import '../../../styles/editorial-common.css';
 
 interface OnboardingTask {
   id: string;
@@ -62,7 +59,7 @@ interface EmployeeOption {
 }
 
 export default function OnboardingPage() {
-  const { user, hasRole } = useAuth();
+  const { hasRole } = useAuth();
   const canManage = hasRole(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN);
 
   const [checklists, setChecklists] = useState<OnboardingChecklist[]>([]);
@@ -189,589 +186,673 @@ export default function OnboardingPage() {
     }
   };
 
-  const filteredChecklists = checklists.filter((c) => {
-    const matchesKind = kindFilter === 'ALL' || c.kind === kindFilter;
-    const emp = employees.find((e) => e.id === c.employeeId);
-    const empName = emp ? `${emp.firstName} ${emp.lastName}`.toLowerCase() : '';
-    const matchesSearch =
-      c.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.employeeId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      empName.includes(searchQuery.toLowerCase());
-    return matchesKind && matchesSearch;
-  });
+  const filteredChecklists = useMemo(() => {
+    return checklists.filter((c) => {
+      const matchesKind = kindFilter === 'ALL' || c.kind === kindFilter;
+      const emp = employees.find((e) => e.id === c.employeeId);
+      const empName = emp ? `${emp.firstName} ${emp.lastName}`.toLowerCase() : '';
+      const matchesSearch =
+        c.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        c.employeeId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        empName.includes(searchQuery.toLowerCase());
+      return matchesKind && matchesSearch;
+    });
+  }, [checklists, kindFilter, searchQuery, employees]);
 
   const getEmployeeName = (empId: string) => {
     const emp = employees.find((e) => e.id === empId);
-    return emp ? `${emp.firstName} ${emp.lastName}` : `Employee (${empId.slice(0, 8)})`;
+    return emp ? `${emp.firstName} ${emp.lastName}` : `Personnel #${empId.slice(0, 8)}`;
   };
 
   const getOwnerIcon = (role: string) => {
     switch (role?.toUpperCase()) {
       case 'IT':
-        return <Laptop size={13} className="text-cyan-700" />;
+        return <Laptop size={13} style={{ color: 'var(--edit-info)' }} />;
       case 'MANAGER':
-        return <Briefcase size={13} className="text-amber-700" />;
+        return <Briefcase size={13} style={{ color: 'var(--edit-warning)' }} />;
       case 'EMPLOYEE':
-        return <User size={13} className="text-emerald-700" />;
+        return <User size={13} style={{ color: 'var(--edit-positive)' }} />;
       default:
-        return <Shield size={13} className="text-purple-700" />;
+        return <Shield size={13} style={{ color: 'var(--edit-purple)' }} />;
     }
   };
 
-  const totalOnboarding = checklists.filter((c) => c.kind === 'ONBOARDING').length;
-  const totalOffboarding = checklists.filter((c) => c.kind === 'OFFBOARDING').length;
-  const activeChecklists = checklists.filter((c) => c.status === 'IN_PROGRESS').length;
+  const totalOnboarding = useMemo(
+    () => checklists.filter((c) => c.kind === 'ONBOARDING').length,
+    [checklists],
+  );
+  const totalOffboarding = useMemo(
+    () => checklists.filter((c) => c.kind === 'OFFBOARDING').length,
+    [checklists],
+  );
+  const activeChecklists = useMemo(
+    () => checklists.filter((c) => c.status === 'IN_PROGRESS').length,
+    [checklists],
+  );
 
   return (
-    <DashboardLayout>
-      <div className="adm-page">
-        {/* Header */}
-        <div className="adm-header">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="p-2 rounded-xl bg-purple-50 text-purple-700">
-                <ClipboardCheck size={22} />
-              </span>
-              <h1 className="adm-title">Onboarding & Offboarding Lifecycle</h1>
-            </div>
-            <p className="adm-subtitle">
-              Standardised employee induction workflows, IT asset provisioning, department transitions, and exit checklists.
-            </p>
-          </div>
-
-          {canManage && (
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="adm-btn adm-btn-primary"
-            >
-              <Plus size={16} />
-              <span>Start New Checklist</span>
-            </button>
-          )}
-        </div>
-
-        {/* Notifications */}
-        {actionSuccess && (
-          <div className="flex items-center justify-between p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-sm">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 size={18} className="text-emerald-600" />
-              <span>{actionSuccess}</span>
-            </div>
-            <button onClick={() => setActionSuccess(null)} className="text-emerald-600 hover:text-emerald-900">
-              <X size={16} />
-            </button>
-          </div>
-        )}
-
-        {error && (
-          <div className="adm-error flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <AlertCircle size={18} />
-              <span>{error}</span>
-            </div>
-            <button onClick={() => setError(null)} className="text-rose-600 hover:text-rose-900">
-              <X size={16} />
-            </button>
-          </div>
-        )}
-
-        {/* Top Metric Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="adm-card flex items-center gap-4">
-            <div className="p-3 rounded-xl bg-purple-50 text-purple-700">
-              <ClipboardCheck size={22} />
-            </div>
-            <div>
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Checklists</div>
-              <div className="text-2xl font-bold text-gray-900">{checklists.length}</div>
-            </div>
-          </div>
-
-          <div className="adm-card flex items-center gap-4">
-            <div className="p-3 rounded-xl bg-blue-50 text-blue-700">
-              <Clock size={22} />
-            </div>
-            <div>
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">In Progress</div>
-              <div className="text-2xl font-bold text-gray-900">{activeChecklists}</div>
-            </div>
-          </div>
-
-          <div className="adm-card flex items-center gap-4">
-            <div className="p-3 rounded-xl bg-emerald-50 text-emerald-700">
-              <UserCheck size={22} />
-            </div>
-            <div>
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Onboarding</div>
-              <div className="text-2xl font-bold text-gray-900">{totalOnboarding}</div>
-            </div>
-          </div>
-
-          <div className="adm-card flex items-center gap-4">
-            <div className="p-3 rounded-xl bg-amber-50 text-amber-700">
-              <UserMinus size={22} />
-            </div>
-            <div>
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Offboarding</div>
-              <div className="text-2xl font-bold text-gray-900">{totalOffboarding}</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Main Content Area */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Left Checklists Navigation List */}
-          <div className="lg:col-span-5 adm-card flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold text-gray-900">Active Checklists</h2>
-              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-semibold">
-                {filteredChecklists.length}
-              </span>
-            </div>
-
-            {/* Filter Buttons */}
-            <div className="flex flex-col gap-2">
-              <div className="relative">
-                <Search size={15} className="absolute left-3 top-3 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search by employee..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="adm-input pl-9 text-xs"
-                />
+    <DashboardLayout title="Onboarding & Offboarding Lifecycle">
+      <div className="editorial-wrapper">
+        <div className="editorial-page">
+          {/* Page Header */}
+          <header className="editorial-header">
+            <div className="editorial-header-top">
+              <div>
+                <h1 className="editorial-title">Onboarding & Offboarding Lifecycle</h1>
+                <p className="editorial-subtitle">
+                  Structured employee induction checklists, hardware and identity provisioning, role milestones, and exit handovers.
+                </p>
               </div>
 
-              <div className="flex gap-1 p-1 bg-gray-100 rounded-lg text-xs font-semibold text-gray-600">
-                {(['ALL', 'ONBOARDING', 'OFFBOARDING'] as const).map((k) => (
+              <div className="editorial-header-actions">
+                <div className="editorial-stat-pill">
+                  <ClipboardCheck size={14} style={{ color: 'var(--edit-accent)' }} />
+                  <span>In Progress:</span>
+                  <span className="count">{activeChecklists}</span>
+                </div>
+                <div className="editorial-stat-pill">
+                  <span>Total Checklists:</span>
+                  <span className="count">{checklists.length}</span>
+                </div>
+                {canManage && (
                   <button
-                    key={k}
-                    onClick={() => setKindFilter(k)}
-                    className={`flex-1 py-1 text-center rounded-md transition-all ${
-                      kindFilter === k ? 'bg-white text-gray-900 shadow-sm font-bold' : 'hover:text-gray-900'
-                    }`}
+                    onClick={() => setShowCreateModal(true)}
+                    className="editorial-btn-primary"
                   >
-                    {k === 'ALL' ? 'All' : k === 'ONBOARDING' ? 'Onboarding' : 'Offboarding'}
+                    <Plus size={15} />
+                    <span>Start New Checklist</span>
                   </button>
-                ))}
+                )}
+              </div>
+            </div>
+          </header>
+
+          {/* Feedback Banners */}
+          {actionSuccess && (
+            <div className="editorial-banner editorial-banner-success">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <CheckCircle2 size={16} />
+                <span>{actionSuccess}</span>
+              </div>
+              <button
+                onClick={() => setActionSuccess(null)}
+                className="editorial-btn-ghost"
+                style={{ padding: '2px', border: 'none' }}
+              >
+                <X size={15} />
+              </button>
+            </div>
+          )}
+
+          {error && (
+            <div className="editorial-banner editorial-banner-error">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <AlertCircle size={16} />
+                <span>{error}</span>
+              </div>
+              <button
+                onClick={() => setError(null)}
+                className="editorial-btn-ghost"
+                style={{ padding: '2px', border: 'none' }}
+              >
+                <X size={15} />
+              </button>
+            </div>
+          )}
+
+          {/* Metric Cards Grid */}
+          <div className="editorial-quick-stats">
+            <div className="editorial-quick-stat-card">
+              <div>
+                <div className="editorial-quick-stat-label">Active Workflows</div>
+                <div className="editorial-quick-stat-value">{activeChecklists}</div>
+                <div className="editorial-quick-stat-sub">Pending completion</div>
+              </div>
+              <div className="editorial-quick-stat-icon">
+                <Clock size={18} />
               </div>
             </div>
 
-            {/* Checklist items list */}
-            <div className="flex flex-col gap-2 max-h-[560px] overflow-y-auto pr-1">
-              {filteredChecklists.length === 0 ? (
-                <div className="adm-empty">No checklists found.</div>
-              ) : (
-                filteredChecklists.map((cl) => {
-                  const isSelected = selectedChecklist?.id === cl.id;
-                  const totalTasks = cl.tasks?.length || 0;
-                  const doneTasks = cl.tasks?.filter((t) => t.status === 'DONE').length || 0;
-                  const percent = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+            <div className="editorial-quick-stat-card">
+              <div>
+                <div className="editorial-quick-stat-label">New Hires Onboarding</div>
+                <div className="editorial-quick-stat-value">{totalOnboarding}</div>
+                <div className="editorial-quick-stat-sub">Induction & provisioning</div>
+              </div>
+              <div className="editorial-quick-stat-icon">
+                <UserCheck size={18} />
+              </div>
+            </div>
 
-                  return (
-                    <div
-                      key={cl.id}
-                      onClick={() => setSelectedChecklist(cl)}
-                      className={`p-3.5 rounded-xl border text-left cursor-pointer transition-all ${
-                        isSelected
-                          ? 'border-purple-600 bg-purple-50/30 shadow-sm ring-1 ring-purple-600'
-                          : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/50'
-                      }`}
+            <div className="editorial-quick-stat-card">
+              <div>
+                <div className="editorial-quick-stat-label">Offboarding Exits</div>
+                <div className="editorial-quick-stat-value">{totalOffboarding}</div>
+                <div className="editorial-quick-stat-sub">Asset retrieval & revokes</div>
+              </div>
+              <div className="editorial-quick-stat-icon">
+                <UserMinus size={18} />
+              </div>
+            </div>
+
+            <div className="editorial-quick-stat-card">
+              <div>
+                <div className="editorial-quick-stat-label">Total Lifecycle Checklists</div>
+                <div className="editorial-quick-stat-value">{checklists.length}</div>
+                <div className="editorial-quick-stat-sub">Historical audit logs</div>
+              </div>
+              <div className="editorial-quick-stat-icon">
+                <ClipboardCheck size={18} />
+              </div>
+            </div>
+          </div>
+
+          {/* Two-Column Explorer Layout */}
+          <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '24px', alignItems: 'start' }}>
+            {/* Left Column: Checklists Catalog */}
+            <div
+              style={{
+                background: 'var(--edit-surface)',
+                border: '1px solid var(--edit-border)',
+                borderRadius: 'var(--edit-radius-lg)',
+                padding: '16px',
+                boxShadow: 'var(--edit-shadow-sm)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '14px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <h2 style={{ fontFamily: 'var(--edit-font-serif)', fontSize: '20px', margin: 0, fontWeight: 400 }}>
+                  Lifecycle Checklists
+                </h2>
+                <span className="editorial-stat-pill" style={{ padding: '2px 8px', fontSize: '11px' }}>
+                  {filteredChecklists.length}
+                </span>
+              </div>
+
+              {/* Search & Kind Filter */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div className="editorial-search-container" style={{ maxWidth: '100%' }}>
+                  <Search className="editorial-search-icon" />
+                  <input
+                    type="text"
+                    placeholder="Search personnel..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="editorial-search-input"
+                    style={{ fontSize: '12px', padding: '6px 10px 6px 32px' }}
+                  />
+                </div>
+
+                <div className="editorial-filter-pills" style={{ gap: '4px' }}>
+                  {(['ALL', 'ONBOARDING', 'OFFBOARDING'] as const).map((k) => (
+                    <button
+                      key={k}
+                      onClick={() => setKindFilter(k)}
+                      className={`editorial-filter-pill ${kindFilter === k ? 'active' : ''}`}
+                      style={{ fontSize: '11px', padding: '3px 8px' }}
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="font-semibold text-sm text-gray-900">
-                          {getEmployeeName(cl.employeeId)}
-                        </div>
-                        <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                            cl.kind === 'ONBOARDING'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-amber-100 text-amber-800'
-                          }`}
-                        >
-                          {cl.kind}
-                        </span>
-                      </div>
+                      {k === 'ALL' ? 'All' : k === 'ONBOARDING' ? 'Onboarding' : 'Offboarding'}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-                      {/* Progress Bar */}
-                      <div className="mt-2.5 flex flex-col gap-1">
-                        <div className="flex items-center justify-between text-xs text-gray-500">
-                          <span>Progress</span>
-                          <span className="font-semibold text-gray-700">
-                            {doneTasks}/{totalTasks} ({percent}%)
+              {/* Checklists items */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '560px', overflowY: 'auto' }}>
+                {filteredChecklists.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '30px 10px', color: 'var(--edit-text-tertiary)', fontSize: '12.5px' }}>
+                    No checklists found matching criteria.
+                  </div>
+                ) : (
+                  filteredChecklists.map((cl) => {
+                    const isSelected = selectedChecklist?.id === cl.id;
+                    const doneTasks = cl.tasks.filter((t) => t.status === 'DONE').length;
+                    const totalTasks = cl.tasks.length;
+                    const pct = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+                    const empName = getEmployeeName(cl.employeeId);
+
+                    return (
+                      <div
+                        key={cl.id}
+                        onClick={() => setSelectedChecklist(cl)}
+                        style={{
+                          padding: '12px 14px',
+                          borderRadius: 'var(--edit-radius-md)',
+                          border: `1px solid ${isSelected ? 'var(--edit-accent)' : 'var(--edit-border-subtle)'}`,
+                          background: isSelected ? 'var(--edit-accent-light)' : 'var(--edit-surface-muted)',
+                          cursor: 'pointer',
+                          transition: 'all var(--edit-transition-fast)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+                          <div style={{ fontWeight: 600, fontSize: '13.5px', color: 'var(--edit-text-primary)' }}>
+                            {empName}
+                          </div>
+                          <span
+                            className={`editorial-badge ${
+                              cl.kind === 'ONBOARDING'
+                                ? 'editorial-badge-info'
+                                : 'editorial-badge-warning'
+                            }`}
+                            style={{ fontSize: '10px', padding: '1px 6px' }}
+                          >
+                            {cl.kind === 'ONBOARDING' ? 'Induction' : 'Exit'}
                           </span>
                         </div>
-                        <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
+
+                        {/* Progress Bar */}
+                        <div style={{ marginTop: '10px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--edit-text-secondary)', marginBottom: '3px' }}>
+                            <span>Progress</span>
+                            <span className="editorial-mono" style={{ fontWeight: 600 }}>
+                              {doneTasks}/{totalTasks} ({pct}%)
+                            </span>
+                          </div>
                           <div
-                            className={`h-full transition-all duration-300 ${
-                              percent === 100 ? 'bg-emerald-500' : 'bg-purple-600'
-                            }`}
-                            style={{ width: `${percent}%` }}
-                          />
+                            style={{
+                              height: '5px',
+                              borderRadius: '3px',
+                              background: 'var(--edit-border-subtle)',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: `${pct}%`,
+                                height: '100%',
+                                background: pct === 100 ? 'var(--edit-positive)' : 'var(--edit-accent)',
+                                transition: 'width 0.3s ease',
+                              }}
+                            />
+                          </div>
                         </div>
                       </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
 
-                      <div className="mt-2 flex items-center justify-between text-xs text-gray-400">
-                        <span>
-                          {cl.referenceDate ? `Target: ${cl.referenceDate.split('T')[0]}` : 'Ongoing'}
-                        </span>
+            {/* Right Column: Selected Checklist & Tasks */}
+            <div
+              style={{
+                background: 'var(--edit-surface)',
+                border: '1px solid var(--edit-border)',
+                borderRadius: 'var(--edit-radius-lg)',
+                padding: '20px',
+                boxShadow: 'var(--edit-shadow-sm)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '18px',
+              }}
+            >
+              {selectedChecklist ? (
+                <>
+                  {/* Selected Checklist Header */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      justifyContent: 'space-between',
+                      borderBottom: '1px solid var(--edit-border-subtle)',
+                      paddingBottom: '16px',
+                      flexWrap: 'wrap',
+                      gap: '12px',
+                    }}
+                  >
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <h2 style={{ fontFamily: 'var(--edit-font-serif)', fontSize: '24px', margin: 0, fontWeight: 400 }}>
+                          {getEmployeeName(selectedChecklist.employeeId)}
+                        </h2>
                         <span
-                          className={`font-semibold ${
-                            cl.status === 'COMPLETED' ? 'text-emerald-600' : 'text-blue-600'
+                          className={`editorial-badge ${
+                            selectedChecklist.kind === 'ONBOARDING'
+                              ? 'editorial-badge-info'
+                              : 'editorial-badge-warning'
                           }`}
                         >
-                          {cl.status}
+                          {selectedChecklist.kind}
+                        </span>
+                        <span
+                          className={`editorial-badge ${
+                            selectedChecklist.status === 'COMPLETED'
+                              ? 'editorial-badge-positive'
+                              : 'editorial-badge-neutral'
+                          }`}
+                        >
+                          {selectedChecklist.status}
                         </span>
                       </div>
+                      <div style={{ fontSize: '12px', color: 'var(--edit-text-secondary)', marginTop: '4px' }}>
+                        Reference Date:{' '}
+                        <span className="editorial-mono" style={{ fontWeight: 600 }}>
+                          {selectedChecklist.referenceDate || selectedChecklist.createdAt.split('T')[0]}
+                        </span>{' '}
+                        • Total Tasks: <span className="editorial-mono">{selectedChecklist.tasks.length}</span>
+                      </div>
                     </div>
-                  );
-                })
+
+                    {/* Progress summary badge */}
+                    {(() => {
+                      const done = selectedChecklist.tasks.filter((t) => t.status === 'DONE').length;
+                      const tot = selectedChecklist.tasks.length;
+                      const pct = tot > 0 ? Math.round((done / tot) * 100) : 0;
+                      return (
+                        <div
+                          style={{
+                            padding: '6px 14px',
+                            borderRadius: 'var(--edit-radius-md)',
+                            background: 'var(--edit-accent-light)',
+                            border: '1px solid var(--edit-accent-muted)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                          }}
+                        >
+                          <span style={{ fontSize: '12px', color: 'var(--edit-accent)', fontWeight: 600 }}>
+                            Completion Rate:
+                          </span>
+                          <span className="editorial-mono" style={{ fontSize: '14px', fontWeight: 700, color: 'var(--edit-accent)' }}>
+                            {pct}%
+                          </span>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Tasks List */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--edit-text-primary)' }}>
+                      Actionable Checklist Tasks
+                    </div>
+
+                    {selectedChecklist.tasks.map((task) => {
+                      const isDone = task.status === 'DONE';
+                      return (
+                        <div
+                          key={task.id}
+                          style={{
+                            padding: '14px 16px',
+                            borderRadius: 'var(--edit-radius-md)',
+                            border: '1px solid var(--edit-border)',
+                            background: isDone ? 'var(--edit-surface-muted)' : 'var(--edit-surface)',
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            justifyContent: 'space-between',
+                            gap: '14px',
+                            transition: 'all var(--edit-transition-fast)',
+                            opacity: isDone ? 0.8 : 1,
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                            <div
+                              style={{
+                                width: '22px',
+                                height: '22px',
+                                borderRadius: '50%',
+                                border: `2px solid ${isDone ? 'var(--edit-positive)' : 'var(--edit-border)'}`,
+                                background: isDone ? 'var(--edit-positive)' : 'transparent',
+                                color: '#ffffff',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                marginTop: '1px',
+                                flexShrink: 0,
+                              }}
+                            >
+                              {isDone && <Check size={13} />}
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <div
+                                style={{
+                                  fontSize: '14px',
+                                  fontWeight: 600,
+                                  color: 'var(--edit-text-primary)',
+                                  textDecoration: isDone ? 'line-through' : 'none',
+                                }}
+                              >
+                                {task.title}
+                              </div>
+                              {task.description && (
+                                <div style={{ fontSize: '12.5px', color: 'var(--edit-text-secondary)' }}>
+                                  {task.description}
+                                </div>
+                              )}
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '2px', fontSize: '11px', color: 'var(--edit-text-tertiary)' }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                  {getOwnerIcon(task.ownerRole)}
+                                  <span style={{ fontWeight: 600 }}>{task.ownerRole}</span>
+                                </span>
+                                {task.dueDate && (
+                                  <span className="editorial-mono">Due: {task.dueDate}</span>
+                                )}
+                                {task.completedAt && (
+                                  <span className="editorial-mono" style={{ color: 'var(--edit-positive)' }}>
+                                    Completed: {task.completedAt.split('T')[0]}
+                                  </span>
+                                )}
+                              </div>
+
+                              {task.note && (
+                                <div style={{ marginTop: '4px', fontSize: '11.5px', fontStyle: 'italic', color: 'var(--edit-text-secondary)' }}>
+                                  Note: &ldquo;{task.note}&rdquo;
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Action Button */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                            {!isDone && canManage && (
+                              <button
+                                onClick={() => setCompletingTask(task)}
+                                className="editorial-btn-primary"
+                                style={{ fontSize: '11px', padding: '4px 10px' }}
+                              >
+                                <Check size={12} />
+                                <span>Complete</span>
+                              </button>
+                            )}
+                            {canManage && (
+                              <button
+                                onClick={() => {
+                                  setAssigningTask(task);
+                                  setAssignUserId(task.ownerUserId || '');
+                                }}
+                                className="editorial-btn-ghost"
+                                style={{ fontSize: '11px', padding: '4px 8px' }}
+                              >
+                                Re-assign
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--edit-text-secondary)' }}>
+                  <ClipboardCheck size={36} style={{ margin: '0 auto 12px', color: 'var(--edit-text-tertiary)' }} />
+                  <div style={{ fontFamily: 'var(--edit-font-serif)', fontSize: '20px', color: 'var(--edit-text-primary)' }}>
+                    No checklist selected
+                  </div>
+                  <p style={{ fontSize: '13px', marginTop: '4px' }}>
+                    Select an induction or exit checklist from the left panel to review task milestones.
+                  </p>
+                </div>
               )}
             </div>
           </div>
 
-          {/* Right Checklist Detail View & Task Checkboxes */}
-          <div className="lg:col-span-7 flex flex-col gap-4">
-            {selectedChecklist ? (
-              <div className="adm-card flex flex-col gap-5">
-                {/* Checklist Header */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
+          {/* Modal 1: Start New Checklist */}
+          {showCreateModal && (
+            <div className="editorial-modal-overlay">
+              <div className="editorial-modal">
+                <div className="editorial-modal-header">
                   <div>
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-xl font-bold text-gray-900">
-                        {getEmployeeName(selectedChecklist.employeeId)}
-                      </h2>
-                      <span
-                        className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
-                          selectedChecklist.kind === 'ONBOARDING'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-amber-100 text-amber-800'
-                        }`}
+                    <h3 className="editorial-modal-title">Start Lifecycle Checklist</h3>
+                    <p className="editorial-modal-subtitle">Initiate structured onboarding induction or offboarding exit milestones.</p>
+                  </div>
+                  <button onClick={() => setShowCreateModal(false)} className="editorial-modal-close">
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <form onSubmit={handleCreateChecklist}>
+                  <div className="editorial-modal-body">
+                    <div className="editorial-form-group">
+                      <label className="editorial-label">Select Employee *</label>
+                      <select
+                        required
+                        value={createForm.employeeId}
+                        onChange={(e) => setCreateForm({ ...createForm, employeeId: e.target.value })}
+                        className="editorial-select"
                       >
-                        {selectedChecklist.kind}
-                      </span>
+                        <option value="">Select Personnel...</option>
+                        {employees.map((emp) => (
+                          <option key={emp.id} value={emp.id}>
+                            {emp.firstName} {emp.lastName} ({emp.employeeNumber || emp.email})
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                    <div className="flex items-center gap-4 text-xs text-gray-500 mt-1">
-                      <span>Checklist ID: {selectedChecklist.id.slice(0, 13)}...</span>
-                      {selectedChecklist.referenceDate && (
-                        <span>Reference Date: {selectedChecklist.referenceDate.split('T')[0]}</span>
-                      )}
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                      <div className="editorial-form-group">
+                        <label className="editorial-label">Checklist Kind *</label>
+                        <select
+                          value={createForm.kind}
+                          onChange={(e) => setCreateForm({ ...createForm, kind: e.target.value as any })}
+                          className="editorial-select"
+                        >
+                          <option value="ONBOARDING">New Hire Induction</option>
+                          <option value="OFFBOARDING">Exit Separation Handover</option>
+                        </select>
+                      </div>
+
+                      <div className="editorial-form-group">
+                        <label className="editorial-label">Effective Date *</label>
+                        <input
+                          required
+                          type="date"
+                          value={createForm.referenceDate}
+                          onChange={(e) => setCreateForm({ ...createForm, referenceDate: e.target.value })}
+                          className="editorial-input"
+                        />
+                      </div>
                     </div>
                   </div>
 
-                  <span
-                    className={`text-xs font-bold px-3 py-1 rounded-full ${
-                      selectedChecklist.status === 'COMPLETED'
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : 'bg-blue-100 text-blue-800'
-                    }`}
-                  >
-                    {selectedChecklist.status}
-                  </span>
-                </div>
-
-                {/* Task Checklist Items */}
-                <div className="flex flex-col gap-3">
-                  <div className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                    Tasks & Milestones ({selectedChecklist.tasks?.filter((t) => t.status === 'DONE').length || 0} /{' '}
-                    {selectedChecklist.tasks?.length || 0})
-                  </div>
-
-                  {selectedChecklist.tasks?.length === 0 ? (
-                    <div className="adm-empty">No tasks defined for this checklist.</div>
-                  ) : (
-                    <div className="flex flex-col gap-2.5">
-                      {selectedChecklist.tasks?.map((task) => {
-                        const isDone = task.status === 'DONE';
-                        return (
-                          <div
-                            key={task.id}
-                            className={`p-3.5 rounded-xl border transition-all ${
-                              isDone
-                                ? 'bg-gray-50/80 border-gray-200 opacity-80'
-                                : 'bg-white border-gray-200 hover:border-purple-300 shadow-sm'
-                            }`}
-                          >
-                            <div className="flex items-start gap-3">
-                              {/* Checkbox */}
-                              <button
-                                type="button"
-                                disabled={isDone || submitting}
-                                onClick={() => setCompletingTask(task)}
-                                className={`mt-0.5 w-5 h-5 rounded flex items-center justify-center transition-all ${
-                                  isDone
-                                    ? 'bg-emerald-600 text-white cursor-default'
-                                    : 'border-2 border-gray-300 hover:border-purple-600 text-transparent'
-                                }`}
-                              >
-                                <Check size={13} strokeWidth={3} className={isDone ? 'block' : 'hidden'} />
-                              </button>
-
-                              {/* Task Details */}
-                              <div className="flex-1 flex flex-col gap-1">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span
-                                    className={`text-sm font-semibold ${
-                                      isDone ? 'line-through text-gray-500' : 'text-gray-900'
-                                    }`}
-                                  >
-                                    {task.title}
-                                  </span>
-
-                                  <div className="flex items-center gap-2">
-                                    <span className="flex items-center gap-1 text-[11px] font-semibold bg-gray-100 text-gray-700 px-2 py-0.5 rounded">
-                                      {getOwnerIcon(task.ownerRole)}
-                                      <span>{task.ownerRole}</span>
-                                    </span>
-
-                                    {canManage && !isDone && (
-                                      <button
-                                        type="button"
-                                        onClick={() => setAssigningTask(task)}
-                                        className="text-[11px] text-purple-700 hover:underline"
-                                      >
-                                        Assign
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
-
-                                {task.description && (
-                                  <p className="text-xs text-gray-500">{task.description}</p>
-                                )}
-
-                                <div className="mt-1 flex items-center gap-4 text-[11px] text-gray-400">
-                                  {task.dueDate && (
-                                    <span className="flex items-center gap-1">
-                                      <Calendar size={11} />
-                                      Due: {task.dueDate.split('T')[0]}
-                                    </span>
-                                  )}
-                                  {isDone && task.completedAt && (
-                                    <span className="text-emerald-700 font-medium">
-                                      Completed on {task.completedAt.split('T')[0]}
-                                    </span>
-                                  )}
-                                  {task.note && (
-                                    <span className="text-gray-600 italic">Note: "{task.note}"</span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="adm-card adm-empty py-16">
-                <ClipboardCheck size={36} className="mx-auto text-gray-300 mb-2" />
-                <p>Select a checklist from the left panel to review and complete induction or exit tasks.</p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Modal 1: Create New Checklist */}
-        {showCreateModal && (
-          <div className="adm-modal-backdrop">
-            <div className="adm-modal">
-              <div className="flex items-center justify-between mb-2">
-                <h3>Start New Checklist</h3>
-                <button onClick={() => setShowCreateModal(false)} className="text-gray-400 hover:text-gray-600">
-                  <X size={18} />
-                </button>
-              </div>
-              <p className="adm-modal-sub">
-                Initialise a standard onboarding or offboarding workflow for an employee.
-              </p>
-
-              <form onSubmit={handleCreateChecklist}>
-                <div className="adm-form-group">
-                  <label className="adm-label">Employee *</label>
-                  <select
-                    required
-                    value={createForm.employeeId}
-                    onChange={(e) => setCreateForm({ ...createForm, employeeId: e.target.value })}
-                    className="adm-select"
-                  >
-                    <option value="">Select Employee...</option>
-                    {employees.map((emp) => (
-                      <option key={emp.id} value={emp.id}>
-                        {emp.firstName} {emp.lastName} ({emp.department?.name || 'General Org'})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="adm-form-group">
-                  <label className="adm-label">Checklist Type *</label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setCreateForm({ ...createForm, kind: 'ONBOARDING' })}
-                      className={`p-3 rounded-xl border text-center font-semibold text-xs transition-all ${
-                        createForm.kind === 'ONBOARDING'
-                          ? 'border-emerald-600 bg-emerald-50 text-emerald-800'
-                          : 'border-gray-200 text-gray-700 hover:bg-gray-50'
-                      }`}
-                    >
-                      Onboarding (New Joiner)
+                  <div className="editorial-modal-footer">
+                    <button type="button" onClick={() => setShowCreateModal(false)} className="editorial-btn-secondary">
+                      Cancel
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setCreateForm({ ...createForm, kind: 'OFFBOARDING' })}
-                      className={`p-3 rounded-xl border text-center font-semibold text-xs transition-all ${
-                        createForm.kind === 'OFFBOARDING'
-                          ? 'border-amber-600 bg-amber-50 text-amber-800'
-                          : 'border-gray-200 text-gray-700 hover:bg-gray-50'
-                      }`}
-                    >
-                      Offboarding (Leaver)
+                    <button type="submit" disabled={submitting || !createForm.employeeId} className="editorial-btn-primary">
+                      {submitting ? 'Initiating...' : 'Initiate Checklist'}
                     </button>
                   </div>
-                </div>
-
-                <div className="adm-form-group">
-                  <label className="adm-label">
-                    {createForm.kind === 'ONBOARDING' ? 'Start Date' : 'Last Working Day'} *
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={createForm.referenceDate}
-                    onChange={(e) => setCreateForm({ ...createForm, referenceDate: e.target.value })}
-                    className="adm-input"
-                  />
-                </div>
-
-                <div className="p-3 bg-purple-50/60 rounded-xl border border-purple-100 text-xs text-purple-900 mt-2">
-                  Standard enterprise task sequence will be automatically generated with role assignments (HR, IT, Manager, Employee).
-                </div>
-
-                <div className="flex items-center justify-end gap-2 mt-6">
-                  <button
-                    type="button"
-                    onClick={() => setShowCreateModal(false)}
-                    className="adm-btn adm-btn-ghost"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="adm-btn adm-btn-primary"
-                  >
-                    {submitting ? 'Initiating...' : 'Initiate Checklist'}
-                  </button>
-                </div>
-              </form>
+                </form>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Modal 2: Complete Task Note */}
-        {completingTask && (
-          <div className="adm-modal-backdrop">
-            <div className="adm-modal">
-              <div className="flex items-center justify-between mb-2">
-                <h3>Mark Task as Complete</h3>
-                <button onClick={() => setCompletingTask(null)} className="text-gray-400 hover:text-gray-600">
-                  <X size={18} />
-                </button>
-              </div>
-              <p className="adm-modal-sub">
-                Confirm completion of: <strong>{completingTask.title}</strong>
-              </p>
-
-              <div>
-                <div className="adm-form-group">
-                  <label className="adm-label">Completion Note (Optional)</label>
-                  <textarea
-                    rows={3}
-                    placeholder="Provide confirmation details, asset tags, or verification notes..."
-                    value={completeNote}
-                    onChange={(e) => setCompleteNote(e.target.value)}
-                    className="adm-input"
-                  />
+          {/* Modal 2: Complete Task */}
+          {completingTask && (
+            <div className="editorial-modal-overlay">
+              <div className="editorial-modal">
+                <div className="editorial-modal-header">
+                  <div>
+                    <h3 className="editorial-modal-title">Complete Checklist Task</h3>
+                    <p className="editorial-modal-subtitle">{completingTask.title}</p>
+                  </div>
+                  <button onClick={() => setCompletingTask(null)} className="editorial-modal-close">
+                    <X size={18} />
+                  </button>
                 </div>
 
-                <div className="flex items-center justify-end gap-2 mt-6">
-                  <button
-                    type="button"
-                    onClick={() => setCompletingTask(null)}
-                    className="adm-btn adm-btn-ghost"
-                  >
+                <div className="editorial-modal-body">
+                  <div className="editorial-form-group">
+                    <label className="editorial-label">Completion Remarks / Resolution Note</label>
+                    <textarea
+                      rows={3}
+                      placeholder="e.g. MacBook Pro issued, Slack/Google Workspace accounts provisioned..."
+                      value={completeNote}
+                      onChange={(e) => setCompleteNote(e.target.value)}
+                      className="editorial-textarea"
+                    />
+                  </div>
+                </div>
+
+                <div className="editorial-modal-footer">
+                  <button type="button" onClick={() => setCompletingTask(null)} className="editorial-btn-secondary">
                     Cancel
                   </button>
                   <button
                     type="button"
-                    disabled={submitting}
                     onClick={() => handleCompleteTask(completingTask)}
-                    className="adm-btn adm-btn-primary"
-                  >
-                    {submitting ? 'Confirming...' : 'Mark Done'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Modal 3: Assign Task */}
-        {assigningTask && (
-          <div className="adm-modal-backdrop">
-            <div className="adm-modal">
-              <div className="flex items-center justify-between mb-2">
-                <h3>Assign Task Owner</h3>
-                <button onClick={() => setAssigningTask(null)} className="text-gray-400 hover:text-gray-600">
-                  <X size={18} />
-                </button>
-              </div>
-              <p className="adm-modal-sub">
-                Assign specific owner user for: <strong>{assigningTask.title}</strong>
-              </p>
-
-              <form onSubmit={handleAssignTask}>
-                <div className="adm-form-group">
-                  <label className="adm-label">Select Assignee Employee *</label>
-                  <select
-                    required
-                    value={assignUserId}
-                    onChange={(e) => setAssignUserId(e.target.value)}
-                    className="adm-select"
-                  >
-                    <option value="">Select Assignee...</option>
-                    {employees.map((emp) => (
-                      <option key={emp.id} value={emp.id}>
-                        {emp.firstName} {emp.lastName} ({emp.department?.name || 'General'})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex items-center justify-end gap-2 mt-6">
-                  <button
-                    type="button"
-                    onClick={() => setAssigningTask(null)}
-                    className="adm-btn adm-btn-ghost"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
                     disabled={submitting}
-                    className="adm-btn adm-btn-primary"
+                    className="editorial-btn-primary"
                   >
-                    {submitting ? 'Saving...' : 'Save Assignment'}
+                    {submitting ? 'Saving...' : 'Confirm Completed'}
                   </button>
                 </div>
-              </form>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+
+          {/* Modal 3: Reassign Task */}
+          {assigningTask && (
+            <div className="editorial-modal-overlay">
+              <div className="editorial-modal">
+                <div className="editorial-modal-header">
+                  <div>
+                    <h3 className="editorial-modal-title">Reassign Task Owner</h3>
+                    <p className="editorial-modal-subtitle">{assigningTask.title}</p>
+                  </div>
+                  <button onClick={() => setAssigningTask(null)} className="editorial-modal-close">
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <form onSubmit={handleAssignTask}>
+                  <div className="editorial-modal-body">
+                    <div className="editorial-form-group">
+                      <label className="editorial-label">Assignee Personnel *</label>
+                      <select
+                        required
+                        value={assignUserId}
+                        onChange={(e) => setAssignUserId(e.target.value)}
+                        className="editorial-select"
+                      >
+                        <option value="">Select Assignee...</option>
+                        {employees.map((emp) => (
+                          <option key={emp.id} value={emp.id}>
+                            {emp.firstName} {emp.lastName} ({emp.department?.name || 'Staff'})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="editorial-modal-footer">
+                    <button type="button" onClick={() => setAssigningTask(null)} className="editorial-btn-secondary">
+                      Cancel
+                    </button>
+                    <button type="submit" disabled={submitting || !assignUserId} className="editorial-btn-primary">
+                      {submitting ? 'Saving...' : 'Confirm Reassignment'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </DashboardLayout>
   );

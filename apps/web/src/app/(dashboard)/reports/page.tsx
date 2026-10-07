@@ -13,18 +13,16 @@ import {
   Clock,
   Banknote,
   Database,
-  Search,
   CheckCircle2,
   AlertCircle,
   X,
   Play,
-  Table,
 } from 'lucide-react';
 import { DashboardLayout } from '../../../components/layout/dashboard-layout';
 import { api } from '../../../lib/api-client';
 import { useAuth } from '../../../context/auth-context';
 import { SystemRole } from '@ems/shared';
-import '../../../styles/admin.css';
+import '../../../styles/editorial-common.css';
 
 interface Department {
   id: string;
@@ -36,10 +34,9 @@ interface ReportConfig {
   type: 'headcount' | 'turnover' | 'absence' | 'overtime' | 'payroll-cost';
   title: string;
   subtitle: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
+  icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>;
   tag: string;
-  color: string;
-  bg: string;
+  tagClass: string;
 }
 
 const STANDARD_REPORTS: ReportConfig[] = [
@@ -48,45 +45,40 @@ const STANDARD_REPORTS: ReportConfig[] = [
     title: 'Headcount & Workforce Demographics',
     subtitle: 'Point-in-time active personnel census categorized by department and job designation.',
     icon: Users,
-    tag: 'Core Census',
-    color: '#2563eb',
-    bg: '#eff6ff',
+    tag: 'Workforce Census',
+    tagClass: 'editorial-badge-info',
   },
   {
     type: 'turnover',
     title: 'Turnover & Leavers Analysis',
-    subtitle: 'Point-in-time leaver metrics, attrition trends, and employment separation statistics.',
+    subtitle: 'Point-in-time separation metrics, leaver trends, and departmental attrition ratios.',
     icon: UserX,
     tag: 'Retention',
-    color: '#dc2626',
-    bg: '#fef2f2',
+    tagClass: 'editorial-badge-rose',
   },
   {
     type: 'absence',
-    title: 'Absence & Attendance Lost Time',
-    subtitle: 'Unplanned absence records, leave status frequencies, and operational time deficits.',
+    title: 'Absence & Leave Utilization',
+    subtitle: 'Unplanned absence records, leave frequency rates, and operational time deficits.',
     icon: Clock,
     tag: 'Operations',
-    color: '#d97706',
-    bg: '#fffbeb',
+    tagClass: 'editorial-badge-warning',
   },
   {
     type: 'overtime',
     title: 'Overtime & Extended Hours',
-    subtitle: 'Cumulative hours worked beyond the standard 8-hour shift schedule.',
+    subtitle: 'Cumulative hours logged beyond scheduled shift thresholds and duty rotations.',
     icon: BarChart3,
     tag: 'Productivity',
-    color: '#7c3aed',
-    bg: '#f5f3ff',
+    tagClass: 'editorial-badge-purple',
   },
   {
     type: 'payroll-cost',
     title: 'Payroll Expenditure & Statutory Costs',
-    subtitle: 'Comprehensive gross remuneration, employer NI/statutory contributions, and net payouts.',
+    subtitle: 'Comprehensive gross wage disbursements, employer NI contributions, and statutory sums.',
     icon: Banknote,
-    tag: 'Finance',
-    color: '#059669',
-    bg: '#ecfdf5',
+    tag: 'Finance & Tax',
+    tagClass: 'editorial-badge-positive',
   },
 ];
 
@@ -129,7 +121,7 @@ export default function ReportsPage() {
 
   const handleDownloadStandard = async (
     type: ReportConfig['type'],
-    format: 'csv' | 'xlsx' | 'pdf'
+    format: 'csv' | 'xlsx' | 'pdf',
   ) => {
     try {
       setDownloadingType(`${type}-${format}`);
@@ -144,7 +136,7 @@ export default function ReportsPage() {
       const filename = `${type}-report-${new Date().toISOString().split('T')[0]}.${format}`;
       await api.downloadFile(`/reports/${type}?${params.toString()}`, filename);
 
-      setActionSuccess(`Successfully generated and downloaded ${filename}`);
+      setActionSuccess(`Generated and downloaded ${filename}`);
     } catch (err: any) {
       setError(err?.message || `Failed to download ${type} report.`);
     } finally {
@@ -191,333 +183,431 @@ export default function ReportsPage() {
   };
 
   return (
-    <DashboardLayout>
-      <div className="adm-page">
-        {/* Header */}
-        <div className="adm-header">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="p-2 rounded-xl bg-blue-50 text-blue-700">
-                <BarChart3 size={22} />
-              </span>
-              <h1 className="adm-title">Reports & Business Intelligence</h1>
+    <DashboardLayout title="Reports & Business Intelligence">
+      <div className="editorial-wrapper">
+        <div className="editorial-page">
+          {/* Page Header */}
+          <header className="editorial-header">
+            <div className="editorial-header-top">
+              <div>
+                <h1 className="editorial-title">Reports & Business Intelligence</h1>
+                <p className="editorial-subtitle">
+                  Workforce headcount census, turnover analysis, payroll expenditure journals, and ad-hoc data warehouse exports.
+                </p>
+              </div>
+
+              <div className="editorial-header-actions">
+                <div className="editorial-stat-pill">
+                  <BarChart3 size={14} style={{ color: 'var(--edit-accent)' }} />
+                  <span>BI Engine:</span>
+                  <span className="count">Operational</span>
+                </div>
+                <div className="editorial-stat-pill">
+                  <span>Models:</span>
+                  <span className="count">5 Core Models</span>
+                </div>
+              </div>
             </div>
-            <p className="adm-subtitle">
-              Generate operational workforce summaries, export formatted audit documents, or execute ad-hoc queries.
-            </p>
+          </header>
+
+          {/* Feedback Banners */}
+          {actionSuccess && (
+            <div className="editorial-banner editorial-banner-success">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <CheckCircle2 size={16} />
+                <span>{actionSuccess}</span>
+              </div>
+              <button
+                onClick={() => setActionSuccess(null)}
+                className="editorial-btn-ghost"
+                style={{ padding: '2px', border: 'none' }}
+              >
+                <X size={15} />
+              </button>
+            </div>
+          )}
+
+          {error && (
+            <div className="editorial-banner editorial-banner-error">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <AlertCircle size={16} />
+                <span>{error}</span>
+              </div>
+              <button
+                onClick={() => setError(null)}
+                className="editorial-btn-ghost"
+                style={{ padding: '2px', border: 'none' }}
+              >
+                <X size={15} />
+              </button>
+            </div>
+          )}
+
+          {/* Quick Metrics Grid */}
+          <div className="editorial-quick-stats">
+            <div className="editorial-quick-stat-card">
+              <div>
+                <div className="editorial-quick-stat-label">Executive Reports</div>
+                <div className="editorial-quick-stat-value">5 Models</div>
+                <div className="editorial-quick-stat-sub">CSV, Excel & PDF formats</div>
+              </div>
+              <div className="editorial-quick-stat-icon">
+                <FileText size={18} />
+              </div>
+            </div>
+
+            <div className="editorial-quick-stat-card">
+              <div>
+                <div className="editorial-quick-stat-label">Active Timeframe</div>
+                <div className="editorial-quick-stat-value">30 Days</div>
+                <div className="editorial-quick-stat-sub">Configurable date window</div>
+              </div>
+              <div className="editorial-quick-stat-icon">
+                <Calendar size={18} />
+              </div>
+            </div>
+
+            <div className="editorial-quick-stat-card">
+              <div>
+                <div className="editorial-quick-stat-label">Ad-Hoc Explorer</div>
+                <div className="editorial-quick-stat-value">Real-Time</div>
+                <div className="editorial-quick-stat-sub">Cross-entity dataset query</div>
+              </div>
+              <div className="editorial-quick-stat-icon">
+                <Database size={18} />
+              </div>
+            </div>
+
+            <div className="editorial-quick-stat-card">
+              <div>
+                <div className="editorial-quick-stat-label">Warehouse Feeds</div>
+                <div className="editorial-quick-stat-value">Automated</div>
+                <div className="editorial-quick-stat-sub">Clean JSON snapshot sync</div>
+              </div>
+              <div className="editorial-quick-stat-icon">
+                <FileSpreadsheet size={18} />
+              </div>
+            </div>
           </div>
 
-          {/* Tab Navigation */}
-          <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl text-xs font-semibold text-gray-600">
+          {/* Navigation Tabs */}
+          <div className="editorial-tabs">
             <button
               onClick={() => setActiveTab('standard')}
-              className={`px-3 py-1.5 rounded-lg transition-all ${
-                activeTab === 'standard' ? 'bg-white text-gray-900 shadow-sm font-bold' : 'hover:text-gray-900'
-              }`}
+              className={`editorial-tab ${activeTab === 'standard' ? 'active' : ''}`}
             >
-              Standard Reports
+              <span>Standard Executive Reports</span>
             </button>
             <button
               onClick={() => setActiveTab('adhoc')}
-              className={`px-3 py-1.5 rounded-lg transition-all ${
-                activeTab === 'adhoc' ? 'bg-white text-gray-900 shadow-sm font-bold' : 'hover:text-gray-900'
-              }`}
+              className={`editorial-tab ${activeTab === 'adhoc' ? 'active' : ''}`}
             >
-              Ad-Hoc Explorer
+              <span>Ad-Hoc Query Explorer</span>
             </button>
             {hasRole(SystemRole.SUPER_ADMIN, SystemRole.AUDITOR) && (
               <button
                 onClick={() => setActiveTab('warehouse')}
-                className={`px-3 py-1.5 rounded-lg transition-all ${
-                  activeTab === 'warehouse' ? 'bg-white text-gray-900 shadow-sm font-bold' : 'hover:text-gray-900'
-                }`}
+                className={`editorial-tab ${activeTab === 'warehouse' ? 'active' : ''}`}
               >
-                Data Warehouse
+                <span>Data Warehouse Pipeline</span>
               </button>
             )}
           </div>
-        </div>
 
-        {/* Feedback Alerts */}
-        {actionSuccess && (
-          <div className="flex items-center justify-between p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-sm">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 size={18} className="text-emerald-600" />
-              <span>{actionSuccess}</span>
-            </div>
-            <button onClick={() => setActionSuccess(null)} className="text-emerald-600 hover:text-emerald-900">
-              <X size={16} />
-            </button>
-          </div>
-        )}
+          {/* Tab 1: Standard Executive Reports */}
+          {activeTab === 'standard' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Parameters Toolbar */}
+              <div className="editorial-toolbar">
+                <div className="editorial-toolbar-row">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Calendar size={14} style={{ color: 'var(--edit-text-tertiary)' }} />
+                      <span className="editorial-label" style={{ margin: 0 }}>Report Window:</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <input
+                        type="date"
+                        value={fromDate}
+                        onChange={(e) => setFromDate(e.target.value)}
+                        className="editorial-input editorial-mono"
+                        style={{ padding: '6px 10px', fontSize: '12px', width: '135px' }}
+                      />
+                      <span style={{ fontSize: '12px', color: 'var(--edit-text-tertiary)' }}>to</span>
+                      <input
+                        type="date"
+                        value={toDate}
+                        onChange={(e) => setToDate(e.target.value)}
+                        className="editorial-input editorial-mono"
+                        style={{ padding: '6px 10px', fontSize: '12px', width: '135px' }}
+                      />
+                    </div>
+                  </div>
 
-        {error && (
-          <div className="adm-error flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <AlertCircle size={18} />
-              <span>{error}</span>
-            </div>
-            <button onClick={() => setError(null)} className="text-rose-600 hover:text-rose-900">
-              <X size={16} />
-            </button>
-          </div>
-        )}
-
-        {/* TAB 1: STANDARD EXECUTIVE REPORTS */}
-        {activeTab === 'standard' && (
-          <div className="flex flex-col gap-6">
-            {/* Filter Bar */}
-            <div className="adm-card flex flex-col md:flex-row items-center justify-between gap-4">
-              <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-                <div className="flex items-center gap-2">
-                  <Calendar size={15} className="text-gray-400" />
-                  <span className="text-xs font-semibold text-gray-700">Period:</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="date"
-                    value={fromDate}
-                    onChange={(e) => setFromDate(e.target.value)}
-                    className="adm-input py-1.5 text-xs w-36"
-                  />
-                  <span className="text-xs text-gray-400">to</span>
-                  <input
-                    type="date"
-                    value={toDate}
-                    onChange={(e) => setToDate(e.target.value)}
-                    className="adm-input py-1.5 text-xs w-36"
-                  />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Building2 size={14} style={{ color: 'var(--edit-text-tertiary)' }} />
+                    <select
+                      value={selectedDept}
+                      onChange={(e) => setSelectedDept(e.target.value)}
+                      className="editorial-select"
+                      style={{ padding: '6px 12px', fontSize: '12px', width: '220px' }}
+                    >
+                      <option value="">All Departments</option>
+                      {departments.map((dept) => (
+                        <option key={dept.id} value={dept.id}>
+                          {dept.name} ({dept.code})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 w-full md:w-auto">
-                <Building2 size={15} className="text-gray-400" />
-                <select
-                  value={selectedDept}
-                  onChange={(e) => setSelectedDept(e.target.value)}
-                  className="adm-select py-1.5 text-xs md:w-56"
-                >
-                  <option value="">All Departments</option>
-                  {departments.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name} ({d.code})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Report Grid Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {STANDARD_REPORTS.map((report) => {
-                const Icon = report.icon;
-                const isDownloadingCsv = downloadingType === `${report.type}-csv`;
-                const isDownloadingXlsx = downloadingType === `${report.type}-xlsx`;
-                const isDownloadingPdf = downloadingType === `${report.type}-pdf`;
-
-                return (
-                  <div
-                    key={report.type}
-                    className="adm-card flex flex-col justify-between gap-4 hover:shadow-md transition-shadow"
-                  >
-                    <div>
-                      <div className="flex items-start justify-between gap-2 mb-3">
-                        <div
-                          className="p-2.5 rounded-xl"
-                          style={{ backgroundColor: report.bg, color: report.color }}
-                        >
-                          <Icon size={20} />
+              {/* Standard Reports Grid */}
+              <div className="editorial-grid">
+                {STANDARD_REPORTS.map((report) => {
+                  const IconComponent = report.icon;
+                  const isDownloading = downloadingType?.startsWith(report.type);
+                  return (
+                    <div key={report.type} className="editorial-card">
+                      <div>
+                        <div className="editorial-card-top">
+                          <div
+                            style={{
+                              width: '38px',
+                              height: '38px',
+                              borderRadius: 'var(--edit-radius-sm)',
+                              background: 'var(--edit-surface-muted)',
+                              border: '1px solid var(--edit-border-subtle)',
+                              color: 'var(--edit-accent)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <IconComponent size={20} />
+                          </div>
+                          <span className={`editorial-badge ${report.tagClass}`}>
+                            {report.tag}
+                          </span>
                         </div>
-                        <span
-                          className="text-[11px] font-bold px-2 py-0.5 rounded-full"
-                          style={{ backgroundColor: report.bg, color: report.color }}
-                        >
-                          {report.tag}
-                        </span>
+
+                        <div className="editorial-card-title">{report.title}</div>
+                        <div className="editorial-card-desc">{report.subtitle}</div>
                       </div>
 
-                      <h2 className="text-base font-bold text-gray-900 mb-1">{report.title}</h2>
-                      <p className="text-xs text-gray-500 leading-relaxed">{report.subtitle}</p>
+                      <div className="editorial-card-meta" style={{ flexDirection: 'column', gap: '10px', alignItems: 'stretch' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11.5px', color: 'var(--edit-text-tertiary)' }}>
+                          <span>Export Formats</span>
+                          <span className="editorial-mono">CSV • XLSX • PDF</span>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
+                          <button
+                            onClick={() => handleDownloadStandard(report.type, 'csv')}
+                            disabled={isDownloading}
+                            className="editorial-btn-secondary"
+                            style={{ fontSize: '11px', padding: '5px 8px', justifyContent: 'center' }}
+                          >
+                            <Download size={12} />
+                            <span>CSV</span>
+                          </button>
+                          <button
+                            onClick={() => handleDownloadStandard(report.type, 'xlsx')}
+                            disabled={isDownloading}
+                            className="editorial-btn-secondary"
+                            style={{ fontSize: '11px', padding: '5px 8px', justifyContent: 'center' }}
+                          >
+                            <FileSpreadsheet size={12} />
+                            <span>Excel</span>
+                          </button>
+                          <button
+                            onClick={() => handleDownloadStandard(report.type, 'pdf')}
+                            disabled={isDownloading}
+                            className="editorial-btn-secondary"
+                            style={{ fontSize: '11px', padding: '5px 8px', justifyContent: 'center' }}
+                          >
+                            <FileText size={12} />
+                            <span>PDF</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Tab 2: Ad-Hoc Query Explorer */}
+          {activeTab === 'adhoc' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div className="editorial-toolbar">
+                <div className="editorial-toolbar-row">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Database size={15} style={{ color: 'var(--edit-accent)' }} />
+                      <span className="editorial-label" style={{ margin: 0 }}>Target Entity:</span>
+                      <select
+                        value={adhocEntity}
+                        onChange={(e) => setAdhocEntity(e.target.value as any)}
+                        className="editorial-select"
+                        style={{ padding: '6px 12px', fontSize: '12.5px', width: '160px' }}
+                      >
+                        <option value="employees">Personnel Directory</option>
+                        <option value="leaves">Leave Records</option>
+                        <option value="attendance">Clock-In Telemetry</option>
+                        <option value="payroll">Payroll Ledger</option>
+                      </select>
                     </div>
 
-                    <div className="pt-3 border-t border-gray-100 flex flex-col gap-2">
-                      <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
-                        Download Report Format
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span className="editorial-label" style={{ margin: 0 }}>Limit:</span>
+                      <select
+                        value={adhocLimit}
+                        onChange={(e) => setAdhocLimit(Number(e.target.value))}
+                        className="editorial-select"
+                        style={{ padding: '6px 10px', fontSize: '12.5px', width: '100px' }}
+                      >
+                        <option value={25}>25 Rows</option>
+                        <option value={50}>50 Rows</option>
+                        <option value={100}>100 Rows</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleRunAdHoc}
+                    disabled={adhocRunning}
+                    className="editorial-btn-primary"
+                  >
+                    <Play size={14} />
+                    <span>{adhocRunning ? 'Executing Query...' : 'Execute Ad-Hoc Query'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Results Table */}
+              {adhocResults && (
+                <div className="editorial-table-wrapper">
+                  <div
+                    style={{
+                      padding: '16px 20px',
+                      borderBottom: '1px solid var(--edit-border-subtle)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <div>
+                      <h3 style={{ fontFamily: 'var(--edit-font-serif)', fontSize: '20px', margin: 0, fontWeight: 400 }}>
+                        Query Dataset Preview: {adhocEntity.toUpperCase()}
+                      </h3>
+                      <div style={{ fontSize: '12px', color: 'var(--edit-text-secondary)', marginTop: '2px' }}>
+                        Showing {adhocResults.length} records retrieved in real-time
+                      </div>
+                    </div>
+                  </div>
+
+                  {adhocResults.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--edit-text-secondary)' }}>
+                      No records matched the dataset query.
+                    </div>
+                  ) : (
+                    <div style={{ overflowX: 'auto', maxHeight: '520px' }}>
+                      <table className="editorial-table">
+                        <thead>
+                          <tr>
+                            {Object.keys(adhocResults[0] || {}).slice(0, 7).map((col) => (
+                              <th key={col}>{col}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {adhocResults.map((row, idx) => (
+                            <tr key={idx}>
+                              {Object.keys(row).slice(0, 7).map((col) => {
+                                const val = row[col];
+                                const display =
+                                  val === null || val === undefined
+                                    ? '—'
+                                    : typeof val === 'object'
+                                    ? JSON.stringify(val)
+                                    : String(val);
+                                return (
+                                  <td key={col} className="editorial-mono" style={{ fontSize: '12px' }}>
+                                    {display.length > 45 ? `${display.slice(0, 45)}...` : display}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tab 3: Data Warehouse Pipeline */}
+          {activeTab === 'warehouse' && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
+              {[
+                { key: 'employees', label: 'Employees Master Data', desc: 'Normalized profiles, contracts, and hierarchy.', icon: Users },
+                { key: 'payroll', label: 'Historical Payroll Cycles', desc: 'Disbursements, tax deductions, and ledger balances.', icon: Banknote },
+                { key: 'leaves', label: 'Leave Accrual & Balances', desc: 'Entitlements, taken leaves, and holiday calendars.', icon: Calendar },
+                { key: 'audit', label: 'System Security Audit Logs', desc: 'Cryptographic security actions, sessions, and roles.', icon: Clock },
+              ].map((feed) => {
+                const IconComp = feed.icon;
+                const isDownloading = warehouseDownloading === feed.key;
+                return (
+                  <div key={feed.key} className="editorial-card">
+                    <div>
+                      <div className="editorial-card-top">
+                        <div
+                          style={{
+                            width: '36px',
+                            height: '36px',
+                            borderRadius: 'var(--edit-radius-sm)',
+                            background: 'var(--edit-surface-muted)',
+                            border: '1px solid var(--edit-border-subtle)',
+                            color: 'var(--edit-accent)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <IconComp size={18} />
+                        </div>
+                        <span className="editorial-badge editorial-badge-neutral">JSON Feed</span>
                       </div>
 
-                      <div className="grid grid-cols-3 gap-2">
-                        <button
-                          type="button"
-                          disabled={Boolean(downloadingType)}
-                          onClick={() => handleDownloadStandard(report.type, 'csv')}
-                          className="adm-btn adm-btn-ghost adm-btn-sm justify-center text-xs font-semibold"
-                        >
-                          <FileText size={12} />
-                          <span>{isDownloadingCsv ? '...' : 'CSV'}</span>
-                        </button>
+                      <div className="editorial-card-title">{feed.label}</div>
+                      <div className="editorial-card-desc">{feed.desc}</div>
+                    </div>
 
-                        <button
-                          type="button"
-                          disabled={Boolean(downloadingType)}
-                          onClick={() => handleDownloadStandard(report.type, 'xlsx')}
-                          className="adm-btn adm-btn-ghost adm-btn-sm justify-center text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
-                        >
-                          <FileSpreadsheet size={12} />
-                          <span>{isDownloadingXlsx ? '...' : 'Excel'}</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          disabled={Boolean(downloadingType)}
-                          onClick={() => handleDownloadStandard(report.type, 'pdf')}
-                          className="adm-btn adm-btn-ghost adm-btn-sm justify-center text-xs font-semibold text-rose-700 hover:bg-rose-50"
-                        >
-                          <Download size={12} />
-                          <span>{isDownloadingPdf ? '...' : 'PDF'}</span>
-                        </button>
-                      </div>
+                    <div className="editorial-card-meta">
+                      <span style={{ fontSize: '11.5px', color: 'var(--edit-text-tertiary)' }}>
+                        Automated Daily ETL
+                      </span>
+                      <button
+                        onClick={() => handleWarehouseExport(feed.key)}
+                        disabled={isDownloading}
+                        className="editorial-btn-secondary"
+                        style={{ fontSize: '11.5px', padding: '5px 12px' }}
+                      >
+                        <Download size={12} />
+                        <span>{isDownloading ? 'Exporting...' : 'Export Snapshot'}</span>
+                      </button>
                     </div>
                   </div>
                 );
               })}
             </div>
-          </div>
-        )}
-
-        {/* TAB 2: AD-HOC QUERY EXPLORER */}
-        {activeTab === 'adhoc' && (
-          <div className="flex flex-col gap-5">
-            <div className="adm-card flex flex-col md:flex-row items-center justify-between gap-4">
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <Database size={16} className="text-gray-400" />
-                  <span className="text-xs font-semibold text-gray-700">Dataset Entity:</span>
-                </div>
-                <select
-                  value={adhocEntity}
-                  onChange={(e) => setAdhocEntity(e.target.value as any)}
-                  className="adm-select py-1.5 text-xs w-44"
-                >
-                  <option value="employees">Employees Roster</option>
-                  <option value="leaves">Leave Applications</option>
-                  <option value="attendance">Attendance Records</option>
-                  <option value="payroll">Payroll Runs</option>
-                </select>
-
-                <span className="text-xs font-semibold text-gray-700 ml-2">Row Limit:</span>
-                <select
-                  value={adhocLimit}
-                  onChange={(e) => setAdhocLimit(Number(e.target.value))}
-                  className="adm-select py-1.5 text-xs w-24"
-                >
-                  <option value={25}>25 rows</option>
-                  <option value={50}>50 rows</option>
-                  <option value={100}>100 rows</option>
-                  <option value={250}>250 rows</option>
-                </select>
-              </div>
-
-              <button
-                type="button"
-                disabled={adhocRunning}
-                onClick={handleRunAdHoc}
-                className="adm-btn adm-btn-primary adm-btn-sm"
-              >
-                <Play size={13} fill="currentColor" />
-                <span>{adhocRunning ? 'Executing...' : 'Run Query'}</span>
-              </button>
-            </div>
-
-            {/* Ad-Hoc Results Table */}
-            <div className="adm-card flex flex-col gap-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-                  <Table size={15} />
-                  <span>Query Results {adhocResults ? `(${adhocResults.length} records)` : ''}</span>
-                </h2>
-              </div>
-
-              {!adhocResults ? (
-                <div className="adm-empty py-12">
-                  <Database size={32} className="mx-auto text-gray-300 mb-2" />
-                  <p>Select an entity dataset above and click "Run Query" to preview records in real time.</p>
-                </div>
-              ) : adhocResults.length === 0 ? (
-                <div className="adm-empty">No records found matching the query.</div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="adm-table">
-                    <thead>
-                      <tr>
-                        {Object.keys(adhocResults[0] || {}).map((col) => (
-                          <th key={col}>{col}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {adhocResults.map((row, idx) => (
-                        <tr key={idx}>
-                          {Object.keys(row).map((col) => {
-                            const val = row[col];
-                            let rendered = '';
-                            if (val === null || val === undefined) rendered = '—';
-                            else if (typeof val === 'object') rendered = JSON.stringify(val);
-                            else rendered = String(val);
-
-                            return (
-                              <td key={col} className="max-w-xs truncate text-xs font-mono">
-                                {rendered}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 3: DATA WAREHOUSE & BI INTEGRATION */}
-        {activeTab === 'warehouse' && (
-          <div className="flex flex-col gap-5">
-            <div className="adm-card">
-              <h2 className="text-base font-bold text-gray-900 mb-1">External Data Warehouse & BI Feeds</h2>
-              <p className="text-xs text-gray-500 mb-4">
-                Structured JSON endpoints optimized for ETL/ELT pipelines, Snowflake, BigQuery, or PowerBI ingestion.
-              </p>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {[
-                  { id: 'employees', label: 'Employees Schema Feed', desc: 'Roster, department linkages, employment status' },
-                  { id: 'leaves', label: 'Leaves Schema Feed', desc: 'All leave requests, approval flows, day counts' },
-                  { id: 'attendance', label: 'Attendance Feed', desc: 'Biometric punches, shift schedules, late arrivals' },
-                  { id: 'payroll', label: 'Payroll & Cost Feed', desc: 'Historic payroll runs, earnings, and deductions' },
-                  { id: 'audit', label: 'Audit Trail Feed', desc: 'Immutable compliance actions, IP logs, and mutations' },
-                ].map((feed) => (
-                  <div key={feed.id} className="p-4 rounded-xl border border-gray-200 bg-gray-50/50 flex flex-col justify-between gap-3">
-                    <div>
-                      <div className="font-semibold text-sm text-gray-900">{feed.label}</div>
-                      <p className="text-xs text-gray-500 mt-1">{feed.desc}</p>
-                    </div>
-
-                    <button
-                      type="button"
-                      disabled={warehouseDownloading === feed.id}
-                      onClick={() => handleWarehouseExport(feed.id)}
-                      className="adm-btn adm-btn-ghost adm-btn-sm justify-center text-xs"
-                    >
-                      <Download size={13} />
-                      <span>{warehouseDownloading === feed.id ? 'Exporting...' : 'Export JSON Feed'}</span>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </DashboardLayout>
   );
