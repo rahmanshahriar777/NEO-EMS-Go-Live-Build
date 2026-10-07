@@ -318,15 +318,25 @@ export class OAuthService {
       select: { userId: true },
     });
     if (existing) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: existing.userId },
+        select: { id: true, isActive: true },
+      });
+      if (user && user.isActive === false) {
+        throw new ForbiddenException('Account has been deactivated');
+      }
       return existing.userId as string;
     }
 
     // (b) Email matches an existing user → link.
     const userByEmail = await this.prisma.user.findUnique({
       where: { email: profile.email },
-      select: { id: true },
+      select: { id: true, isActive: true },
     });
     if (userByEmail) {
+      if (userByEmail.isActive === false) {
+        throw new ForbiddenException('Account has been deactivated');
+      }
       await this.oAuthAccountDelegate().create({
         data: {
           userId: userByEmail.id,
@@ -339,6 +349,24 @@ export class OAuthService {
     }
 
     // (c) Create a verified EMPLOYEE user + employee scaffold, then link.
+    // Check invite-only posture: if public registration is disabled, check if auto-provision is enabled or an active invitation exists
+    const allowPublic = this.configService.get<boolean>('security.allowPublicRegistration', false);
+    const allowOAuthAutoProvision = this.configService.get<boolean>('oauth.allowAutoProvision', true);
+    if (!allowPublic && !allowOAuthAutoProvision) {
+      let hasInvitation = false;
+      if (typeof (this.prisma as any).invitation?.findFirst === 'function') {
+        const inv = await (this.prisma as any).invitation.findFirst({
+          where: { email: profile.email, acceptedAt: null, expiresAt: { gt: new Date() } },
+        });
+        hasInvitation = !!inv;
+      }
+      if (!hasInvitation) {
+        throw new ForbiddenException(
+          'Public registration via OAuth is disabled. An invitation is required to sign in for the first time.',
+        );
+      }
+    }
+
     // Unusable password: Argon2id hash of 32 random bytes nobody knows.
     // emailVerified is set unconditionally: handleCallback rejects
     // IdP-unverified profiles before this point, so reaching here means the

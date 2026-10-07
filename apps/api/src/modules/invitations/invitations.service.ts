@@ -70,14 +70,25 @@ export class InvitationsService {
     return crypto.createHash('sha256').update(token).digest('hex');
   }
 
-  private resolveRole(role: string): SystemRole {
-    const normalized = role.trim().toUpperCase();
-    if (!(Object.values(SystemRole) as string[]).includes(normalized)) {
-      throw new BadRequestException(
-        `Invalid role '${role}'. Must be one of: ${Object.values(SystemRole).join(', ')}`,
-      );
+  private async resolveRole(role: string): Promise<string> {
+    const trimmed = role.trim();
+    const normalized = trimmed.toUpperCase();
+    if ((Object.values(SystemRole) as string[]).includes(normalized)) {
+      return normalized;
     }
-    return normalized as SystemRole;
+    if (this.prisma.role?.findFirst) {
+      const customRole = await this.prisma.role.findFirst({
+        where: {
+          OR: [{ name: trimmed }, { name: normalized }],
+        },
+      });
+      if (customRole) {
+        return customRole.name;
+      }
+    }
+    throw new BadRequestException(
+      `Invalid role '${role}'. Must be one of: ${Object.values(SystemRole).join(', ')} or an existing custom role.`,
+    );
   }
 
   /**
@@ -87,13 +98,13 @@ export class InvitationsService {
   async createInvitation(
     createdById: string,
     dto: CreateInvitationDto,
-  ): Promise<{ id: string; email: string; role: SystemRole; expiresAt: Date; inviteUrl: string }> {
+  ): Promise<{ id: string; email: string; role: string; expiresAt: Date; inviteUrl: string }> {
     const rawRole = dto.role || (Array.isArray(dto.roleIds) && dto.roleIds[0]);
     if (!rawRole) {
       throw new BadRequestException('role should not be empty');
     }
     const email = dto.email.toLowerCase().trim();
-    const role = this.resolveRole(rawRole);
+    const role = await this.resolveRole(rawRole);
 
     // Go-live Phase 1 item 7 — invitation privilege escalation gate: only a
     // SUPER_ADMIN may invite another SUPER_ADMIN. The creator's roles are
@@ -224,10 +235,12 @@ export class InvitationsService {
         throw new BadRequestException('Invitation token is invalid, already used, or has expired.');
       }
 
-      const role = this.resolveRole(invitation.role);
-      const roleRow = await tx.role.findUnique({ where: { name: role } });
+      const role = await this.resolveRole(invitation.role);
+      const roleRow =
+        (await tx.role.findUnique({ where: { name: role } })) ||
+        (tx.role.findFirst ? await tx.role.findFirst({ where: { name: role } }) : null);
       if (!roleRow) {
-        throw new BadRequestException(`Role '${role}' is not seeded in the database`);
+        throw new BadRequestException(`Role '${role}' is not found in the database`);
       }
 
       const existingUser = await tx.user.findUnique({ where: { email: invitation.email } });

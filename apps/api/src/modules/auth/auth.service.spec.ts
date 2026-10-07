@@ -45,6 +45,7 @@ describe('AuthService', () => {
     passwordService = {
       hash: jest.fn().mockResolvedValue('hashed_password_string'),
       verify: jest.fn(),
+      verifyDummy: jest.fn().mockResolvedValue(false),
       needsRehash: jest.fn().mockReturnValue(false),
       rehash: jest.fn().mockResolvedValue('$argon2id$v=19$m=19456,t=2,p=1$bmV3$bmV3'),
     };
@@ -115,6 +116,8 @@ describe('AuthService', () => {
     await expect(
       authService.login({ email: 'unknown@ems.local', password: 'Password123!' }),
     ).rejects.toThrow(UnauthorizedException);
+
+    expect(passwordService.verifyDummy).toHaveBeenCalledWith('Password123!');
   });
 
   it('should throw UnauthorizedException if password does not match', async () => {

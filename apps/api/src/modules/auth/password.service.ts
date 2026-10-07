@@ -36,6 +36,9 @@ const HIBP_RANGE_URL = 'https://api.pwnedpasswords.com/range/';
 const HIBP_TIMEOUT_MS = 5_000;
 const HIBP_USER_AGENT = 'NEO-EMS/1.0 (breached-password screening)';
 
+export const DUMMY_ARGON2_HASH =
+  '$argon2id$v=19$m=19456,p=1,t=2$YtguOuanUwk6kP4zd7ncjg$brAt1EM0NMpiRmm8+OLzkfBPoc1wRGzhQDHsioZlzMo';
+
 @Injectable()
 export class PasswordService {
   private readonly logger = new Logger(PasswordService.name);
@@ -67,6 +70,14 @@ export class PasswordService {
 
     // Unknown scheme (e.g. bcrypt from a foreign import): do not attempt.
     return false;
+  }
+
+  /**
+   * Constant-time mitigation against email enumeration timing attacks.
+   * Runs the exact same Argon2id verification when a user is not found.
+   */
+  async verifyDummy(password: string): Promise<boolean> {
+    return this.verify(password, DUMMY_ARGON2_HASH);
   }
 
   /**

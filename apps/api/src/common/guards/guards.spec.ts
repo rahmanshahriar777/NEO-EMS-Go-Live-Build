@@ -49,6 +49,25 @@ describe('RolesGuard', () => {
 
     expect(() => guard.canActivate(ctx)).toThrow(ForbiddenException);
   });
+
+  it('should allow access to user with custom role if they possess equivalent permissions', () => {
+    jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue([SystemRole.HR_ADMIN]);
+    const ctx = {
+      getHandler: () => ({}),
+      getClass: () => ({}),
+      switchToHttp: () => ({
+        getRequest: () => ({
+          user: {
+            sub: 'user-1',
+            roles: ['CUSTOM_HR_SPECIALIST'],
+            permissions: ['EMPLOYEE:MANAGE'],
+          },
+        }),
+      }),
+    } as any;
+
+    expect(guard.canActivate(ctx)).toBe(true);
+  });
 });
 
 describe('PermissionsGuard (F21)', () => {

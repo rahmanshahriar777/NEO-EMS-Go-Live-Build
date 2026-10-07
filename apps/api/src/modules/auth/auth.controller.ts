@@ -152,13 +152,18 @@ export class AuthController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Logout and revoke active session' })
   async logout(
-    @Body() dto: Partial<RefreshTokenDto>,
+    @Body() dto: Partial<RefreshTokenDto> & { allDevices?: boolean },
     @CurrentUser() user?: JwtPayload,
     @Res({ passthrough: true }) res?: Response,
+    @Req() req?: Request,
   ) {
-    const refreshToken = dto?.refreshToken;
-    if (user?.sub || refreshToken) {
-      await this.authService.logout(refreshToken, user?.sub);
+    const presented = dto?.refreshToken || (req ? getCookieValue(req, REFRESH_TOKEN_COOKIE) : null);
+    if (dto?.allDevices && user?.sub) {
+      await this.authService.logout(undefined, user.sub, true);
+    } else if (presented) {
+      await this.authService.logout(presented, user?.sub);
+    } else if (user?.sub) {
+      await this.authService.logout(undefined, user.sub);
     }
     if (res) {
       clearAuthCookies(res, this.configService);

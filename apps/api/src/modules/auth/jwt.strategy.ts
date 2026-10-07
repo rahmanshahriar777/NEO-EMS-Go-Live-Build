@@ -96,23 +96,76 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       if (!cachedActive) {
         throw new UnauthorizedException('User account is inactive or deleted');
       }
-      return payload;
+    } else {
+      // Cache miss or Redis down: database, then repopulate the cache.
+      const user = await this.prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: { id: true, isActive: true },
+      });
+
+      const active = !!user?.isActive;
+      // Best-effort: never let a cache write failure fail the request.
+      await this.cache.setUserActive(payload.sub, active);
+
+      if (!active) {
+        throw new UnauthorizedException('User account is inactive or deleted');
+      }
     }
 
-    // Cache miss or Redis down: database, then repopulate the cache.
-    const user = await this.prisma.user.findUnique({
-      where: { id: payload.sub },
-      select: { id: true, isActive: true },
-    });
+    // Live hydration of roles and permissions from cache/db:
+    // Guarantees permissions take effect within 60s or immediately on role update,
+    // and eliminates cookie bloat from storing large permission lists.
+    let hydratedRoles = payload.roles;
+    let hydratedPermissions = payload.permissions;
 
-    const active = !!user?.isActive;
-    // Best-effort: never let a cache write failure fail the request.
-    await this.cache.setUserActive(payload.sub, active);
-
-    if (!active) {
-      throw new UnauthorizedException('User account is inactive or deleted');
+    if (typeof (this.cache as any).getUserRolesAndPermissions === 'function') {
+      try {
+        const cachedRolesPerms = await this.cache.getUserRolesAndPermissions(payload.sub);
+        if (cachedRolesPerms) {
+          hydratedRoles = cachedRolesPerms.roles as any;
+          hydratedPermissions = cachedRolesPerms.permissions;
+        } else if (this.prisma?.user?.findUnique) {
+          const userWithRoles = await this.prisma.user.findUnique({
+            where: { id: payload.sub },
+            select: {
+              roles: {
+                include: {
+                  role: {
+                    include: {
+                      permissions: {
+                        include: {
+                          permission: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          });
+          if (userWithRoles?.roles) {
+            const roles = userWithRoles.roles.map((r: any) => r.role.name);
+            const permSet = new Set<string>();
+            for (const ur of userWithRoles.roles) {
+              for (const rp of ur.role.permissions || []) {
+                permSet.add(`${rp.permission.subject}:${rp.permission.action}`);
+              }
+            }
+            const perms = Array.from(permSet);
+            hydratedRoles = roles as any;
+            hydratedPermissions = perms;
+            await this.cache.setUserRolesAndPermissions(payload.sub, { roles, permissions: perms }, 60);
+          }
+        }
+      } catch {
+        // Fail-open: keep payload claims
+      }
     }
 
-    return payload;
+    return {
+      ...payload,
+      roles: hydratedRoles,
+      permissions: hydratedPermissions,
+    };
   }
 }

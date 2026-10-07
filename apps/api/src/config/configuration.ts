@@ -131,8 +131,10 @@ export function parseDurationMs(raw: string, varName: string): number {
 /**
  * Parse the CORS allowlist: FRONTEND_URL plus ALLOWED_ORIGINS (comma-separated).
  * Used by main.ts instead of reflective `origin: true`.
+ * In production, localhost and 127.0.0.1 are never included by default.
  */
-function parseAllowedOrigins(frontendUrl: string): string[] {
+export function parseAllowedOrigins(frontendUrl: string): string[] {
+  const isProduction = process.env.NODE_ENV === 'production';
   const extra = (process.env.ALLOWED_ORIGINS || '')
     .split(',')
     .map((s) => s.trim())
@@ -141,7 +143,8 @@ function parseAllowedOrigins(frontendUrl: string): string[] {
     'https://ndems-app-knbmj7xqka-uc.a.run.app',
     'https://ndems-app-479560345714.us-central1.run.app',
   ];
-  return [...new Set([frontendUrl, 'http://localhost:3000', 'http://127.0.0.1:3000', ...cloudRunOrigins, ...extra])];
+  const devOrigins = isProduction ? [] : ['http://localhost:3000', 'http://127.0.0.1:3000'];
+  return [...new Set([frontendUrl, ...devOrigins, ...cloudRunOrigins, ...extra])];
 }
 
 function parseBool(raw: string | undefined, fallback: boolean): boolean {
@@ -279,6 +282,22 @@ function missingOAuthSecrets(): string[] {
   return missing;
 }
 
+const CRYPTO_SECRETS_TO_CHECK = [
+  'JWT_ACCESS_SECRET',
+  'JWT_REFRESH_SECRET',
+  'DOCUMENT_ENCRYPTION_KEY',
+] as const;
+
+const INSECURE_DEFAULT_SUBSTRINGS = [
+  'change_in_prod',
+  'changeme',
+  'default-fallback-secret',
+  'secret123',
+  'password123',
+  'replace_with',
+  'example_key',
+];
+
 export function validateRequiredSecrets(): void {
   const nodeEnv = process.env.NODE_ENV || 'development';
   const isProduction = nodeEnv === 'production';
@@ -298,21 +317,47 @@ export function validateRequiredSecrets(): void {
     }
   }
 
+  const weakOrDefault: string[] = [];
+  for (const key of CRYPTO_SECRETS_TO_CHECK) {
+    const val = process.env[key];
+    if (val) {
+      if (val.length < 32) {
+        weakOrDefault.push(`${key} too short (must be >= 32 chars)`);
+      }
+      if (isProduction) {
+        for (const pattern of INSECURE_DEFAULT_SUBSTRINGS) {
+          if (val.toLowerCase().includes(pattern)) {
+            weakOrDefault.push(`${key} contains insecure default '${pattern}'`);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  const errors: string[] = [];
+  if (missing.length > 0) {
+    errors.push(`Missing required secrets: ${missing.join(', ')}`);
+  }
+  if (weakOrDefault.length > 0) {
+    errors.push(`Insecure or weak secrets: ${weakOrDefault.join(', ')}`);
+  }
+
   // Fail fast on malformed durations even in dev — cheap to validate.
   try {
     parseDurationMs(process.env.JWT_REFRESH_EXPIRATION || '7d', 'JWT_REFRESH_EXPIRATION');
     parseDurationMs(process.env.JWT_ACCESS_EXPIRATION || '15m', 'JWT_ACCESS_EXPIRATION');
   } catch (e) {
-    missing.push((e as Error).message);
+    errors.push((e as Error).message);
   }
 
-  if (missing.length === 0) {
+  if (errors.length === 0) {
     return;
   }
 
   const message =
-    `Missing required secrets: ${missing.join(', ')}. ` +
-    `Refusing to start with fail-open defaults — set them in the environment ` +
+    `${errors.join('. ')}. ` +
+    `Refusing to start with fail-open or insecure defaults — set them in the environment ` +
     `(see .env.example; generate with: openssl rand -base64 48).`;
 
   if (isProduction) {

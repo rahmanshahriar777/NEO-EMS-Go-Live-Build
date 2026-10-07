@@ -57,10 +57,19 @@ export SMTP_SECURE="${SMTP_SECURE:-false}"
 export SMTP_USER="${SMTP_USER:-}"
 export SMTP_PASSWORD="${SMTP_PASSWORD:-${SMTP_PASS:-}}"
 export SMTP_FROM="${SMTP_FROM:-noreply@ems.local}"
-export JWT_ACCESS_SECRET="${JWT_ACCESS_SECRET:-ems_super_secret_access_jwt_key_development_only_change_in_prod_123!}"
-export JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET:-ems_super_secret_refresh_jwt_key_development_only_change_in_prod_456!}"
-export DOCUMENT_ENCRYPTION_KEY="${DOCUMENT_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}"
-export ALLOWED_ORIGINS="https://ndems-app-knbmj7xqka-uc.a.run.app,https://ndems-app-479560345714.us-central1.run.app,http://localhost:3000,http://127.0.0.1:3000,${ALLOWED_ORIGINS:-}"
+# Generate or enforce cryptographically strong secrets for standalone Cloud Run deployment
+if [ -z "$JWT_ACCESS_SECRET" ] || echo "$JWT_ACCESS_SECRET" | grep -qi "change_in_prod\|changeme"; then
+  export JWT_ACCESS_SECRET="$(node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))')"
+fi
+if [ -z "$JWT_REFRESH_SECRET" ] || echo "$JWT_REFRESH_SECRET" | grep -qi "change_in_prod\|changeme"; then
+  export JWT_REFRESH_SECRET="$(node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))')"
+fi
+if [ -z "$DOCUMENT_ENCRYPTION_KEY" ] || [ "${#DOCUMENT_ENCRYPTION_KEY}" -lt 32 ]; then
+  export DOCUMENT_ENCRYPTION_KEY="$(node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))')"
+fi
+
+# Production origins without insecure localhost by default
+export ALLOWED_ORIGINS="https://ndems-app-knbmj7xqka-uc.a.run.app,https://ndems-app-479560345714.us-central1.run.app,${ALLOWED_ORIGINS:-}"
 
 # 2. Start NestJS API Backend in background
 echo "⚡ Starting NestJS API Backend on port 4000..."

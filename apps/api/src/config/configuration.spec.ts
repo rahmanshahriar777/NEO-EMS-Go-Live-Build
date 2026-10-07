@@ -4,7 +4,7 @@
  * These are the fail-fast config gates — cheap to pin, expensive to get wrong
  * in production.
  */
-import { parseDurationMs, validateRequiredSecrets } from './configuration';
+import { parseDurationMs, validateRequiredSecrets, parseAllowedOrigins } from './configuration';
 
 describe('parseDurationMs', () => {
   it('parses milliseconds, seconds, minutes, hours, days', () => {
@@ -115,4 +115,45 @@ describe('validateRequiredSecrets', () => {
     allSecrets();
     expect(() => validateRequiredSecrets()).toThrow(/SMTP_HOST/);
   });
+
+  it('rejects short cryptographic secrets in production', () => {
+    process.env.NODE_ENV = 'production';
+    allSecrets();
+    process.env.SMTP_HOST = 'smtp.example.com';
+    process.env.JWT_ACCESS_SECRET = 'short-secret';
+    expect(() => validateRequiredSecrets()).toThrow(/too short/);
+  });
+
+  it('rejects insecure placeholder/default secrets in production', () => {
+    process.env.NODE_ENV = 'production';
+    allSecrets();
+    process.env.SMTP_HOST = 'smtp.example.com';
+    process.env.JWT_ACCESS_SECRET = 'my_secret_key_change_in_prod_1234567890!';
+    expect(() => validateRequiredSecrets()).toThrow(/insecure default/);
+  });
 });
+
+describe('parseAllowedOrigins', () => {
+  const originalEnv = process.env.NODE_ENV;
+
+  afterEach(() => {
+    process.env.NODE_ENV = originalEnv;
+  });
+
+  it('includes localhost in development/test', () => {
+    process.env.NODE_ENV = 'development';
+    const origins = parseAllowedOrigins('https://myfrontend.com');
+    expect(origins).toContain('http://localhost:3000');
+    expect(origins).toContain('http://127.0.0.1:3000');
+    expect(origins).toContain('https://myfrontend.com');
+  });
+
+  it('excludes localhost in production unless explicitly provided', () => {
+    process.env.NODE_ENV = 'production';
+    const origins = parseAllowedOrigins('https://myfrontend.com');
+    expect(origins).not.toContain('http://localhost:3000');
+    expect(origins).not.toContain('http://127.0.0.1:3000');
+    expect(origins).toContain('https://myfrontend.com');
+  });
+});
+

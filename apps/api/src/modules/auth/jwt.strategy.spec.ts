@@ -82,4 +82,16 @@ describe('JwtStrategy (V4-1: purpose-claim rejection)', () => {
     cache.getUserActive.mockResolvedValue(false);
     await expect(strategy.validate(sessionPayload)).rejects.toThrow(UnauthorizedException);
   });
+
+  it('hydrates fresh roles and permissions from cache without waiting for token expiry', async () => {
+    cache.getUserActive.mockResolvedValue(true);
+    (cache as any).getUserRolesAndPermissions = jest.fn().mockResolvedValue({
+      roles: [SystemRole.HR_ADMIN],
+      permissions: ['EMPLOYEE:MANAGE', 'PAYROLL:APPROVE'],
+    });
+
+    const result = await strategy.validate(sessionPayload);
+    expect(result.roles).toEqual([SystemRole.HR_ADMIN]);
+    expect(result.permissions).toEqual(['EMPLOYEE:MANAGE', 'PAYROLL:APPROVE']);
+  });
 });

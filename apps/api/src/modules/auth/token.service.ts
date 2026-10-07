@@ -53,6 +53,11 @@ export class TokenService {
     return this.configService.get<number>('jwt.refreshTtlMs', 7 * 24 * 60 * 60 * 1000);
   }
 
+  /** Maximum lifetime of a session family in ms (default 30 days). */
+  private maxSessionLifetimeMs(): number {
+    return this.configService.get<number>('jwt.maxSessionLifetimeMs', 30 * 24 * 60 * 60 * 1000);
+  }
+
   /** Access-token lifetime in seconds, honoring the jwt.accessExpiration config. */
   private accessExpirationSeconds(): number {
     return Math.floor(
@@ -71,6 +76,7 @@ export class TokenService {
     employeeId?: string,
     existingFamilyId?: string,
     ipAddress?: string,
+    overrideExpiresAt?: Date,
   ): Promise<TokensResponse> {
     const payload: JwtPayload = {
       sub: userId,
@@ -91,8 +97,8 @@ export class TokenService {
     const tokenHash = this.hashToken(rawRefreshToken);
     const familyId = existingFamilyId || crypto.randomUUID();
 
-    // Item 7: honor REFRESH_TTL config instead of a hardcoded 7 days.
-    const expiresAt = new Date(Date.now() + this.refreshTtlMs());
+    // Item 7 & Finding 4: honor REFRESH_TTL config, capped by max session lifetime if provided
+    const expiresAt = overrideExpiresAt || new Date(Date.now() + this.refreshTtlMs());
 
     await this.prisma.refreshToken.create({
       data: {
@@ -123,6 +129,7 @@ export class TokenService {
    *   never from the client-supplied `familyId` prefix — a client cannot
    *   smuggle a foreign family id into reuse detection or the new token.
    * - Reuse of a revoked token burns the entire stored family.
+   * - Enforces an absolute maximum session lifetime across rotations.
    */
   async rotateRefreshToken(refreshTokenString: string, ipAddress?: string): Promise<TokensResponse> {
     const parts = refreshTokenString.split('.');
@@ -171,6 +178,32 @@ export class TokenService {
       throw new UnauthorizedException('Refresh token has expired');
     }
 
+    // Finding 4: Enforce maximum session lifetime across sliding rotations
+    let oldestCreatedAt = storedToken.createdAt;
+    if (typeof (this.prisma.refreshToken as any).findFirst === 'function') {
+      try {
+        const oldest = await (this.prisma.refreshToken as any).findFirst({
+          where: { familyId: storedToken.familyId },
+          orderBy: { createdAt: 'asc' },
+          select: { createdAt: true },
+        });
+        if (oldest?.createdAt) {
+          oldestCreatedAt = oldest.createdAt;
+        }
+      } catch {
+        // Fall back to storedToken.createdAt
+      }
+    }
+
+    const maxSessionExpiry = (oldestCreatedAt ? new Date(oldestCreatedAt).getTime() : Date.now()) + this.maxSessionLifetimeMs();
+    if (Date.now() >= maxSessionExpiry) {
+      await this.prisma.refreshToken.updateMany({
+        where: { familyId: storedToken.familyId },
+        data: { isRevoked: true },
+      });
+      throw new UnauthorizedException('Session has reached its maximum absolute lifetime. Please log in again.');
+    }
+
     // Atomic compare-and-set: revoke only if still unrevoked. A concurrent
     // rotation of the same token yields count 0 → treat as reuse.
     const revoked = await this.prisma.refreshToken.updateMany({
@@ -195,6 +228,9 @@ export class TokenService {
       }
     }
 
+    const standardExpiry = new Date(Date.now() + this.refreshTtlMs());
+    const cappedExpiry = standardExpiry.getTime() > maxSessionExpiry ? new Date(maxSessionExpiry) : standardExpiry;
+
     return this.generateTokens(
       storedToken.userId,
       storedToken.user.email,
@@ -203,6 +239,7 @@ export class TokenService {
       storedToken.user.employee?.id,
       storedToken.familyId,
       ipAddress,
+      cappedExpiry,
     );
   }
 

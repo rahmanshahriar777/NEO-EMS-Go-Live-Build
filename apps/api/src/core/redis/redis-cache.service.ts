@@ -97,9 +97,36 @@ export class RedisCacheService {
     await this.setJson(this.userActiveKey(userId), { active }, ttlSeconds);
   }
 
-  /** Call after any write to user.isActive (deactivate/reactivate/delete). */
+  /** Call after any write to user.isActive or roles/permissions (deactivate/reactivate/delete/role change). */
   async invalidateUser(userId: string): Promise<void> {
     await this.del(this.userActiveKey(userId));
+    await this.del(this.userRolesPermsKey(userId));
+  }
+
+  // ------------------------------------------------------------------
+  // user roles & permissions (JWT strategy live hydration)
+  // ------------------------------------------------------------------
+
+  private userRolesPermsKey(userId: string): string {
+    return `user:roles-perms:${userId}`;
+  }
+
+  async getUserRolesAndPermissions(
+    userId: string,
+  ): Promise<{ roles: string[]; permissions: string[] } | null> {
+    return this.getJson<{ roles: string[]; permissions: string[] }>(this.userRolesPermsKey(userId));
+  }
+
+  async setUserRolesAndPermissions(
+    userId: string,
+    data: { roles: string[]; permissions: string[] },
+    ttlSeconds = 60,
+  ): Promise<void> {
+    await this.setJson(this.userRolesPermsKey(userId), data, ttlSeconds);
+  }
+
+  async invalidateUserRolesAndPermissions(userId: string): Promise<void> {
+    await this.del(this.userRolesPermsKey(userId));
   }
 
   // ------------------------------------------------------------------

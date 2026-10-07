@@ -139,6 +139,21 @@ describe('AuthController', () => {
     expect(clearAuthCookies).toHaveBeenCalledWith(res, configService);
   });
 
+  it('logout reads refresh token from cookie when body is empty (single device)', async () => {
+    const cookieReq = { headers: { cookie: 'ems_rt=cookie-rt' } } as any;
+    await controller.logout({}, user(), res, cookieReq);
+
+    expect(authService.logout).toHaveBeenCalledWith('cookie-rt', 'user-1');
+    expect(clearAuthCookies).toHaveBeenCalledWith(res, configService);
+  });
+
+  it('logout with allDevices: true revokes all devices for user', async () => {
+    await controller.logout({ allDevices: true }, user(), res);
+
+    expect(authService.logout).toHaveBeenCalledWith(undefined, 'user-1', true);
+    expect(clearAuthCookies).toHaveBeenCalledWith(res, configService);
+  });
+
   it('getMe and changePassword forward the caller identity', async () => {
     authService.getMe.mockResolvedValue({ id: 'user-1' });
     await controller.getMe('user-1');

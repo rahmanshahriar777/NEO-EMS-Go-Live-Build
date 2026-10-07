@@ -285,6 +285,23 @@ describe('TokenService', () => {
       expect(tokens).toBeDefined();
       expect(tokens.accessToken).toBe('signed-access-token');
     });
+
+    it('rejects rotation if session has exceeded its maximum absolute lifetime', async () => {
+      const thirtyOneDaysAgo = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
+      prisma.refreshToken.findUnique.mockResolvedValue(
+        storedToken({
+          createdAt: thirtyOneDaysAgo,
+        }),
+      );
+
+      await expect(service.rotateRefreshToken('fam-1.validraw')).rejects.toThrow(
+        /maximum absolute lifetime/i,
+      );
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { familyId: 'fam-1' },
+        data: { isRevoked: true },
+      });
+    });
   });
 
   describe('revocation', () => {

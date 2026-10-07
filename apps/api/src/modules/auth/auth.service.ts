@@ -103,6 +103,8 @@ export class AuthService {
     const user = await this.userService.findByEmail(dto.email);
 
     if (!user) {
+      // Timing attack mitigation: verify against dummy Argon2id hash to equalize latency
+      await this.passwordService.verifyDummy(dto.password);
       await this.recordLoginAudit(null, dto.email, false, 'User not found', ipAddress, userAgent);
       throw new UnauthorizedException(GENERIC_LOGIN_FAILURE);
     }
@@ -331,8 +333,10 @@ export class AuthService {
     return { user: userProfile, tokens };
   }
 
-  async logout(token?: string, userId?: string): Promise<void> {
-    if (token) {
+  async logout(token?: string, userId?: string, allDevices?: boolean): Promise<void> {
+    if (allDevices && userId) {
+      await this.tokenService.revokeAllUserTokens(userId);
+    } else if (token) {
       await this.tokenService.revokeToken(token);
     } else if (userId) {
       await this.tokenService.revokeAllUserTokens(userId);

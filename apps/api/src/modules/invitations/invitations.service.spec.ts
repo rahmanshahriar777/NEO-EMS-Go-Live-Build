@@ -141,6 +141,19 @@ describe('InvitationsService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
+    it('accepts an existing custom role from the database', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.invitation.findFirst.mockResolvedValue(null);
+      prisma.role.findFirst = jest.fn().mockResolvedValue({ id: 'r-1', name: 'PAYROLL_OFFICER' });
+
+      const res = await service.createInvitation('hr-1', {
+        email: 'officer@ems.local',
+        role: 'PAYROLL_OFFICER',
+      });
+
+      expect(res.role).toBe('PAYROLL_OFFICER');
+    });
+
     it('rejects an employeeId that does not exist', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
       prisma.invitation.findFirst.mockResolvedValue(null);
