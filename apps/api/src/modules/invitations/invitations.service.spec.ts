@@ -300,4 +300,35 @@ describe('InvitationsService', () => {
       await expect(service.revokeInvitation('nope')).rejects.toThrow(NotFoundException);
     });
   });
+
+  describe('verifyInvitation', () => {
+    it('returns valid: true with invitation details for an active invitation', async () => {
+      prisma.invitation.findUnique.mockResolvedValue(invitation({ email: 'invitee@ems.local', role: 'EMPLOYEE' }));
+      const result = await service.verifyInvitation('valid-token');
+      expect(result.valid).toBe(true);
+      expect(result.email).toBe('invitee@ems.local');
+      expect(result.role).toBe('EMPLOYEE');
+    });
+
+    it('returns valid: false when token is not found', async () => {
+      prisma.invitation.findUnique.mockResolvedValue(null);
+      const result = await service.verifyInvitation('missing-token');
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('INVALID');
+    });
+
+    it('returns valid: false with reason ALREADY_ACCEPTED when already consumed', async () => {
+      prisma.invitation.findUnique.mockResolvedValue(invitation({ acceptedAt: new Date() }));
+      const result = await service.verifyInvitation('used-token');
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('ALREADY_ACCEPTED');
+    });
+
+    it('returns valid: false with reason EXPIRED when expiresAt has passed', async () => {
+      prisma.invitation.findUnique.mockResolvedValue(invitation({ expiresAt: new Date(Date.now() - 1000) }));
+      const result = await service.verifyInvitation('expired-token');
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('EXPIRED');
+    });
+  });
 });

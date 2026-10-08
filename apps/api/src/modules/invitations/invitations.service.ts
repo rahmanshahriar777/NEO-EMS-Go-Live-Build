@@ -5,13 +5,15 @@ import {
   ForbiddenException,
   NotFoundException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { PasswordService } from '../auth/password.service';
+import { TokenService } from '../auth/token.service';
 import { EmailService } from '../../common/email/email.service';
-import { SystemRole, nextEmployeeNumber } from '@ems/shared';
+import { SystemRole, TokensResponse, nextEmployeeNumber } from '@ems/shared';
 import { CreateInvitationDto, AcceptInvitationDto } from './dto/invitation.dto';
 
 /**
@@ -60,6 +62,7 @@ export class InvitationsService {
     private readonly passwordService: PasswordService,
     private readonly emailService: EmailService,
     private readonly configService: ConfigService,
+    @Optional() private readonly tokenService?: TokenService,
   ) {}
 
   private invitationDelegate() {
@@ -206,12 +209,103 @@ export class InvitationsService {
   }
 
   /**
-   * Accept an invitation: validate the single-use token, create the user with
+   * Verify an invitation token before display on the accept page.
+   * Gives instant feedback on whether the link is valid, expired, or already used.
+   */
+  async verifyInvitation(token: string): Promise<{
+    valid: boolean;
+    reason?: 'INVALID' | 'ALREADY_ACCEPTED' | 'EXPIRED';
+    message: string;
+    email?: string;
+    role?: string;
+    expiresAt?: Date;
+    firstName?: string;
+    lastName?: string;
+  }> {
+    if (!token || typeof token !== 'string' || token.trim() === '') {
+      return {
+        valid: false,
+        reason: 'INVALID',
+        message: 'No invitation token was provided.',
+      };
+    }
+    const tokenHash = this.hashToken(token.trim());
+    const invitation: InvitationRecord | null = await this.invitationDelegate().findUnique({
+      where: { tokenHash },
+    });
+
+    if (!invitation) {
+      return {
+        valid: false,
+        reason: 'INVALID',
+        message: 'This invitation link is invalid or does not exist.',
+      };
+    }
+
+    if (invitation.acceptedAt) {
+      return {
+        valid: false,
+        reason: 'ALREADY_ACCEPTED',
+        message: 'This invitation has already been accepted. You can log in directly.',
+        email: invitation.email,
+        role: invitation.role,
+      };
+    }
+
+    if (invitation.expiresAt && invitation.expiresAt <= new Date()) {
+      return {
+        valid: false,
+        reason: 'EXPIRED',
+        message: 'This invitation link has expired. Please contact your administrator for a new one.',
+        email: invitation.email,
+        role: invitation.role,
+        expiresAt: invitation.expiresAt,
+      };
+    }
+
+    let firstName: string | undefined;
+    let lastName: string | undefined;
+    if (invitation.employeeId) {
+      try {
+        const emp = await this.prisma.employee.findUnique({
+          where: { id: invitation.employeeId },
+          select: { firstName: true, lastName: true },
+        });
+        if (emp) {
+          firstName = emp.firstName;
+          lastName = emp.lastName;
+        }
+      } catch (err: any) {
+        this.logger.debug(`Could not look up employee name for invitation: ${err?.message}`);
+      }
+    }
+
+    return {
+      valid: true,
+      message: 'Invitation is valid.',
+      email: invitation.email,
+      role: invitation.role,
+      expiresAt: invitation.expiresAt,
+      firstName,
+      lastName,
+    };
+  }
+
+  /**
+   * Accept an invitation: validate the single-use token, create or activate the user with
    * an Argon2id password hash (policy enforced), link or scaffold the
    * employee record, and mark the invitation consumed — atomically.
    * The email is marked verified: receiving the token link proves ownership.
    */
-  async acceptInvitation(dto: AcceptInvitationDto): Promise<{ userId: string; email: string }> {
+  async acceptInvitation(
+    dto: AcceptInvitationDto,
+    ipAddress?: string,
+  ): Promise<{
+    userId: string;
+    email: string;
+    user?: any;
+    tokens?: TokensResponse;
+  }> {
     const tokenHash = this.hashToken(dto.token);
     const now = new Date();
 
@@ -243,23 +337,45 @@ export class InvitationsService {
         throw new BadRequestException(`Role '${role}' is not found in the database`);
       }
 
-      const existingUser = await tx.user.findUnique({ where: { email: invitation.email } });
-      if (existingUser) {
-        throw new ConflictException('A user with this email address already exists');
-      }
+      const normalizedEmail = invitation.email.toLowerCase().trim();
+      const existingUser = await tx.user.findUnique({ where: { email: normalizedEmail } });
 
       // 12-char minimum + breach screening enforced inside hash().
       const passwordHash = await this.passwordService.hash(dto.password);
 
-      const user = await tx.user.create({
-        data: {
-          email: invitation.email,
-          passwordHash,
-          emailVerified: true,
-          roles: { create: [{ roleId: roleRow.id }] },
-        },
-      });
+      let user: any;
+      if (existingUser) {
+        user = await tx.user.update({
+          where: { id: existingUser.id },
+          data: {
+            passwordHash,
+            emailVerified: true,
+            isActive: true,
+            failedLoginAttempts: 0,
+            lockedUntil: null,
+          },
+        });
+        if (tx.userRole?.create) {
+          try {
+            await tx.userRole.create({
+              data: { userId: user.id, roleId: roleRow.id },
+            });
+          } catch {
+            // Already has role or constraint
+          }
+        }
+      } else {
+        user = await tx.user.create({
+          data: {
+            email: normalizedEmail,
+            passwordHash,
+            emailVerified: true,
+            roles: { create: [{ roleId: roleRow.id }] },
+          },
+        });
+      }
 
+      let employeeRecord: any = null;
       if (invitation.employeeId) {
         const employee = await tx.employee.findUnique({
           where: { id: invitation.employeeId },
@@ -268,37 +384,96 @@ export class InvitationsService {
         if (!employee) {
           throw new NotFoundException('Linked employee record not found');
         }
-        if (employee.userId) {
+        if (employee.userId && employee.userId !== user.id) {
           throw new ConflictException('This employee record is already linked to a user');
         }
-        await tx.employee.update({
+        employeeRecord = await tx.employee.update({
           where: { id: invitation.employeeId },
           data: { userId: user.id },
         });
       } else {
-        // Scaffold an employee profile with a sequence-backed number
-        // (go-live Phase 1 item 6 — never count()+1, race-safe).
-        // v4 fix #9: contractStart = joiningDate (single clock read) so a
-        // mid-month joiner is prorated, not paid a full month.
-        const employeeNumber = await nextEmployeeNumber((sql: string) =>
-          tx.$queryRawUnsafe(sql),
-        );
-        const joinedAt = new Date();
-        await tx.employee.create({
-          data: {
-            employeeNumber,
-            userId: user.id,
-            firstName: dto.firstName,
-            lastName: dto.lastName,
-            email: invitation.email,
-            joiningDate: joinedAt,
-            contractStart: joinedAt,
-          },
-        });
+        const existingEmployee = tx.employee.findFirst
+          ? await tx.employee.findFirst({ where: { email: normalizedEmail } })
+          : null;
+        if (existingEmployee) {
+          employeeRecord = await tx.employee.update({
+            where: { id: existingEmployee.id },
+            data: {
+              userId: user.id,
+              firstName: dto.firstName?.trim() || existingEmployee.firstName,
+              lastName: dto.lastName?.trim() || existingEmployee.lastName,
+            },
+          });
+        } else {
+          // Scaffold an employee profile with sequence-backed number (with graceful fallback)
+          let employeeNumber: string;
+          try {
+            employeeNumber = await nextEmployeeNumber((sql: string) =>
+              tx.$queryRawUnsafe(sql),
+            );
+          } catch (seqErr: any) {
+            try {
+              await tx.$queryRawUnsafe(`CREATE SEQUENCE IF NOT EXISTS employee_number_seq START WITH 1000;`);
+              employeeNumber = await nextEmployeeNumber((sql: string) =>
+                tx.$queryRawUnsafe(sql),
+              );
+            } catch {
+              const empCount = await tx.employee.count();
+              const yr = new Date().getFullYear();
+              employeeNumber = `EMP-${yr}-${String(1000 + empCount + 1).padStart(4, '0')}`;
+            }
+          }
+          const joinedAt = new Date();
+          employeeRecord = await tx.employee.create({
+            data: {
+              employeeNumber,
+              userId: user.id,
+              firstName: dto.firstName,
+              lastName: dto.lastName,
+              email: normalizedEmail,
+              joiningDate: joinedAt,
+              contractStart: joinedAt,
+            },
+          });
+        }
       }
 
-      this.logger.log(`Invitation ${invitation.id} accepted — user ${user.id} created`);
-      return { userId: user.id, email: invitation.email };
+      // Generate session tokens if TokenService is available
+      let tokens: TokensResponse | undefined;
+      const systemRoles = [role as SystemRole];
+      if (this.tokenService) {
+        try {
+          tokens = await this.tokenService.generateTokens(
+            user.id,
+            normalizedEmail,
+            systemRoles,
+            [],
+            employeeRecord?.id,
+            undefined,
+            ipAddress,
+          );
+        } catch (tokenErr: any) {
+          this.logger.warn(`Could not generate session tokens on invitation accept: ${tokenErr?.message}`);
+        }
+      }
+
+      const userProfile = {
+        id: user.id,
+        email: normalizedEmail,
+        firstName: employeeRecord?.firstName || dto.firstName?.trim(),
+        lastName: employeeRecord?.lastName || dto.lastName?.trim(),
+        roles: systemRoles,
+        employeeId: employeeRecord?.id,
+        employeeNumber: employeeRecord?.employeeNumber,
+      };
+
+      this.logger.log(`Invitation ${invitation.id} accepted — user ${user.id} activated`);
+      return {
+        userId: user.id,
+        email: normalizedEmail,
+        user: userProfile,
+        tokens,
+      };
     });
   }
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Users, UserPlus, RefreshCw, ShieldOff } from 'lucide-react';
+import { Users, UserPlus, RefreshCw, ShieldOff, Mail, Clock, Trash2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { DashboardLayout } from '../../../../components/layout/dashboard-layout';
 import { api } from '../../../../lib/api-client';
@@ -26,6 +26,16 @@ interface ManagedUser {
   createdAt?: string;
 }
 
+interface InvitationItem {
+  id: string;
+  email: string;
+  role: string;
+  employeeId?: string | null;
+  expiresAt: string;
+  acceptedAt?: string | null;
+  createdAt: string;
+}
+
 const PAGE_SIZE = 15;
 
 /**
@@ -43,6 +53,11 @@ export default function AdminUsersPage() {
   const { hasRole } = useAuth();
   const queryClient = useQueryClient();
   const canManage = hasRole(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN);
+
+  const [activeTab, setActiveTab] = useState<'users' | 'invitations'>('users');
+  const [invitations, setInvitations] = useState<InvitationItem[]>([]);
+  const [loadingInvitations, setLoadingInvitations] = useState(false);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
 
   const [page, setPage] = useState(1);
   const { data, isPending: loading, error: queryError, refetch } = useAdminUsersQuery(page, PAGE_SIZE, canManage);
@@ -65,6 +80,37 @@ export default function AdminUsersPage() {
 
   const [actionBusy, setActionBusy] = useState<string | null>(null);
 
+  const fetchInvitations = useCallback(async () => {
+    if (!canManage) return;
+    setLoadingInvitations(true);
+    try {
+      const res: any = await api.get('/auth/invitations');
+      const items = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+      setInvitations(items);
+    } catch {
+      // Non-blocking
+    } finally {
+      setLoadingInvitations(false);
+    }
+  }, [canManage]);
+
+  useEffect(() => {
+    fetchInvitations();
+  }, [fetchInvitations]);
+
+  const revokeInvitation = async (id: string, email: string) => {
+    if (!window.confirm(`Revoke pending invitation for ${email}?`)) return;
+    setRevokingId(id);
+    try {
+      await api.delete(`/auth/invitations/${id}`);
+      await fetchInvitations();
+    } catch (err: any) {
+      alert(`Could not revoke invitation: ${err?.message || 'request failed'}`);
+    } finally {
+      setRevokingId(null);
+    }
+  };
+
   const sendInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     setInviteBusy(true);
@@ -84,6 +130,7 @@ export default function AdminUsersPage() {
       }
       setInviteEmail('');
       await queryClient.invalidateQueries({ queryKey: adminKeys.all });
+      await fetchInvitations();
     } catch (err: any) {
       setInviteError(err?.message || 'Could not send the invitation.');
     } finally {
@@ -140,77 +187,219 @@ export default function AdminUsersPage() {
           <ErrorBanner resource="users" detail={error} onRetry={() => refetch()} retrying={loading} />
         )}
 
+        <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid #e7e4df', paddingBottom: '12px' }}>
+          <button
+            type="button"
+            onClick={() => setActiveTab('users')}
+            style={{
+              padding: '8px 16px',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: 600,
+              background: activeTab === 'users' ? '#2c5f4a' : '#f0eeea',
+              color: activeTab === 'users' ? '#fff' : '#6b6560',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            <Users className="w-4 h-4" />
+            <span>Active Users ({total})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('invitations');
+              fetchInvitations();
+            }}
+            style={{
+              padding: '8px 16px',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: 600,
+              background: activeTab === 'invitations' ? '#2c5f4a' : '#f0eeea',
+              color: activeTab === 'invitations' ? '#fff' : '#6b6560',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            <Mail className="w-4 h-4" />
+            <span>Pending Invitations</span>
+            <span
+              style={{
+                fontSize: '11px',
+                padding: '1px 7px',
+                borderRadius: '999px',
+                background: activeTab === 'invitations' ? 'rgba(255,255,255,0.25)' : '#d4e3da',
+                color: activeTab === 'invitations' ? '#fff' : '#2c5f4a',
+                fontWeight: 700,
+              }}
+            >
+              {invitations.filter((i) => !i.acceptedAt).length}
+            </span>
+          </button>
+        </div>
+
         <div className="adm-card">
-          {loading ? (
-            <SkeletonTable rows={8} columns={5} />
-          ) : users.length === 0 && !error ? (
-            <div className="adm-empty">
-              <Users className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-              No users found.
-            </div>
+          {activeTab === 'users' ? (
+            loading ? (
+              <SkeletonTable rows={8} columns={5} />
+            ) : users.length === 0 && !error ? (
+              <div className="adm-empty">
+                <Users className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                No users found.
+              </div>
+            ) : (
+              <>
+                <table className="adm-table">
+                  <thead>
+                    <tr>
+                      <th>User</th>
+                      <th>Roles</th>
+                      <th>Status</th>
+                      <th>Verified</th>
+                      <th style={{ textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.map((u) => (
+                      <tr key={u.id}>
+                        <td>
+                          <div className="font-semibold">
+                            {[u.firstName, u.lastName].filter(Boolean).join(' ') || '—'}
+                          </div>
+                          <div className="text-xs text-slate-500 font-mono">{u.email}</div>
+                        </td>
+                        <td>
+                          {u.roles?.length
+                            ? u.roles.map((r) => (
+                                <span key={r} className="adm-role-pill">{r}</span>
+                              ))
+                            : <span className="text-xs text-slate-400">No roles</span>}
+                        </td>
+                        <td>
+                          <span className={`adm-status-dot ${u.isActive ? 'adm-status-active' : 'adm-status-inactive'}`}>
+                            {u.isActive ? 'Active' : 'Deactivated'}
+                          </span>
+                        </td>
+                        <td className="text-xs text-slate-500">
+                          {u.emailVerified ? 'Yes' : 'Pending'}
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <button
+                            className={`adm-btn adm-btn-sm ${u.isActive ? 'adm-btn-danger' : 'adm-btn-ghost'}`}
+                            disabled={actionBusy === u.id}
+                            onClick={() => toggleActive(u)}
+                          >
+                            {actionBusy === u.id ? (
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <ShieldOff className="w-3.5 h-3.5" />
+                            )}
+                            {u.isActive ? 'Deactivate' : 'Reactivate'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div style={{ marginTop: '16px' }}>
+                  <PaginationControls
+                    page={page}
+                    limit={PAGE_SIZE}
+                    total={total}
+                    onPageChange={(p) => setPage(p)}
+                  />
+                </div>
+              </>
+            )
           ) : (
-            <>
+            loadingInvitations ? (
+              <SkeletonTable rows={4} columns={5} />
+            ) : invitations.length === 0 ? (
+              <div className="adm-empty">
+                <Mail className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                No invitations found. Use the "Invite user" button above to send a new invitation.
+              </div>
+            ) : (
               <table className="adm-table">
                 <thead>
                   <tr>
-                    <th>User</th>
-                    <th>Roles</th>
+                    <th>Invitee Email</th>
+                    <th>Role</th>
+                    <th>Sent Date</th>
                     <th>Status</th>
-                    <th>Verified</th>
                     <th style={{ textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {users.map((u) => (
-                    <tr key={u.id}>
-                      <td>
-                        <div className="font-semibold">
-                          {[u.firstName, u.lastName].filter(Boolean).join(' ') || '—'}
-                        </div>
-                        <div className="text-xs text-slate-500 font-mono">{u.email}</div>
-                      </td>
-                      <td>
-                        {u.roles?.length
-                          ? u.roles.map((r) => (
-                              <span key={r} className="adm-role-pill">{r}</span>
-                            ))
-                          : <span className="text-xs text-slate-400">No roles</span>}
-                      </td>
-                      <td>
-                        <span className={`adm-status-dot ${u.isActive ? 'adm-status-active' : 'adm-status-inactive'}`}>
-                          {u.isActive ? 'Active' : 'Deactivated'}
-                        </span>
-                      </td>
-                      <td className="text-xs text-slate-500">
-                        {u.emailVerified ? 'Yes' : 'Pending'}
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <button
-                          className={`adm-btn adm-btn-sm ${u.isActive ? 'adm-btn-danger' : 'adm-btn-ghost'}`}
-                          disabled={actionBusy === u.id}
-                          onClick={() => toggleActive(u)}
-                        >
-                          {actionBusy === u.id ? (
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  {invitations.map((inv) => {
+                    const isAccepted = !!inv.acceptedAt;
+                    const isExpired = !isAccepted && new Date(inv.expiresAt) <= new Date();
+                    return (
+                      <tr key={inv.id}>
+                        <td>
+                          <div className="font-semibold font-mono text-xs">{inv.email}</div>
+                        </td>
+                        <td>
+                          <span className="adm-role-pill">{inv.role}</span>
+                        </td>
+                        <td className="text-xs text-slate-500">
+                          {new Date(inv.createdAt).toLocaleDateString()}
+                        </td>
+                        <td>
+                          {isAccepted ? (
+                            <span className="adm-status-dot adm-status-active">
+                              Accepted
+                            </span>
+                          ) : isExpired ? (
+                            <span className="adm-status-dot adm-status-inactive">
+                              Expired
+                            </span>
                           ) : (
-                            <ShieldOff className="w-3.5 h-3.5" />
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontSize: '12px',
+                                color: '#b8860b',
+                                fontWeight: 600,
+                              }}
+                            >
+                              <Clock className="w-3.5 h-3.5" />
+                              Pending
+                            </span>
                           )}
-                          {u.isActive ? 'Deactivate' : 'Reactivate'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          {!isAccepted && (
+                            <button
+                              className="adm-btn adm-btn-sm adm-btn-danger"
+                              disabled={revokingId === inv.id}
+                              onClick={() => revokeInvitation(inv.id, inv.email)}
+                              title="Revoke this pending invitation"
+                            >
+                              {revokingId === inv.id ? (
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="w-3.5 h-3.5" />
+                              )}
+                              Revoke
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
-              <div style={{ marginTop: '16px' }}>
-                <PaginationControls
-                  page={page}
-                  limit={PAGE_SIZE}
-                  total={total}
-                  onPageChange={(p) => setPage(p)}
-                />
-              </div>
-            </>
+            )
           )}
         </div>
 

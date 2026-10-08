@@ -18,6 +18,7 @@ describe('InvitationsController', () => {
       listInvitations: jest.fn(),
       revokeInvitation: jest.fn(),
       acceptInvitation: jest.fn(),
+      verifyInvitation: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -62,6 +63,13 @@ describe('InvitationsController', () => {
     const res = await controller.revoke('inv-1');
     expect(service.revokeInvitation).toHaveBeenCalledWith('inv-1');
     expect(res).toEqual({ success: true, message: 'Invitation revoked' });
+  });
+
+  it('verify forwards the token to the service', async () => {
+    service.verifyInvitation.mockResolvedValue({ valid: true, email: 'new@ems.local' });
+    const res = await controller.verify('raw-token');
+    expect(service.verifyInvitation).toHaveBeenCalledWith('raw-token');
+    expect(res).toEqual({ valid: true, email: 'new@ems.local' });
   });
 
   it('accept forwards the dto and wraps the result', async () => {

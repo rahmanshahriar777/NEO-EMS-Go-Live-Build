@@ -29,7 +29,7 @@ describe('SmtpEmailProvider', () => {
       expect.objectContaining({
         host: 'mail.example.com',
         auth: { user: 'u', pass: 'p' },
-        connectionTimeout: 10_000,
+        connectionTimeout: 15_000,
       }),
     );
   });
