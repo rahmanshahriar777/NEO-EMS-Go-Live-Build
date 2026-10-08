@@ -34,12 +34,15 @@ if [ -z "$DATABASE_URL" ]; then
     echo "🌱 Syncing database schema and seeding demo data..."
     cd /app/packages/database
     DATABASE_URL="${DATABASE_URL}" npx prisma db push --skip-generate
-    ALLOW_SEED=yes SEED_DEFAULT_PASSWORD="${SEED_DEFAULT_PASSWORD:-Password1234!}" DATABASE_URL="${DATABASE_URL}" npx tsx prisma/seed.ts || true
+    ALLOW_SEED=yes SEED_DEFAULT_PASSWORD="${SEED_DEFAULT_PASSWORD:-AdminPassword123!}" DATABASE_URL="${DATABASE_URL}" npx tsx prisma/seed.ts || true
     cd /app
   else
     su-exec postgres pg_ctl -D /var/lib/postgresql/data -o "-c listen_addresses='127.0.0.1' -c log_statement=none" -w start
     export DATABASE_URL="postgresql://ems_admin:ems_admin_secret_2026@127.0.0.1:5432/ems_db?schema=public"
     echo "✅ Embedded PostgreSQL started"
+    cd /app/packages/database
+    ALLOW_SEED=yes SEED_DEFAULT_PASSWORD="${SEED_DEFAULT_PASSWORD:-AdminPassword123!}" DATABASE_URL="${DATABASE_URL}" npx tsx prisma/seed.ts || true
+    cd /app
   fi
 else
   echo "✅ External DATABASE_URL is set (value redacted)"

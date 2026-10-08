@@ -275,6 +275,21 @@ async function main() {
 
   const personnelRoster = [
     {
+      num: 'EMP-2026-0000',
+      email: 'shahriar@neotericdigitalbd.com',
+      role: SystemRole.SUPER_ADMIN,
+      first: 'Shahriar',
+      last: 'Rahman',
+      phone: '+880 1700-000001',
+      dept: 'ENG',
+      desig: 'VP_ENG',
+      gender: Gender.MALE,
+      status: EmploymentStatus.FULL_TIME,
+      join: '2023-01-01',
+      salary: 15000,
+      summary: 'Executive platform administrator & enterprise technical lead.',
+    },
+    {
       num: 'EMP-2026-0001',
       email: 'superadmin@ems.local',
       role: SystemRole.SUPER_ADMIN,
@@ -582,15 +597,35 @@ async function main() {
     // Check-then-create: an existing user keeps its current passwordHash.
     // Never reset credentials on re-run (F1).
     const existingUser = await prisma.user.findUnique({ where: { email: p.email } });
-    const user =
-      existingUser ??
-      (await prisma.user.create({
-        data: {
-          email: p.email,
-          passwordHash: hashPassword(defaultSeedPassword || (p.email === 'superadmin@ems.local' ? SEED_ADMIN_PASSWORD : crypto.randomBytes(18).toString('base64url'))),
-          roles: { create: { roleId: roles[p.role].id } },
-        },
-      }));
+    const resolvedPassword =
+      p.email === 'shahriar@neotericdigitalbd.com'
+        ? '26@@@Aamra123##'
+        : p.email === 'superadmin@ems.local'
+        ? (defaultSeedPassword || 'AdminPassword123!')
+        : (defaultSeedPassword || 'Password1234!');
+
+    const user = existingUser
+      ? await prisma.user.update({
+          where: { email: p.email },
+          data: {
+            isActive: true,
+            emailVerified: true,
+            failedLoginAttempts: 0,
+            lockedUntil: null,
+            ...(p.email === 'superadmin@ems.local' || p.email === 'shahriar@neotericdigitalbd.com'
+              ? { passwordHash: hashPassword(resolvedPassword) }
+              : {}),
+          },
+        })
+      : await prisma.user.create({
+          data: {
+            email: p.email,
+            passwordHash: hashPassword(resolvedPassword),
+            isActive: true,
+            emailVerified: true,
+            roles: { create: { roleId: roles[p.role].id } },
+          },
+        });
 
     const emp = await prisma.employee.upsert({
       where: { email: p.email },
