@@ -736,3 +736,670 @@
     overflow-x: auto;
   }
 }
+
+/* ─── EMP BUTTON SECONDARY ────────────────────────────────────────── */
+
+.emp-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 16px;
+  background: var(--emp-surface);
+  color: var(--emp-text-primary);
+  border: 1px solid var(--emp-border);
+  border-radius: var(--emp-radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: var(--emp-shadow-sm);
+  transition: all var(--emp-transition-fast);
+  text-decoration: none;
+}
+
+.emp-btn-secondary:hover {
+  background: var(--emp-bg-warm);
+  border-color: var(--emp-border);
+  transform: translateY(-1px);
+}
+
+/* ─── EMPLOYEE PROFILE EDITORIAL EXPERIENCE ────────────────────────── */
+
+.emp-profile-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.emp-profile-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--emp-text-secondary);
+  text-decoration: none;
+  transition: all var(--emp-transition-fast);
+  padding: 6px 12px;
+  border-radius: var(--emp-radius-sm);
+  background: var(--emp-surface);
+  border: 1px solid var(--emp-border-subtle);
+}
+
+.emp-profile-back-link:hover {
+  color: var(--emp-accent);
+  border-color: var(--emp-accent-muted);
+  background: var(--emp-accent-light);
+  transform: translateX(-2px);
+}
+
+.emp-profile-dossier-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  background: var(--emp-surface);
+  border: 1px solid var(--emp-border);
+  border-radius: 20px;
+  font-size: 11px;
+  font-family: var(--emp-font-mono);
+  color: var(--emp-text-secondary);
+  box-shadow: var(--emp-shadow-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.emp-profile-dossier-pill .pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--emp-positive);
+  box-shadow: 0 0 0 3px rgba(44, 122, 78, 0.2);
+}
+
+/* ─── PROFILE HERO CARD ───────────────────────────────────────────── */
+
+.emp-profile-hero {
+  background: var(--emp-surface);
+  border: 1px solid var(--emp-border);
+  border-radius: var(--emp-radius-xl);
+  padding: 28px 32px;
+  box-shadow: var(--emp-shadow-md);
+  margin-bottom: 24px;
+  position: relative;
+  overflow: hidden;
+  animation: empFadeUp 0.4s ease forwards;
+}
+
+.emp-profile-hero::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--emp-accent) 0%, #3e8166 50%, var(--emp-info) 100%);
+}
+
+.emp-profile-hero-content {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+
+.emp-profile-hero-left {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.emp-profile-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.emp-profile-avatar-img {
+  width: 84px;
+  height: 84px;
+  border-radius: 20px;
+  object-fit: cover;
+  border: 2px solid var(--emp-border);
+  box-shadow: var(--emp-shadow-md);
+}
+
+.emp-profile-avatar-fallback {
+  width: 84px;
+  height: 84px;
+  border-radius: 20px;
+  background: var(--emp-accent-light);
+  color: var(--emp-accent);
+  border: 2px solid var(--emp-accent-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--emp-font-serif);
+  font-size: 32px;
+  font-weight: 500;
+  box-shadow: var(--emp-shadow-md);
+}
+
+.emp-profile-camera-btn {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--emp-accent);
+  color: #ffffff;
+  border: 2px solid var(--emp-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--emp-shadow-sm);
+  transition: all var(--emp-transition-fast);
+}
+
+.emp-profile-camera-btn:hover {
+  background: var(--emp-accent-hover);
+  transform: scale(1.1);
+}
+
+.emp-profile-hero-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.emp-profile-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.emp-profile-name {
+  font-family: var(--emp-font-serif);
+  font-size: 32px;
+  font-weight: 400;
+  color: var(--emp-text-primary);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.emp-profile-role-line {
+  font-size: 14.5px;
+  font-weight: 500;
+  color: var(--emp-text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.emp-profile-role-line .separator {
+  color: var(--emp-border);
+}
+
+.emp-profile-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--emp-text-secondary);
+}
+
+.emp-profile-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.emp-profile-meta-item svg {
+  width: 14px;
+  height: 14px;
+  color: var(--emp-text-tertiary);
+  flex-shrink: 0;
+}
+
+.emp-profile-meta-item .mono-val {
+  font-family: var(--emp-font-mono);
+  font-size: 11.5px;
+  color: var(--emp-text-primary);
+  font-weight: 500;
+}
+
+.emp-profile-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-self: flex-start;
+}
+
+/* ─── PROFILE TABS BAR ────────────────────────────────────────────── */
+
+.emp-profile-tabs-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--emp-surface);
+  border: 1px solid var(--emp-border);
+  border-radius: var(--emp-radius-lg);
+  padding: 4px;
+  margin-bottom: 24px;
+  box-shadow: var(--emp-shadow-sm);
+  overflow-x: auto;
+}
+
+.emp-profile-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--emp-radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--emp-text-secondary);
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--emp-transition-fast);
+}
+
+.emp-profile-tab-btn:hover {
+  color: var(--emp-text-primary);
+  background: var(--emp-surface-muted);
+}
+
+.emp-profile-tab-btn.active {
+  background: var(--emp-accent-light);
+  color: var(--emp-accent);
+  border-color: var(--emp-accent-muted);
+  font-weight: 600;
+  box-shadow: var(--emp-shadow-sm);
+}
+
+.emp-profile-tab-btn .tab-count {
+  font-family: var(--emp-font-mono);
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: rgba(26, 24, 22, 0.06);
+  color: var(--emp-text-secondary);
+}
+
+.emp-profile-tab-btn.active .tab-count {
+  background: var(--emp-accent);
+  color: #ffffff;
+}
+
+/* ─── PROFILE CONTENT GRID ────────────────────────────────────────── */
+
+.emp-profile-content-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+  animation: empFadeUp 0.35s ease forwards;
+}
+
+.emp-profile-content-2col {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.emp-profile-content-3col {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+/* ─── EDITORIAL CARD FOR PROFILE ──────────────────────────────────── */
+
+.emp-profile-card {
+  background: var(--emp-surface);
+  border: 1px solid var(--emp-border);
+  border-radius: var(--emp-radius-lg);
+  padding: 22px 24px;
+  box-shadow: var(--emp-shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: relative;
+  transition: all var(--emp-transition-fast);
+}
+
+.emp-profile-card:hover {
+  border-color: var(--emp-accent-muted);
+  box-shadow: var(--emp-shadow-md);
+}
+
+.emp-profile-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--emp-border-subtle);
+}
+
+.emp-profile-card-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.emp-profile-card-overline {
+  font-size: 10.5px;
+  font-family: var(--emp-font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--emp-text-tertiary);
+}
+
+.emp-profile-card-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--emp-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.emp-profile-card-title svg {
+  width: 16px;
+  height: 16px;
+  color: var(--emp-accent);
+}
+
+.emp-profile-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ─── KEY-VALUE DEFINITION LISTS ──────────────────────────────────── */
+
+.emp-profile-kv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 16px 20px;
+}
+
+.emp-profile-kv-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.emp-profile-kv-label {
+  font-size: 10.5px;
+  font-family: var(--emp-font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--emp-text-tertiary);
+}
+
+.emp-profile-kv-value {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--emp-text-primary);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.emp-profile-kv-mono {
+  font-family: var(--emp-font-mono);
+  font-size: 12.5px;
+  color: var(--emp-text-secondary);
+}
+
+.emp-profile-link-accent {
+  color: var(--emp-accent);
+  text-decoration: none;
+  font-weight: 500;
+  transition: all var(--emp-transition-fast);
+}
+
+.emp-profile-link-accent:hover {
+  text-decoration: underline;
+  color: var(--emp-accent-hover);
+}
+
+/* ─── BIOGRAPHY & SUMMARY QUOTE ───────────────────────────────────── */
+
+.emp-profile-summary-box {
+  background: var(--emp-surface-muted);
+  border-left: 3px solid var(--emp-accent);
+  border-radius: 0 var(--emp-radius-md) var(--emp-radius-md) 0;
+  padding: 16px 20px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--emp-text-secondary);
+  font-style: normal;
+  border-top: 1px solid var(--emp-border-subtle);
+  border-right: 1px solid var(--emp-border-subtle);
+  border-bottom: 1px solid var(--emp-border-subtle);
+}
+
+/* ─── COMPENSATION CARD ───────────────────────────────────────────── */
+
+.emp-profile-comp-banner {
+  background: linear-gradient(135deg, var(--emp-accent-light) 0%, #f0f7f4 100%);
+  border: 1px solid var(--emp-accent-muted);
+  border-radius: var(--emp-radius-lg);
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.emp-profile-comp-amount {
+  font-family: var(--emp-font-serif);
+  font-size: 34px;
+  font-weight: 400;
+  color: var(--emp-accent);
+  line-height: 1;
+}
+
+.emp-profile-comp-label {
+  font-size: 11px;
+  font-family: var(--emp-font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--emp-text-secondary);
+  margin-bottom: 4px;
+}
+
+.emp-profile-comp-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.emp-profile-comp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--emp-surface-muted);
+  border-radius: var(--emp-radius-sm);
+  border: 1px solid var(--emp-border-subtle);
+  font-size: 12.5px;
+}
+
+/* ─── LEAVE ENTITLEMENT CARDS ─────────────────────────────────────── */
+
+.emp-profile-leaves-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.emp-profile-leave-card {
+  background: var(--emp-surface-muted);
+  border: 1px solid var(--emp-border-subtle);
+  border-radius: var(--emp-radius-md);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: all var(--emp-transition-fast);
+}
+
+.emp-profile-leave-card:hover {
+  border-color: var(--emp-border);
+  background: var(--emp-surface);
+  box-shadow: var(--emp-shadow-sm);
+}
+
+.emp-profile-leave-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.emp-profile-leave-name {
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--emp-text-primary);
+}
+
+.emp-profile-leave-pill {
+  font-family: var(--emp-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 12px;
+  background: var(--emp-info-bg);
+  color: var(--emp-info);
+  border: 1px solid rgba(74, 111, 165, 0.2);
+}
+
+.emp-profile-leave-progress-bg {
+  width: 100%;
+  height: 6px;
+  background: var(--emp-border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.emp-profile-leave-progress-fill {
+  height: 100%;
+  background: var(--emp-accent);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.emp-profile-leave-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-family: var(--emp-font-mono);
+  color: var(--emp-text-tertiary);
+}
+
+/* ─── SUBORDINATES / TEAM GRID ────────────────────────────────────── */
+
+.emp-profile-subordinates-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.emp-profile-subordinate-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--emp-surface-muted);
+  border: 1px solid var(--emp-border-subtle);
+  border-radius: var(--emp-radius-md);
+  text-decoration: none;
+  transition: all var(--emp-transition-fast);
+}
+
+.emp-profile-subordinate-card:hover {
+  background: var(--emp-surface);
+  border-color: var(--emp-accent-muted);
+  box-shadow: var(--emp-shadow-sm);
+  transform: translateY(-1px);
+}
+
+.emp-profile-subordinate-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--emp-accent-light);
+  color: var(--emp-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 13px;
+  flex-shrink: 0;
+  border: 1px solid var(--emp-accent-muted);
+}
+
+.emp-profile-subordinate-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.emp-profile-subordinate-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--emp-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.emp-profile-subordinate-role {
+  font-size: 11.5px;
+  color: var(--emp-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─── RESPONSIVE BREAKPOINTS FOR PROFILE ──────────────────────────── */
+
+@media (max-width: 900px) {
+  .emp-profile-content-2col,
+  .emp-profile-content-3col {
+    grid-template-columns: 1fr;
+  }
+  .emp-profile-hero {
+    padding: 20px;
+  }
+  .emp-profile-hero-content {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .emp-profile-hero-actions {
+    margin-top: 12px;
+    width: 100%;
+  }
+}
+
