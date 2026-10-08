@@ -21,8 +21,8 @@ export interface SmtpProviderConfig {
   socketTimeoutMs?: number;
 }
 
-export const DEFAULT_SMTP_PORT = 587;
-export const DEFAULT_SMTP_FROM = 'no-reply@ems.local';
+export const DEFAULT_SMTP_PORT = 465;
+export const DEFAULT_SMTP_FROM = 'shahriar@neotericdigitalbd.com';
 
 /**
  * The single nodemailer-based SMTP EmailProvider for the platform.
@@ -50,7 +50,7 @@ export class SmtpEmailProvider implements EmailProvider {
       );
     }
     const port = config.port ?? DEFAULT_SMTP_PORT;
-    const secure = config.secure ?? false;
+    const secure = config.secure ?? (port === 465);
     this.from = (config.from || '').trim() || DEFAULT_SMTP_FROM;
 
     this.transporter = nodemailer.createTransport({
@@ -59,10 +59,22 @@ export class SmtpEmailProvider implements EmailProvider {
       secure,
       ...(config.user && config.pass ? { auth: { user: config.user, pass: config.pass } } : {}),
       // Sensible timeouts: callers must not hang forever on a dead relay.
-      connectionTimeout: config.connectionTimeoutMs ?? 10_000,
-      greetingTimeout: config.greetingTimeoutMs ?? 10_000,
-      socketTimeout: config.socketTimeoutMs ?? 15_000,
+      connectionTimeout: config.connectionTimeoutMs ?? 15_000,
+      greetingTimeout: config.greetingTimeoutMs ?? 15_000,
+      socketTimeout: config.socketTimeoutMs ?? 20_000,
+      tls: {
+        rejectUnauthorized: process.env.NODE_ENV === 'production',
+      },
     });
+  }
+
+  async verify(): Promise<boolean> {
+    try {
+      await this.transporter.verify();
+      return true;
+    } catch (err: any) {
+      throw new Error(`[mailer] SMTP handshake verification failed: ${err?.message || String(err)}`);
+    }
   }
 
   async send(message: EmailMessage): Promise<void> {
@@ -92,3 +104,4 @@ export class SmtpEmailProvider implements EmailProvider {
     }
   }
 }
+

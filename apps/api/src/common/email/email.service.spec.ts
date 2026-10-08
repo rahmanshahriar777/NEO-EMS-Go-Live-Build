@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { EmailService } from './email.service';
 import { QueueService } from '../../core/queues/queue.service';
 import { EMAIL_TITLES, EmailTemplateName } from './email-templates';
+import { EMAIL_PROVIDER } from './email-provider.interface';
 
 /**
  * Email module tests (B2): the API↔worker template contract and the enqueue
@@ -107,4 +108,51 @@ describe('EmailService', () => {
       }),
     ).rejects.toBeInstanceOf(QueueUnavailableException);
   });
+
+  it('falls back to direct delivery via EmailProvider when queue is unavailable', async () => {
+    const { QueueUnavailableException } = await import(
+      '../../core/queues/queue-unavailable.exception'
+    );
+    const mockEmailProvider = {
+      name: 'smtp',
+      send: jest.fn().mockResolvedValue(undefined),
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        EmailService,
+        { provide: QueueService, useValue: queueService },
+        { provide: EMAIL_PROVIDER, useValue: mockEmailProvider },
+      ],
+    }).compile();
+
+    const fallbackService = module.get<EmailService>(EmailService);
+
+    queueService.enqueueNotification.mockRejectedValue(
+      new QueueUnavailableException('notifications', 'send-notification', 'job-err'),
+    );
+
+    const resultId = await fallbackService.sendTemplated({
+      to: 'invitee@example.com',
+      userId: 'admin-1',
+      template: 'invitation',
+      data: {
+        actionUrl: 'https://example.com/invitation-accept?token=123',
+        role: 'EMPLOYEE',
+        expiresNote: '72 hours',
+      },
+      idempotencyKey: 'invitation:tokenhash123',
+      title: 'Invitation to join NEO EMS',
+    });
+
+    expect(resultId).toMatch(/^direct-/);
+    expect(mockEmailProvider.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'invitee@example.com',
+        subject: 'Invitation to join NEO EMS',
+        html: expect.stringContaining('https://example.com/invitation-accept?token=123'),
+      }),
+    );
+  });
 });
+

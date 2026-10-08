@@ -21,11 +21,11 @@ export class SmtpEmailProvider extends SharedSmtpEmailProvider {
   constructor(configService: ConfigService) {
     super({
       host: configService.get<string>('smtp.host', ''),
-      port: configService.get<number>('smtp.port', 587),
-      secure: configService.get<boolean>('smtp.secure', false),
+      port: configService.get<number>('smtp.port', 465),
+      secure: configService.get<boolean>('smtp.secure', true),
       user: configService.get<string>('smtp.user'),
       pass: configService.get<string>('smtp.pass'),
-      from: configService.get<string>('smtp.from', 'noreply@ems.local'),
+      from: configService.get<string>('smtp.from', 'shahriar@neotericdigitalbd.com'),
     });
   }
 

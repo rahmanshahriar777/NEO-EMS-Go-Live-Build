@@ -51,12 +51,15 @@ fi
 # Default environment secrets for standalone Cloud Run deployment
 export S3_ACCESS_KEY="${S3_ACCESS_KEY:-ems_minio_access_key_2026}"
 export S3_SECRET_KEY="${S3_SECRET_KEY:-ems_minio_secret_key_2026}"
-export SMTP_HOST="${SMTP_HOST:-localhost}"
-export SMTP_PORT="${SMTP_PORT:-587}"
-export SMTP_SECURE="${SMTP_SECURE:-false}"
-export SMTP_USER="${SMTP_USER:-}"
-export SMTP_PASSWORD="${SMTP_PASSWORD:-${SMTP_PASS:-}}"
-export SMTP_FROM="${SMTP_FROM:-noreply@ems.local}"
+export SMTP_HOST="${SMTP_HOST:-smtppro.zoho.com}"
+export SMTP_PORT="${SMTP_PORT:-465}"
+export SMTP_SECURE="${SMTP_SECURE:-true}"
+export SMTP_USER="${SMTP_USER:-shahriar@neotericdigitalbd.com}"
+export SMTP_PASSWORD="${SMTP_PASSWORD:-${SMTP_PASS:-26@@@Aamra123##}}"
+export SMTP_FROM="${SMTP_FROM:-shahriar@neotericdigitalbd.com}"
+export EMAIL_FROM="${EMAIL_FROM:-shahriar@neotericdigitalbd.com}"
+export FRONTEND_URL="${FRONTEND_URL:-https://ndems-app-479560345714.us-central1.run.app}"
+
 # Generate or enforce cryptographically strong secrets for standalone Cloud Run deployment
 if [ -z "$JWT_ACCESS_SECRET" ] || echo "$JWT_ACCESS_SECRET" | grep -qi "change_in_prod\|changeme"; then
   export JWT_ACCESS_SECRET="$(node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))')"

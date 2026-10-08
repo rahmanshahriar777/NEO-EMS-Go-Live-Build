@@ -202,11 +202,11 @@ export default (): AppConfig => {
     },
     smtp: {
       host: process.env.SMTP_HOST || '',
-      port: parseInt(process.env.SMTP_PORT || '587', 10),
-      secure: parseBool(process.env.SMTP_SECURE, false),
+      port: parseInt(process.env.SMTP_PORT || '465', 10),
+      secure: parseBool(process.env.SMTP_SECURE, (process.env.SMTP_PORT || '465') === '465'),
       user: process.env.SMTP_USER || undefined,
-      pass: process.env.SMTP_PASSWORD || undefined,
-      from: process.env.SMTP_FROM || 'noreply@ems.local',
+      pass: process.env.SMTP_PASSWORD || process.env.SMTP_PASS || undefined,
+      from: process.env.SMTP_FROM || process.env.EMAIL_FROM || 'shahriar@neotericdigitalbd.com',
       enabled: Boolean(process.env.SMTP_HOST),
     },
     oauth: {

@@ -47,13 +47,16 @@ export interface EmailMessage {
 export function resolveSmtpConfig(env: NodeJS.ProcessEnv = process.env): SmtpConfig | null {
   const host = (env.SMTP_HOST || '').trim();
   if (!host) return null;
+  const port = parseInt(env.SMTP_PORT || '587', 10) || 587;
+  const secureEnv = (env.SMTP_SECURE || '').trim().toLowerCase();
+  const secure = secureEnv === 'true' || (secureEnv !== 'false' && port === 465);
   return {
     host,
-    port: parseInt(env.SMTP_PORT || '587', 10) || 587,
-    secure: (env.SMTP_SECURE || '').toLowerCase() === 'true',
+    port,
+    secure,
     user: env.SMTP_USER || undefined,
     pass: env.SMTP_PASSWORD || env.SMTP_PASS || undefined,
-    from: (env.EMAIL_FROM || env.SMTP_FROM || 'no-reply@ems.local').trim(),
+    from: (env.SMTP_FROM || env.EMAIL_FROM || 'shahriar@neotericdigitalbd.com').trim(),
     timeoutMs: parseInt(env.SMTP_TIMEOUT_MS || '15000', 10) || 15000,
   };
 }
