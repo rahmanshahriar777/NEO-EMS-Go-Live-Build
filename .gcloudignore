@@ -3,9 +3,12 @@
 node_modules/
 **/node_modules/
 .next/
+**/.next/
+dist/
 **/dist/
 .pnpm-store/
 .turbo/
+**/.turbo/
 *.log
 .env
 .env.local
