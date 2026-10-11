@@ -6,7 +6,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { DashboardLayout } from '../../../components/layout/dashboard-layout';
 import { api } from '../../../lib/api-client';
 import { useDocumentsQuery, documentKeys } from '../../../lib/queries';
-import { requireApiBaseUrl } from '../../../lib/env';
 import { ErrorBanner } from '../../../components/ui/error-banner';
 import { SkeletonCardGrid } from '../../../components/ui/skeleton';
 import { PaginationControls } from '../../../components/ui/pagination';
@@ -126,16 +125,7 @@ export default function DocumentsPage() {
       // fabricated into the list).
       if (upExpiry) form.append('expiresAt', new Date(upExpiry).toISOString());
 
-      const base = requireApiBaseUrl();
-      const res = await fetch(`${base}/documents/upload`, {
-        method: 'POST',
-        credentials: 'include',
-        body: form,
-      });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        throw new Error(json?.message || `Upload failed with status ${res.status}`);
-      }
+      await api.upload('/documents/upload', form);
       setShowUpload(false);
       setUpFile(null);
       setUpTitle('');

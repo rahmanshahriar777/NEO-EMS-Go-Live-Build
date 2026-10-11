@@ -53,6 +53,17 @@ describe('api-client CSRF double-submit (x-csrf-token)', () => {
     }
   });
 
+  it('sends x-csrf-token on api.upload with FormData without forcing Content-Type', async () => {
+    document.cookie = 'csrf=tok-upload';
+    const form = new FormData();
+    form.append('file', new Blob(['test'], { type: 'image/png' }), 'test.png');
+    form.append('title', 'test');
+    await api.upload('/documents/upload', form);
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect((init.headers as Record<string, string>)['x-csrf-token']).toBe('tok-upload');
+    expect((init.headers as Record<string, string>)['Content-Type']).toBeUndefined();
+  });
+
   it('does not send x-csrf-token on safe (GET) requests', async () => {
     document.cookie = 'csrf=tok-abc-123';
     await api.get('/employees');

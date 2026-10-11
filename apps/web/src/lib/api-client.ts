@@ -229,11 +229,18 @@ class ApiClient {
       Accept: 'application/json',
       ...(options.headers as Record<string, string>),
     };
-    // Only send a JSON content type when there is a body to describe.
+    // Only send a JSON content type when there is a body to describe and it is not FormData.
     const { params: _params, ...fetchOptions } = options;
-    if (fetchOptions.body !== undefined && !headers['Content-Type']) {
+    const isFormData =
+      (typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData) ||
+      (fetchOptions.body && typeof (fetchOptions.body as any)?.append === 'function');
+
+    if (isFormData) {
+      delete headers['Content-Type'];
+    } else if (fetchOptions.body !== undefined && !headers['Content-Type']) {
       headers['Content-Type'] = 'application/json';
     }
+
     // CSRF double-submit (see CSRF_HEADER_NAME above): every mutation echoes
     // the `csrf` cookie in the `x-csrf-token` header. Safe methods are exempt
     // per the guard, and a caller-supplied header is never overwritten.
@@ -361,6 +368,18 @@ class ApiClient {
 
   delete<T = any>(endpoint: string, options?: RequestOptions): Promise<T> {
     return this.request<T>(endpoint, { ...options, method: 'DELETE' });
+  }
+
+  /**
+   * Upload a file (multipart/form-data) with cookie auth, CSRF double-submit,
+   * and automatic error parsing/refresh handling.
+   */
+  upload<T = any>(endpoint: string, formData: FormData, options?: RequestOptions): Promise<T> {
+    return this.request<T>(endpoint, {
+      ...options,
+      method: 'POST',
+      body: formData,
+    });
   }
 
   /**
