@@ -1,8 +1,8 @@
 # Multi-stage production Dockerfile for Google Cloud Run (All-in-One Deployment)
-FROM node:20.19-alpine3.22 AS base
+FROM node:22-alpine AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
-RUN corepack enable
+RUN corepack enable && corepack prepare pnpm@10.5.2 --activate
 
 # Native toolchain for argon2 compilation
 RUN apk add --no-cache python3 make g++
@@ -40,7 +40,7 @@ RUN pnpm --filter @ems/api build
 RUN NEXT_PUBLIC_API_URL="/api/v1" NEXT_PUBLIC_API_BASE_URL="/api/v1" pnpm --filter @ems/web build
 
 # Stage 3: Production Runner for Google Cloud Run
-FROM node:20.19-alpine3.22 AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
@@ -49,7 +49,7 @@ ENV PNPM_HOME="/pnpm"
 ENV PATH="/app/node_modules/.bin:/app/apps/web/node_modules/.bin:$PNPM_HOME:$PATH"
 
 RUN apk add --no-cache bash curl nginx postgresql postgresql-contrib su-exec redis
-RUN corepack enable
+RUN corepack enable && corepack prepare pnpm@10.5.2 --activate
 
 # Copy built workspace
 COPY --from=builder /app /app
