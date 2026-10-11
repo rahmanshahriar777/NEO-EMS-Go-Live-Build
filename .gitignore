@@ -15,6 +15,7 @@ out/
 .env.development.local
 .env.test.local
 .env.production.local
+deploy/cloudrun-env.yaml
 !.env.example
 
 # TLS certificates for the prod nginx (docker-compose.prod.yml TLS_CERT_DIR).
