@@ -85,24 +85,27 @@ function InvitationAcceptContent() {
 
         if (!active) return;
 
-        if (res?.valid) {
+        const data: InvitationVerifyResponse =
+          (res as any)?.data !== undefined ? (res as any).data : res;
+
+        if (data?.valid) {
           setVerifyStatus('valid');
           setInviteDetails({
-            email: res.email,
-            role: res.role,
+            email: data.email,
+            role: data.role,
           });
-          if (res.firstName) setFirstName(res.firstName);
-          if (res.lastName) setLastName(res.lastName);
-        } else if (res?.reason === 'ALREADY_ACCEPTED') {
+          if (data.firstName) setFirstName(data.firstName);
+          if (data.lastName) setLastName(data.lastName);
+        } else if (data?.reason === 'ALREADY_ACCEPTED') {
           setVerifyStatus('already_accepted');
-          setInviteDetails({ email: res.email, role: res.role });
-        } else if (res?.reason === 'EXPIRED') {
+          setInviteDetails({ email: data.email, role: data.role });
+        } else if (data?.reason === 'EXPIRED') {
           setVerifyStatus('expired');
-          setInviteDetails({ email: res.email, role: res.role });
+          setInviteDetails({ email: data.email, role: data.role });
         } else {
           setVerifyStatus('invalid');
           setError(
-            res?.message ||
+            data?.message ||
               'This invitation link is invalid or has expired. Please ask your administrator for a new one.',
           );
         }

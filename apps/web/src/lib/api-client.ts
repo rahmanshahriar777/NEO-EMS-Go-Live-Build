@@ -122,7 +122,8 @@ class ApiClient {
       endpoint.includes('/auth/refresh') ||
       endpoint.includes('/auth/register') ||
       endpoint.includes('/auth/logout') ||
-      endpoint.includes('/auth/invitations')
+      endpoint.includes('/auth/invitations') ||
+      endpoint.includes('/auth/me')
     );
   }
 
@@ -179,11 +180,26 @@ class ApiClient {
     return this.refreshPromise;
   }
 
+  private isPublicPath(pathname: string): boolean {
+    const p = (pathname || '').split('?')[0].split('#')[0];
+    const publicPages = [
+      '/',
+      '/login',
+      '/register',
+      '/invitation-accept',
+      '/reset-password',
+      '/mfa-challenge',
+      '/verify-email',
+      '/offline',
+    ];
+    return publicPages.some((pub) => p === pub || p.startsWith(`${pub}/`));
+  }
+
   private handleSessionExpired(): never {
     this.sessionExpired = true;
     if (typeof window !== 'undefined') {
       const currentPath = window.location.pathname + window.location.search;
-      if (!currentPath.startsWith('/login') && !currentPath.startsWith('/register')) {
+      if (!this.isPublicPath(window.location.pathname)) {
         window.location.href = `/login?next=${encodeURIComponent(currentPath)}`;
       }
     }
@@ -255,18 +271,28 @@ class ApiClient {
       throw new ApiError(message, 0);
     }
 
-    // 401: try one cookie refresh, then retry the original request once.
-    // If refresh fails, every pending request REJECTS (no hanging) and the
-    // user is sent back to /login.
-    if (response.status === 401 && !this.isAuthEndpoint(endpoint)) {
-      try {
-        await this.doRefresh();
-      } catch {
-        this.handleSessionExpired();
-      }
-      response = await this.fetchOnce(url, init);
-      if (response.status === 401) {
-        this.handleSessionExpired();
+    // 401 handling:
+    // For /auth/me: probe for an active session by attempting a background refresh if possible,
+    // but NEVER treat a failed refresh as session expiration (unauthenticated visitors are normal).
+    // For other non-auth endpoints: attempt refresh and redirect to /login if session truly expired.
+    if (response.status === 401) {
+      if (endpoint.includes('/auth/me')) {
+        try {
+          await this.doRefresh();
+          response = await this.fetchOnce(url, init);
+        } catch {
+          // No active session — unauthenticated visitor. Do not redirect or mark session expired.
+        }
+      } else if (!this.isAuthEndpoint(endpoint)) {
+        try {
+          await this.doRefresh();
+        } catch {
+          this.handleSessionExpired();
+        }
+        response = await this.fetchOnce(url, init);
+        if (response.status === 401) {
+          this.handleSessionExpired();
+        }
       }
     }
 

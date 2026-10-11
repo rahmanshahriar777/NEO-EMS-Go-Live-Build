@@ -69,7 +69,7 @@ const PROTECTED_PATHS = [
 ];
 
 // Public auth pages that an already-signed-in user should skip.
-const AUTH_PAGES = ['/login', '/register', '/invitation-accept', '/reset-password', '/mfa-challenge'];
+const AUTH_PAGES = ['/login', '/register', '/reset-password', '/mfa-challenge'];
 
 // Routes where the Web Speech API is used (ai-assistant voice input).
 const MICROPHONE_PATHS = ['/ai-assistant'];
