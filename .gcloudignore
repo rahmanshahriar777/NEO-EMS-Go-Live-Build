@@ -20,3 +20,8 @@ coverage/
 .idea/
 .agents/
 .archify/
+*.mp4
+*.webm
+scenes/
+demo_ems_preview.*
+demo_preview.html

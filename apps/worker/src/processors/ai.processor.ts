@@ -46,7 +46,7 @@ export async function processAi(job: Job<AiJobPayload>): Promise<AiJobResult> {
     try {
       const { GoogleGenerativeAI } = await import('@google/generative-ai');
       const genAi = new GoogleGenerativeAI(geminiKey);
-      const model = genAi.getGenerativeModel({ model: options?.model || 'gemini-1.5-flash' });
+      const model = genAi.getGenerativeModel({ model: options?.model || 'gemini-2.5-flash' });
       const resp = await model.generateContent(prompt);
       textResult = resp.response.text();
     } catch (e: any) {

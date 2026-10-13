@@ -96,7 +96,7 @@ const SUGGESTIONS: SuggestionItem[] = [
 ];
 
 export default function AIAssistantPage() {
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-1.5-flash');
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-flash');
   const [prompt, setPrompt] = useState<string>('');
   const [copied, setCopied] = useState<boolean>(false);
   const [showSuggestions, setShowSuggestions] = useState<boolean>(true);
@@ -208,7 +208,7 @@ export default function AIAssistantPage() {
 
   const isGroq = data?.provider === 'groq' || data?.model?.includes('llama') || selectedModel.includes('llama');
   const providerTagClass = isGroq ? 'ai-response-provider-tag groq' : 'ai-response-provider-tag gemini';
-  const providerModelLabel = data?.model || (selectedModel === 'gemini-1.5-flash' ? 'gemini-1.5-flash' : 'llama-3.3-70b-versatile');
+  const providerModelLabel = data?.model || (selectedModel === 'gemini-2.5-flash' ? 'gemini-2.5-flash' : 'llama-3.3-70b-versatile');
 
   return (
     <DashboardLayout title="AI Assistant">
@@ -226,14 +226,14 @@ export default function AIAssistantPage() {
           {/* Provider Cards */}
           <div className="ai-providers-row">
             <div
-              className={`ai-provider-card ${selectedModel === 'gemini-1.5-flash' ? 'active' : ''}`}
-              onClick={() => setSelectedModel('gemini-1.5-flash')}
+              className={`ai-provider-card ${selectedModel === 'gemini-2.5-flash' ? 'active' : ''}`}
+              onClick={() => setSelectedModel('gemini-2.5-flash')}
             >
               <div className="ai-provider-info">
                 <div className="ai-provider-icon gemini">G</div>
                 <div className="ai-provider-details">
                   <span className="ai-provider-name">Google Gemini</span>
-                  <span className="ai-provider-model">gemini-1.5-flash</span>
+                  <span className="ai-provider-model">gemini-2.5-flash</span>
                 </div>
               </div>
               <div className="ai-provider-meta">

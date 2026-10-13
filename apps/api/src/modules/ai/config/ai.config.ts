@@ -52,6 +52,7 @@ export const loadAiConfig = (): AiConfiguration => {
     modelAllowlist: parseAllowlist(
       process.env.AI_MODEL_ALLOWLIST,
       process.env.AI_GEMINI_MODEL || 'gemini-2.5-flash',
+      'gemini-1.5-flash',
       process.env.AI_GROQ_MODEL || 'llama-3.3-70b-versatile',
     ),
     dailyBudgetPerUser: parseInt(process.env.AI_DAILY_BUDGET_PER_USER || '100', 10),

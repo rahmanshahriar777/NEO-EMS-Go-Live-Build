@@ -16,6 +16,7 @@ out/
 .env.test.local
 .env.production.local
 deploy/cloudrun-env.yaml
+deploy/startup-script-*.sh
 !.env.example
 
 # TLS certificates for the prod nginx (docker-compose.prod.yml TLS_CERT_DIR).
@@ -54,3 +55,7 @@ Thumbs.db
 *.sw?
 .agents/
 .archify/
+*.mp4
+*.webm
+scenes/
+demo_preview.html
