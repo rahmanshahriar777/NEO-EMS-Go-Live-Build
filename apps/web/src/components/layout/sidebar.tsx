@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -70,94 +70,98 @@ export const Sidebar: React.FC = () => {
     }
   };
 
-  const navSections: NavSection[] = [
-    {
-      title: 'Overview',
-      items: [
-        { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-        { label: 'My Profile', href: '/profile', icon: UserCircle2 }
-      ]
-    },
-    {
-      title: 'People & Org',
-      // NOTE: sidebar badges were removed — hardcoded values ("4", "4.85 ★",
-      // "SOC2", "LIVE") are fabricated metrics, not live data. Badges return
-      // only if computed from real API responses.
-      items: [
-        { label: 'Employees', href: '/employees', icon: Users },
-        { label: 'Departments', href: '/organization/departments', icon: Building2 },
-        { label: 'Calendar', href: '/calendar', icon: Calendar },
-        { label: 'Attendance', href: '/attendance', icon: Clock },
-        { label: 'Leaves', href: '/leaves', icon: CalendarDays },
-        { label: 'Payroll', href: '/payroll', icon: Banknote },
-      ]
+  const navSections = useMemo(() => {
+    const sections: NavSection[] = [
+      {
+        title: 'Overview',
+        items: [
+          { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+          { label: 'My Profile', href: '/profile', icon: UserCircle2 }
+        ]
+      },
+      {
+        title: 'People & Org',
+        // NOTE: sidebar badges were removed — hardcoded values ("4", "4.85 ★",
+        // "SOC2", "LIVE") are fabricated metrics, not live data. Badges return
+        // only if computed from real API responses.
+        items: [
+          { label: 'Employees', href: '/employees', icon: Users },
+          { label: 'Departments', href: '/organization/departments', icon: Building2 },
+          { label: 'Calendar', href: '/calendar', icon: Calendar },
+          { label: 'Attendance', href: '/attendance', icon: Clock },
+          { label: 'Leaves', href: '/leaves', icon: CalendarDays },
+          { label: 'Payroll', href: '/payroll', icon: Banknote },
+        ]
+      }
+    ];
+
+    // Statutory filings for payroll administrators
+    if (hasRole(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN)) {
+      sections[1].items.push({
+        label: 'Statutory Filings',
+        href: '/payroll/statutory',
+        icon: FileCheck2,
+      });
     }
-  ];
 
-  // Statutory filings for payroll administrators
-  if (hasRole(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN)) {
-    navSections[1].items.push({
-      label: 'Statutory Filings',
-      href: '/payroll/statutory',
-      icon: FileCheck2,
-    });
-  }
+    // Recruitment & Onboarding for hiring managers and HR admins
+    if (hasRole(SystemRole.MANAGER, SystemRole.HR_ADMIN, SystemRole.SUPER_ADMIN)) {
+      sections[1].items.push(
+        { label: 'Recruitment', href: '/recruitment', icon: Briefcase },
+        { label: 'Onboarding', href: '/onboarding', icon: ClipboardCheck },
+        { label: 'Rostering', href: '/rostering', icon: ClipboardList }
+      );
+    }
 
-  // Recruitment & Onboarding for hiring managers and HR admins
-  if (hasRole(SystemRole.MANAGER, SystemRole.HR_ADMIN, SystemRole.SUPER_ADMIN)) {
-    navSections[1].items.push(
-      { label: 'Recruitment', href: '/recruitment', icon: Briefcase },
-      { label: 'Onboarding', href: '/onboarding', icon: ClipboardCheck },
-      { label: 'Rostering', href: '/rostering', icon: ClipboardList }
+    // Performance & Documents for all members
+    sections[1].items.push(
+      { label: 'Performance', href: '/performance', icon: TrendingUp },
+      { label: 'Documents', href: '/documents', icon: FileText }
     );
-  }
 
-  // Performance & Documents for all members
-  navSections[1].items.push(
-    { label: 'Performance', href: '/performance', icon: TrendingUp },
-    { label: 'Documents', href: '/documents', icon: FileText }
-  );
-
-  // Account security and GDPR (everyone)
-  navSections.push({
-    title: 'Security & Privacy',
-    items: [
-      { label: 'Two-Factor Auth', href: '/security/mfa', icon: KeyRound },
-      { label: 'Active Sessions', href: '/security/sessions', icon: MonitorSmartphone },
-      { label: 'GDPR & Privacy', href: '/security/gdpr', icon: Shield },
-    ],
-  });
-
-  // User & role administration and system integrations
-  if (hasRole(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN)) {
-    navSections.push({
-      title: 'Administration',
+    // Account security and GDPR (everyone)
+    sections.push({
+      title: 'Security & Privacy',
       items: [
-        { label: 'Users', href: '/admin/users', icon: UserCog },
-        { label: 'Roles & Permissions', href: '/admin/roles', icon: ShieldCheck },
-        { label: 'Integrations', href: '/integrations', icon: Webhook },
+        { label: 'Two-Factor Auth', href: '/security/mfa', icon: KeyRound },
+        { label: 'Active Sessions', href: '/security/sessions', icon: MonitorSmartphone },
+        { label: 'GDPR & Privacy', href: '/security/gdpr', icon: Shield },
       ],
     });
-  }
 
-  // Compliance & Reporting section for authorized roles
-  if (hasRole(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN, SystemRole.AUDITOR)) {
-    navSections.push({
-      title: 'Compliance & Audit',
+    // User & role administration and system integrations
+    if (hasRole(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN)) {
+      sections.push({
+        title: 'Administration',
+        items: [
+          { label: 'Users', href: '/admin/users', icon: UserCog },
+          { label: 'Roles & Permissions', href: '/admin/roles', icon: ShieldCheck },
+          { label: 'Integrations', href: '/integrations', icon: Webhook },
+        ],
+      });
+    }
+
+    // Compliance & Reporting section for authorized roles
+    if (hasRole(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN, SystemRole.AUDITOR)) {
+      sections.push({
+        title: 'Compliance & Audit',
+        items: [
+          { label: 'Audit Trail', href: '/admin/audit-logs', icon: ShieldCheck },
+          { label: 'Reports & BI', href: '/reports', icon: BarChart3 },
+        ]
+      });
+    }
+
+    // AI Suite section
+    sections.push({
+      title: 'Intelligence',
       items: [
-        { label: 'Audit Trail', href: '/admin/audit-logs', icon: ShieldCheck },
-        { label: 'Reports & BI', href: '/reports', icon: BarChart3 },
+        { label: 'AI Assistant', href: '/ai-assistant', icon: Sparkles }
       ]
     });
-  }
 
-  // AI Suite section
-  navSections.push({
-    title: 'Intelligence',
-    items: [
-      { label: 'AI Assistant', href: '/ai-assistant', icon: Sparkles }
-    ]
-  });
+    return sections;
+  }, [hasRole]);
 
   const isItemActive = (href: string) => {
     if (href === '/dashboard') {
