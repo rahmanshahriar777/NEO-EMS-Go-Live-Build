@@ -158,4 +158,80 @@ describe('IntegrationsService', () => {
       expect(lines[3]).toMatch(/,5000\.00,/);
     });
   });
+
+  describe('QuickBooks Online integration', () => {
+    it('generates a valid Intuit OAuth 2.0 authorization URL', async () => {
+      await build({
+        QUICKBOOKS_CLIENT_ID: 'test-qbo-client-id',
+        QUICKBOOKS_REDIRECT_URI: 'https://ems.test/callback',
+      });
+
+      const { url } = service.getQuickBooksAuthUrl('test-state-123');
+      expect(url).toContain('appcenter.intuit.com/connect/oauth2');
+      expect(url).toContain('client_id=test-qbo-client-id');
+      expect(url).toContain('redirect_uri=' + encodeURIComponent('https://ems.test/callback'));
+      expect(url).toContain('state=test-state-123');
+    });
+
+    it('reports disconnected status initially', async () => {
+      await build({});
+      const status = await service.getQuickBooksStatus();
+      expect(status.connected).toBe(false);
+    });
+
+    it('syncs payroll run to QuickBooks JournalEntry', async () => {
+      await build({
+        QUICKBOOKS_ACCESS_TOKEN: 'mock-access-token',
+        QUICKBOOKS_REALM_ID: '987654321',
+      });
+
+      prisma.payrollRun.findUnique.mockResolvedValue({
+        id: 'run-qbo-1',
+        month: 11,
+        year: 2026,
+        payslips: [
+          {
+            grossPay: 8000,
+            totalDeductions: 2000,
+            netPay: 6000,
+          },
+        ],
+      });
+
+      let postedPayload: any = null;
+      (global as any).fetch = jest.fn(async (url: string, opts: any) => {
+        postedPayload = JSON.parse(opts.body);
+        return {
+          ok: true,
+          json: async () => ({
+            JournalEntry: {
+              Id: 'qbo-je-101',
+              DocNumber: 'PAY/2026-11',
+              TotalAmt: 8000,
+            },
+          }),
+        };
+      });
+
+      const res = await service.syncPayrollToQuickBooks('run-qbo-1', {
+        wagesExpenseAccountId: 'account-6000',
+        deductionsPayableAccountId: 'account-2100',
+        netPayBankAccountId: 'account-2200',
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.journalEntryId).toBe('qbo-je-101');
+      expect(postedPayload.DocNumber).toBe('PAY/2026-11');
+      expect(postedPayload.Line).toHaveLength(3);
+      expect(postedPayload.Line[0].JournalEntryLineDetail.PostingType).toBe('Debit');
+      expect(postedPayload.Line[0].Amount).toBe(8000);
+      expect(postedPayload.Line[1].JournalEntryLineDetail.PostingType).toBe('Credit');
+      expect(postedPayload.Line[1].Amount).toBe(2000);
+      expect(postedPayload.Line[2].JournalEntryLineDetail.PostingType).toBe('Credit');
+      expect(postedPayload.Line[2].Amount).toBe(6000);
+
+      delete (global as any).fetch;
+    });
+  });
+
 });

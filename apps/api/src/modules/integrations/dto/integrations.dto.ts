@@ -80,3 +80,37 @@ export class ImportHrisDto {
   @Type(() => HrisEmployeeImportItemDto)
   employees!: HrisEmployeeImportItemDto[];
 }
+
+export class QuickBooksCallbackDto {
+  @ApiProperty({ description: 'Intuit authorization code' })
+  @IsString()
+  @IsNotEmpty()
+  code!: string;
+
+  @ApiProperty({ description: 'Intuit Realm ID (Company ID)' })
+  @IsString()
+  @IsNotEmpty()
+  realmId!: string;
+
+  @ApiPropertyOptional({ description: 'OAuth state verification parameter' })
+  @IsOptional()
+  @IsString()
+  state?: string;
+}
+
+export class QuickBooksAccountMappingDto {
+  @ApiProperty({ description: 'QBO Account ID for Gross Wages Expense (Debit)' })
+  @IsString()
+  @IsNotEmpty()
+  wagesExpenseAccountId!: string;
+
+  @ApiProperty({ description: 'QBO Account ID for Deductions Payable (Credit)' })
+  @IsString()
+  @IsNotEmpty()
+  deductionsPayableAccountId!: string;
+
+  @ApiProperty({ description: 'QBO Account ID for Net Pay / Bank Account (Credit)' })
+  @IsString()
+  @IsNotEmpty()
+  netPayBankAccountId!: string;
+}

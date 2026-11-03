@@ -8,7 +8,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SystemRole, JwtPayload } from '@ems/shared';
-import { SendAlertDto, ImportHrisDto } from './dto/integrations.dto';
+import { SendAlertDto, ImportHrisDto, QuickBooksCallbackDto, QuickBooksAccountMappingDto } from './dto/integrations.dto';
 
 @ApiTags('Integrations')
 @Controller('integrations')
@@ -84,4 +84,76 @@ export class IntegrationsController {
   async importHris(@Body() dto: ImportHrisDto) {
     return this.service.importHrisEmployees(dto.employees || []);
   }
+
+  // ------------------------------------------------ QuickBooks Endpoints
+
+  @Get('quickbooks/auth-url')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Generate Intuit QuickBooks OAuth 2.0 connection URL',
+  })
+  getQuickBooksAuthUrl(@Query('state') state?: string) {
+    return this.service.getQuickBooksAuthUrl(state);
+  }
+
+  @Post('quickbooks/callback')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Exchange authorization code and link QuickBooks Online company',
+  })
+  async handleQuickBooksCallback(@Body() dto: QuickBooksCallbackDto) {
+    return this.service.handleQuickBooksCallback(dto.code, dto.realmId);
+  }
+
+  @Get('quickbooks/status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Retrieve QuickBooks Online connection health and company status',
+  })
+  async getQuickBooksStatus() {
+    return this.service.getQuickBooksStatus();
+  }
+
+  @Post('quickbooks/disconnect')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Disconnect linked QuickBooks Online tenant',
+  })
+  disconnectQuickBooks() {
+    return this.service.disconnectQuickBooks();
+  }
+
+  @Get('quickbooks/accounts')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Retrieve Chart of Accounts from QuickBooks for payroll expense and liability mapping',
+  })
+  async getQuickBooksAccounts() {
+    return this.service.getQuickBooksAccounts();
+  }
+
+  @Post('quickbooks/sync-payroll/:payrollRunId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.SUPER_ADMIN, SystemRole.HR_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Push a finalized payroll run into QuickBooks Online as a Double-Entry Journal Entry',
+  })
+  async syncPayrollToQuickBooks(
+    @Param('payrollRunId') payrollRunId: string,
+    @Body() mapping: QuickBooksAccountMappingDto,
+  ) {
+    return this.service.syncPayrollToQuickBooks(payrollRunId, mapping);
+  }
+
 }

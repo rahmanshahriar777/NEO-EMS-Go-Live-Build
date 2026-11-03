@@ -4,7 +4,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { toCsv } from '../reports/export/csv';
 import { LeaveStatus } from '@prisma/client';
-import { SendAlertDto, HrisEmployeeImportItemDto } from './dto/integrations.dto';
+import { SendAlertDto, HrisEmployeeImportItemDto, QuickBooksAccountMappingDto } from './dto/integrations.dto';
 
 /**
  * Integrations (Phase 3 item 5).
@@ -358,5 +358,338 @@ export class IntegrationsService {
 
     return { imported, updated, failed, errors };
   }
-}
 
+  // -------------------------------------------------- QuickBooks Integration
+
+  private qboConnection: {
+    realmId: string;
+    accessToken: string;
+    refreshToken: string;
+    expiresAt: Date;
+    companyName?: string;
+  } | null = null;
+
+  private qboBaseUrl(): string {
+    const env = this.configService.get<string>('QUICKBOOKS_ENVIRONMENT') || 'sandbox';
+    return env === 'production'
+      ? 'https://quickbooks.api.intuit.com'
+      : 'https://sandbox-quickbooks.api.intuit.com';
+  }
+
+  private qboAuthHeader(): string {
+    const clientId = this.configService.get<string>('QUICKBOOKS_CLIENT_ID') || '';
+    const clientSecret = this.configService.get<string>('QUICKBOOKS_CLIENT_SECRET') || '';
+    return 'Basic ' + Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  }
+
+  /**
+   * Generates Intuit QuickBooks OAuth 2.0 authorization URL
+   */
+  getQuickBooksAuthUrl(state = 'qbo-init'): { url: string } {
+    const clientId = this.configService.get<string>('QUICKBOOKS_CLIENT_ID');
+    const redirectUri =
+      this.configService.get<string>('QUICKBOOKS_REDIRECT_URI') ||
+      'http://localhost:3000/integrations?tab=quickbooks';
+    const scope = this.configService.get<string>(
+      'QUICKBOOKS_SCOPES',
+      'com.intuit.quickbooks.accounting',
+    );
+
+    if (!clientId) {
+      throw new BadRequestException('QUICKBOOKS_CLIENT_ID is not configured in environment');
+    }
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      response_type: 'code',
+      scope,
+      redirect_uri: redirectUri,
+      state,
+    });
+
+    return {
+      url: `https://appcenter.intuit.com/connect/oauth2?${params.toString()}`,
+    };
+  }
+
+  /**
+   * Exchanges OAuth authorization code for Access & Refresh tokens
+   */
+  async handleQuickBooksCallback(
+    code: string,
+    realmId: string,
+  ): Promise<{
+    status: string;
+    realmId: string;
+    companyName?: string;
+  }> {
+    const redirectUri =
+      this.configService.get<string>('QUICKBOOKS_REDIRECT_URI') ||
+      'http://localhost:3000/integrations?tab=quickbooks';
+
+    const tokenRes = await fetch('https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Authorization: this.qboAuthHeader(),
+      },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: redirectUri,
+      }).toString(),
+    });
+
+    if (!tokenRes.ok) {
+      const err = await tokenRes.text();
+      this.logger.error(`QuickBooks token exchange failed: ${err}`);
+      throw new BadRequestException('Failed to exchange authorization code with Intuit QuickBooks');
+    }
+
+    const tokens = await tokenRes.json();
+    const expiresAt = new Date(Date.now() + (tokens.expires_in || 3600) * 1000);
+
+    this.qboConnection = {
+      realmId,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      expiresAt,
+    };
+
+    // Query CompanyInfo to fetch legal business name
+    try {
+      const companyRes = await fetch(
+        `${this.qboBaseUrl()}/v3/company/${realmId}/companyinfo/${realmId}`,
+        {
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${tokens.access_token}`,
+          },
+        },
+      );
+      if (companyRes.ok) {
+        const companyData = await companyRes.json();
+        this.qboConnection.companyName =
+          companyData.CompanyInfo?.CompanyName || 'QuickBooks Company';
+      }
+    } catch (e) {
+      this.logger.warn(`Could not fetch QuickBooks company info: ${e.message}`);
+    }
+
+    this.logger.log(`QuickBooks connected successfully for company realmId: ${realmId}`);
+    return {
+      status: 'connected',
+      realmId,
+      companyName: this.qboConnection.companyName,
+    };
+  }
+
+  /**
+   * Returns current QuickBooks connection status
+   */
+  async getQuickBooksStatus(): Promise<{
+    connected: boolean;
+    realmId?: string;
+    companyName?: string;
+    expiresAt?: string;
+  }> {
+    const staticToken = this.configService.get<string>('QUICKBOOKS_ACCESS_TOKEN');
+    const staticRealmId = this.configService.get<string>('QUICKBOOKS_REALM_ID');
+
+    if (!this.qboConnection && staticToken && staticRealmId) {
+      return {
+        connected: true,
+        realmId: staticRealmId,
+        companyName: 'QuickBooks Connected (Static Config)',
+      };
+    }
+
+    if (!this.qboConnection) {
+      return { connected: false };
+    }
+
+    return {
+      connected: true,
+      realmId: this.qboConnection.realmId,
+      companyName: this.qboConnection.companyName,
+      expiresAt: this.qboConnection.expiresAt.toISOString(),
+    };
+  }
+
+  /**
+   * Disconnects QuickBooks integration
+   */
+  disconnectQuickBooks(): { success: boolean; message: string } {
+    this.qboConnection = null;
+    return { success: true, message: 'QuickBooks Online integration disconnected.' };
+  }
+
+  /**
+   * Ensures active access token, refreshing if expired
+   */
+  private async ensureQuickBooksToken(): Promise<{ accessToken: string; realmId: string }> {
+    const staticToken = this.configService.get<string>('QUICKBOOKS_ACCESS_TOKEN');
+    const staticRealmId = this.configService.get<string>('QUICKBOOKS_REALM_ID');
+    if (staticToken && staticRealmId) {
+      return { accessToken: staticToken, realmId: staticRealmId };
+    }
+
+    if (!this.qboConnection) {
+      throw new BadRequestException(
+        'QuickBooks Online is not connected. Please connect via OAuth first.',
+      );
+    }
+
+    // Refresh if expired or expiring within 60 seconds
+    if (this.qboConnection.expiresAt.getTime() - Date.now() < 60000) {
+      this.logger.log('QuickBooks access token expired or expiring soon; refreshing...');
+      const refreshRes = await fetch('https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Authorization: this.qboAuthHeader(),
+        },
+        body: new URLSearchParams({
+          grant_type: 'refresh_token',
+          refresh_token: this.qboConnection.refreshToken,
+        }).toString(),
+      });
+
+      if (!refreshRes.ok) {
+        this.qboConnection = null;
+        throw new BadRequestException('QuickBooks session expired. Please reconnect to QuickBooks.');
+      }
+
+      const refreshed = await refreshRes.json();
+      this.qboConnection.accessToken = refreshed.access_token;
+      this.qboConnection.refreshToken =
+        refreshed.refresh_token || this.qboConnection.refreshToken;
+      this.qboConnection.expiresAt = new Date(Date.now() + (refreshed.expires_in || 3600) * 1000);
+    }
+
+    return {
+      accessToken: this.qboConnection.accessToken,
+      realmId: this.qboConnection.realmId,
+    };
+  }
+
+  /**
+   * Fetches active chart of accounts from QuickBooks Online for mapping
+   */
+  async getQuickBooksAccounts(): Promise<any[]> {
+    const { accessToken, realmId } = await this.ensureQuickBooksToken();
+    const query = encodeURIComponent(
+      'SELECT Id, Name, AccountType, AccountSubType FROM Account WHERE Active = true MAXRESULTS 200',
+    );
+    const res = await fetch(`${this.qboBaseUrl()}/v3/company/${realmId}/query?query=${query}`, {
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      this.logger.error(`QuickBooks query accounts failed: ${err}`);
+      throw new BadRequestException('Failed to retrieve Chart of Accounts from QuickBooks Online');
+    }
+
+    const data = await res.json();
+    return data.QueryResponse?.Account || [];
+  }
+
+  /**
+   * Synchronizes a finalized payroll run to QuickBooks Online as an automated Journal Entry
+   */
+  async syncPayrollToQuickBooks(
+    payrollRunId: string,
+    mapping: QuickBooksAccountMappingDto,
+  ): Promise<{
+    success: boolean;
+    journalEntryId: string;
+    docNumber: string;
+    totalAmount: number;
+    period: string;
+  }> {
+    const { accessToken, realmId } = await this.ensureQuickBooksToken();
+
+    const run = await this.prisma.payrollRun.findUnique({
+      where: { id: payrollRunId },
+      include: {
+        payslips: {
+          select: { grossPay: true, totalDeductions: true, netPay: true },
+        },
+      },
+    });
+
+    if (!run) throw new BadRequestException('Payroll run not found');
+
+    const totalGross = run.payslips.reduce((acc, p) => acc + Number(p.grossPay), 0);
+    const totalDeductions = run.payslips.reduce((acc, p) => acc + Number(p.totalDeductions), 0);
+    const totalNet = run.payslips.reduce((acc, p) => acc + Number(p.netPay), 0);
+
+    const period = `${run.year}-${String(run.month).padStart(2, '0')}`;
+    const txnDate = `${period}-01`;
+
+    const journalEntry = {
+      TxnDate: txnDate,
+      DocNumber: `PAY/${period}`,
+      PrivateNote: `NEO-EMS Automated Payroll Disbursement — Period ${period}`,
+      Line: [
+        {
+          Description: `Gross Wages & Salaries Expense (${period})`,
+          Amount: parseFloat(totalGross.toFixed(2)),
+          DetailType: 'JournalEntryLineDetail',
+          JournalEntryLineDetail: {
+            PostingType: 'Debit',
+            AccountRef: { value: mapping.wagesExpenseAccountId },
+          },
+        },
+        {
+          Description: `Payroll Deductions & Taxes Payable (${period})`,
+          Amount: parseFloat(totalDeductions.toFixed(2)),
+          DetailType: 'JournalEntryLineDetail',
+          JournalEntryLineDetail: {
+            PostingType: 'Credit',
+            AccountRef: { value: mapping.deductionsPayableAccountId },
+          },
+        },
+        {
+          Description: `Net Pay Disbursement (${period})`,
+          Amount: parseFloat(totalNet.toFixed(2)),
+          DetailType: 'JournalEntryLineDetail',
+          JournalEntryLineDetail: {
+            PostingType: 'Credit',
+            AccountRef: { value: mapping.netPayBankAccountId },
+          },
+        },
+      ],
+    };
+
+    const res = await fetch(`${this.qboBaseUrl()}/v3/company/${realmId}/journalentry`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(journalEntry),
+    });
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      this.logger.error(`QuickBooks JournalEntry creation failed: ${errorText}`);
+      throw new BadRequestException(`QuickBooks Online rejected journal entry: ${errorText}`);
+    }
+
+    const created = await res.json();
+    return {
+      success: true,
+      journalEntryId: created.JournalEntry.Id,
+      docNumber: created.JournalEntry.DocNumber,
+      totalAmount: created.JournalEntry.TotalAmt,
+      period,
+    };
+  }
+
+}

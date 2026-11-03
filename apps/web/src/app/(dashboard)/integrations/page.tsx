@@ -57,6 +57,21 @@ export default function IntegrationsPage() {
   const [alertSending, setAlertSending] = useState(false);
   const [alertResult, setAlertResult] = useState<{ slack?: any; teams?: any } | null>(null);
 
+  // QuickBooks Online State
+  const [qboStatus, setQboStatus] = useState<{
+    connected: boolean;
+    realmId?: string;
+    companyName?: string;
+    expiresAt?: string;
+  } | null>(null);
+  const [qboLoading, setQboLoading] = useState(false);
+  const [qboSyncing, setQboSyncing] = useState(false);
+  const [qboResult, setQboResult] = useState<{
+    journalEntryId?: string;
+    docNumber?: string;
+    totalAmount?: number;
+  } | null>(null);
+
   // HRIS State
   const [hrisJson, setHrisJson] = useState(`[
   {
@@ -90,6 +105,33 @@ export default function IntegrationsPage() {
       })
       .catch(() => {})
       .finally(() => setIcalLoading(false));
+
+    // Fetch QuickBooks connection status
+    if (canAdmin) {
+      api
+        .get<any>('/integrations/quickbooks/status')
+        .then((res) => setQboStatus(res))
+        .catch(() => {});
+
+      // Check if redirected back from Intuit OAuth callback
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get('code');
+      const realmId = params.get('realmId');
+      if (code && realmId) {
+        setQboLoading(true);
+        api
+          .post<any>('/integrations/quickbooks/callback', { code, realmId })
+          .then((res) => {
+            setQboStatus(res);
+            setActionSuccess('QuickBooks Online linked successfully to ' + (res.companyName || 'your company') + '!');
+            window.history.replaceState({}, document.title, window.location.pathname);
+          })
+          .catch((err) => {
+            setError(err?.message || 'QuickBooks authorization failed');
+          })
+          .finally(() => setQboLoading(false));
+      }
+    }
 
     if (canAdmin) {
       api
