@@ -1264,11 +1264,31 @@ async function main() {
   // app-created employee would re-issue a seeded EMP-YYYY-0001..0020 number
   // (UNIQUE violation). Floor at 999 (same as the migration) so the sequence
   // effectively starts at 1000; idempotent on re-runs.
+  const schemaMatch = process.env.DATABASE_URL?.match(/[?&]schema=([^&]+)/);
+  const schemaName = schemaMatch ? schemaMatch[1] : 'public';
   await prisma.$executeRawUnsafe(
-    `CREATE SEQUENCE IF NOT EXISTS employee_number_seq START WITH 1000;`,
+    `CREATE SEQUENCE IF NOT EXISTS "${schemaName}".employee_number_seq START WITH 1000;`,
   );
   await prisma.$executeRawUnsafe(
-    `SELECT setval('employee_number_seq', GREATEST(999, COALESCE((SELECT MAX(CAST(SUBSTRING("employeeNumber" FROM '[0-9]+$') AS INTEGER)) FROM "employees"), 0)))`,
+    `SELECT setval('"${schemaName}".employee_number_seq', GREATEST(999, COALESCE((SELECT MAX(CAST(SUBSTRING("employeeNumber" FROM '[0-9]+
+  console.log('✅ employee_number_seq re-synced above seeded employee numbers');
+
+  console.log('🎉 Comprehensive database seed finished successfully with rich enterprise dummy data!');
+  // Printed exactly ONCE. Valid only when superadmin@ems.local was created by
+  // THIS run; re-runs never change existing credentials, so ignore this line
+  // if the account already existed.
+  console.log(`🔑 DEMO admin (superadmin@ems.local) password for fresh seeds: ${SEED_ADMIN_PASSWORD}`);
+}
+
+main()
+  .catch((e) => {
+    console.error('❌ Error during seed:', e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });
+) AS INTEGER)) FROM "${schemaName}"."employees"), 0)))`,
   );
   console.log('✅ employee_number_seq re-synced above seeded employee numbers');
 
