@@ -55,6 +55,7 @@ export interface FieldReportRevisionDetail {
 
 export interface FieldReportAttachmentDetail {
   id: string;
+  attachmentId?: string;
   storageKey: string;
   fileName: string;
   mimeType: string;

@@ -11,6 +11,7 @@ export const QUEUE_NAMES = {
   notifications: 'notifications',
   ai: 'ai',
   fieldMedia: 'field-media',
+  FIELD_MEDIA: 'field-media',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

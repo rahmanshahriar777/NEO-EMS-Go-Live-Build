@@ -34,6 +34,7 @@ import {
 import {
   listDrafts,
   listOutboxFiles,
+  updateOutboxFile,
   deleteDraft,
   LocalDraft,
   OutboxFile,
@@ -682,19 +683,39 @@ export default function FieldReportsPage() {
                                       <span className="text-[#8a857f] font-mono">
                                         {(f.byteSize / (1024 * 1024)).toFixed(1)} MB
                                       </span>
-                                      <span
-                                        className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                                          f.status === 'SYNCED'
-                                            ? 'bg-emerald-100 text-emerald-800'
-                                            : f.status === 'UPLOADING'
-                                            ? 'bg-amber-100 text-amber-800'
-                                            : f.status === 'FAILED'
-                                            ? 'bg-red-100 text-red-800'
-                                            : 'bg-slate-200 text-slate-700'
-                                        }`}
-                                      >
-                                        {f.status === 'UPLOADING' ? `${percent}%` : f.status}
-                                      </span>
+                                      {f.status === 'FAILED' ? (
+                                        <button
+                                          type="button"
+                                          onClick={async (e) => {
+                                            e.stopPropagation();
+                                            await updateOutboxFile(f.clientCaptureId, {
+                                              status: 'QUEUED',
+                                              sessionId: undefined,
+                                              uploadedBytes: 0,
+                                            });
+                                            if (typeof window !== 'undefined') {
+                                              window.dispatchEvent(new Event('online'));
+                                            }
+                                            loadOutboxData();
+                                          }}
+                                          className="px-2 py-0.5 rounded text-[11px] font-bold bg-red-100 hover:bg-red-200 text-red-800 transition-colors cursor-pointer"
+                                          title="Click to retry file upload"
+                                        >
+                                          FAILED &bull; Retry
+                                        </button>
+                                      ) : (
+                                        <span
+                                          className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                                            f.status === 'SYNCED'
+                                              ? 'bg-emerald-100 text-emerald-800'
+                                              : f.status === 'UPLOADING'
+                                              ? 'bg-amber-100 text-amber-800'
+                                              : 'bg-slate-200 text-slate-700'
+                                          }`}
+                                        >
+                                          {f.status === 'UPLOADING' ? `${percent}%` : f.status}
+                                        </span>
+                                      )}
                                     </div>
                                   </div>
                                 );

@@ -35,12 +35,12 @@ if [ -z "$DATABASE_URL" ]; then
   if [ ! -d "/var/lib/postgresql/data/base" ]; then
     echo "⚙️ Initializing PostgreSQL data directory..."
     su-exec postgres initdb -D /var/lib/postgresql/data --auth=trust
-    su-exec postgres pg_ctl -D /var/lib/postgresql/data -o "-c listen_addresses='127.0.0.1' -c log_statement=none" -w start
+    su-exec postgres pg_ctl -D /var/lib/postgresql/data -o "-c listen_addresses='127.0.0.1' -c max_connections=200 -c log_statement=none" -w start
     su-exec postgres psql -U postgres -c "CREATE ROLE ems_admin WITH LOGIN SUPERUSER PASSWORD 'ems_admin_secret_2026';"
     su-exec postgres psql -U postgres -c "CREATE DATABASE ems_db OWNER ems_admin;"
     echo "✅ Embedded PostgreSQL ready"
 
-    export DATABASE_URL="postgresql://ems_admin:ems_admin_secret_2026@127.0.0.1:5432/ems_db?schema=public"
+    export DATABASE_URL="postgresql://ems_admin:ems_admin_secret_2026@127.0.0.1:5432/ems_db?schema=public&connection_limit=30&pool_timeout=30"
 
     su-exec postgres psql -U postgres -d ems_db -c "CREATE SEQUENCE IF NOT EXISTS employee_number_seq START WITH 1000;" || true
 
@@ -50,8 +50,8 @@ if [ -z "$DATABASE_URL" ]; then
     ALLOW_SEED=yes SEED_DEFAULT_PASSWORD="${SEED_DEFAULT_PASSWORD:-AdminPassword123!}" DATABASE_URL="${DATABASE_URL}" npx tsx prisma/seed.ts || true
     cd /app
   else
-    su-exec postgres pg_ctl -D /var/lib/postgresql/data -o "-c listen_addresses='127.0.0.1' -c log_statement=none" -w start
-    export DATABASE_URL="postgresql://ems_admin:ems_admin_secret_2026@127.0.0.1:5432/ems_db?schema=public"
+    su-exec postgres pg_ctl -D /var/lib/postgresql/data -o "-c listen_addresses='127.0.0.1' -c max_connections=200 -c log_statement=none" -w start
+    export DATABASE_URL="postgresql://ems_admin:ems_admin_secret_2026@127.0.0.1:5432/ems_db?schema=public&connection_limit=30&pool_timeout=30"
     echo "✅ Embedded PostgreSQL started"
     cd /app/packages/database
     ALLOW_SEED=yes SEED_DEFAULT_PASSWORD="${SEED_DEFAULT_PASSWORD:-AdminPassword123!}" DATABASE_URL="${DATABASE_URL}" npx tsx prisma/seed.ts || true

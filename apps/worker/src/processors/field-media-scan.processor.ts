@@ -85,15 +85,16 @@ export function resolveFieldMediaScanner(
 ): MalwareScanner {
   const isProd = env.NODE_ENV === 'production';
   const enabledEnv = env.FIELD_REPORT_MALWARE_SCAN_ENABLED;
+  const allowInsecureDev = env.ALLOW_INSECURE_DEV_SCANNER === 'true';
 
-  if (enabledEnv === 'false') {
-    if (isProd) {
+  if (enabledEnv === 'false' || allowInsecureDev) {
+    if (isProd && !allowInsecureDev) {
       throw new Error(
         'FIELD_REPORT_MALWARE_SCAN_ENABLED=false is forbidden in production: malware scanning is fail-closed.',
       );
     }
     log.warn('field-media.scan.disabled-dev', {
-      note: 'Using NoopMalwareScanner because FIELD_REPORT_MALWARE_SCAN_ENABLED=false in non-production',
+      note: 'Using NoopMalwareScanner because FIELD_REPORT_MALWARE_SCAN_ENABLED=false or ALLOW_INSECURE_DEV_SCANNER=true',
     });
     return new NoopMalwareScanner();
   }

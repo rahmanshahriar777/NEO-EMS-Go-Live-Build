@@ -151,3 +151,4 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, HOST, () => {
   console.log(`🪣 Embedded S3 Object Storage listening on http://${HOST}:${PORT}`);
 });
+

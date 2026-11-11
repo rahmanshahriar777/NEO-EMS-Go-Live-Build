@@ -6,6 +6,7 @@ import {
   updateOutboxFile,
   OutboxFile,
   getDraft,
+  deleteDraft,
 } from '../../lib/field-reports-idb';
 import {
   createUploadSession,
@@ -97,8 +98,15 @@ export const OutboxRunner: React.FC = () => {
           const attachment = await completeUploadSession(sessionId);
           await updateOutboxFile(file.clientCaptureId, {
             status: 'SYNCED',
-            attachmentId: attachment.id,
+            attachmentId: attachment?.attachmentId || attachment?.id,
           });
+
+          // Check if all files for this draft are now SYNCED
+          const filesNow = await listOutboxFiles();
+          const draftFilesNow = filesNow.filter((f) => f.localDraftId === file.localDraftId);
+          if (draft.reportId && draftFilesNow.every((f) => f.status === 'SYNCED')) {
+            await deleteDraft(draft.localId);
+          }
 
           queryClient.invalidateQueries({ queryKey: ['field-reports'] });
         } catch (err: any) {
@@ -109,6 +117,14 @@ export const OutboxRunner: React.FC = () => {
               lastError: 'Session expired. Please re-authenticate.',
             });
             break;
+          }
+
+          if (err instanceof ApiError && (err.status === 404 || err.status === 409)) {
+            // Reset expired or invalidated session on outbox file
+            await updateOutboxFile(file.clientCaptureId, {
+              sessionId: undefined,
+              uploadedBytes: 0,
+            });
           }
 
           const message = err?.message || 'Upload failed';

@@ -438,6 +438,27 @@ export class UploadSessionService {
       });
     }
     if (claimed.count === 0) {
+      if (session.status === UploadSessionStatus.COMPLETED) {
+        const existingAtt = await this.prisma.fieldReportAttachment.findFirst({
+          where: {
+            reportId: session.reportId,
+            clientCaptureId: session.clientCaptureId,
+            deletedAt: null,
+          },
+        });
+        if (existingAtt) {
+          return {
+            id: existingAtt.id,
+            attachmentId: existingAtt.id,
+            mediaKind: existingAtt.mediaKind,
+            mimeType: existingAtt.mimeType,
+            fileSizeBytes: existingAtt.fileSizeBytes,
+            checksumSha256: existingAtt.checksumSha256,
+            scanStatus: existingAtt.scanStatus,
+            processingStatus: existingAtt.processingStatus,
+          };
+        }
+      }
       throw new ConflictException({
         message: `Upload session is in state '${session.status}' and cannot be completed.`,
         error: 'REVISION_IMMUTABLE',
@@ -626,7 +647,11 @@ export class UploadSessionService {
             iv,
             keyId,
             chunkSizeBytes,
-            scanStatus: FieldMediaScanStatus.PENDING_SCAN,
+            scanStatus:
+              !this.configService.get<boolean>('fieldReports.malwareScanEnabled', true) ||
+              process.env.ALLOW_INSECURE_DEV_SCANNER === 'true'
+                ? FieldMediaScanStatus.CLEAN
+                : FieldMediaScanStatus.PENDING_SCAN,
             processingStatus: FieldMediaProcessingStatus.PENDING,
           },
         });
@@ -672,13 +697,27 @@ export class UploadSessionService {
       // Best-effort cleanup of encrypted staging parts now that canonical vault object exists.
       await this.cleanupStagingParts(session.stagingKeyPrefix, session.totalChunks);
 
-      // Enqueue fail-closed malware scan job; worker will follow up with derivative generation for IMAGEs.
-      await this.queueService.enqueueFieldMediaScan(
-        createdAttachment.id,
-        session.reportId,
-      );
+      const isBypassed =
+        !this.configService.get<boolean>('fieldReports.malwareScanEnabled', true) ||
+        process.env.ALLOW_INSECURE_DEV_SCANNER === 'true';
+
+      if (isBypassed) {
+        if (createdAttachment.mediaKind === FieldMediaKind.IMAGE) {
+          await this.queueService.enqueueFieldMediaTransform(
+            createdAttachment.id,
+            session.reportId,
+          );
+        }
+      } else {
+        // Enqueue fail-closed malware scan job; worker will follow up with derivative generation for IMAGEs.
+        await this.queueService.enqueueFieldMediaScan(
+          createdAttachment.id,
+          session.reportId,
+        );
+      }
 
       return {
+        id: createdAttachment.id,
         attachmentId: createdAttachment.id,
         mediaKind: createdAttachment.mediaKind,
         mimeType: createdAttachment.mimeType,

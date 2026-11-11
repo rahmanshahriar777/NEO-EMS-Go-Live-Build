@@ -269,8 +269,17 @@ export default function FieldReportDetailPage({
               disabled={submitRevisionMutation.isPending}
               className="fr-btn-primary fr-touch-target"
             >
-              <CheckCircle2 className="w-4 h-4" />
-              Submit for Review
+              {submitRevisionMutation.isPending ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  Submit for Review
+                </>
+              )}
             </button>
           )}
           {canReview && (
@@ -284,6 +293,27 @@ export default function FieldReportDetailPage({
           )}
         </div>
       </div>
+
+      {submitRevisionMutation.isError && (
+        <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-800 text-xs flex items-center justify-between">
+          <span>
+            Failed to submit report: {(submitRevisionMutation.error as any)?.message || 'Submission error'}
+          </span>
+          <button
+            onClick={() => submitRevisionMutation.reset()}
+            className="text-red-700 underline font-semibold ml-2"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {submitRevisionMutation.isSuccess && (
+        <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+          <span>Report submitted successfully for manager review!</span>
+        </div>
+      )}
 
       {downloadError && (
         <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-800 text-xs">
