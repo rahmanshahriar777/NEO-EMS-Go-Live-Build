@@ -51,7 +51,10 @@ ENV PORT=8080
 ENV PNPM_HOME="/pnpm"
 ENV PATH="/app/node_modules/.bin:/app/apps/web/node_modules/.bin:$PNPM_HOME:$PATH"
 
-RUN apk add --no-cache bash curl nginx postgresql postgresql-contrib su-exec redis
+RUN apk add --no-cache bash curl nginx postgresql postgresql-contrib su-exec redis libc6-compat
+RUN curl -sLO https://dl.min.io/server/minio/release/linux-amd64/minio && \
+    chmod +x minio && \
+    mv minio /usr/local/bin/minio
 RUN corepack enable && corepack prepare pnpm@10.5.2 --activate
 
 # Copy built workspace
