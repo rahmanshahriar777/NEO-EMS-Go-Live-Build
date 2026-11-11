@@ -92,15 +92,26 @@ async function main() {
       timezone: 'Europe/London',
     },
   });
-  console.log(`✅ Default entity & site seeded`);
+  await prisma.site.upsert({
+    where: { id: 'default-north-depot' },
+    update: {},
+    create: {
+      id: 'default-north-depot',
+      entityId: defaultEntity.id,
+      name: 'North Operations Depot',
+      location: 'Manchester, UK',
+      timezone: 'Europe/London',
+    },
+  });
+  console.log(`✅ Default entity & sites seeded`);
 
   // 2. Permissions
-  const subjects = ['USER', 'EMPLOYEE', 'DEPARTMENT', 'DESIGNATION', 'ATTENDANCE', 'LEAVE', 'PAYROLL', 'PERFORMANCE', 'AUDIT_LOG', 'DOCUMENT'];
-  const actions = ['CREATE', 'READ', 'UPDATE', 'DELETE', 'MANAGE', 'APPROVE'];
+  const baseSubjects = ['USER', 'EMPLOYEE', 'DEPARTMENT', 'DESIGNATION', 'ATTENDANCE', 'LEAVE', 'PAYROLL', 'PERFORMANCE', 'AUDIT_LOG', 'DOCUMENT'];
+  const baseActions = ['CREATE', 'READ', 'UPDATE', 'DELETE', 'MANAGE', 'APPROVE'];
 
   const allPerms: Record<string, any> = {};
-  for (const subject of subjects) {
-    for (const action of actions) {
+  for (const subject of baseSubjects) {
+    for (const action of baseActions) {
       const p = await prisma.permission.upsert({
         where: { action_subject: { action, subject } },
         update: {},
@@ -113,7 +124,30 @@ async function main() {
       allPerms[`${subject}:${action}`] = p;
     }
   }
-  console.log('✅ Permissions seeded');
+
+  // Explicit Field Reporting permissions (including REVIEW and DOWNLOAD_ORIGINAL)
+  const fieldReportActions = [
+    { action: 'CREATE', description: 'Create draft field reports and upload media' },
+    { action: 'READ', description: 'View authorized field reports and previews' },
+    { action: 'UPDATE', description: 'Edit draft field report metadata' },
+    { action: 'DELETE', description: 'Soft-delete draft or permitted field reports' },
+    { action: 'REVIEW', description: 'Review, comment, approve, reject, or request changes' },
+    { action: 'DOWNLOAD_ORIGINAL', description: 'Download bit-exact full-resolution Original media' },
+    { action: 'MANAGE', description: 'Manage field report policies, legal holds, and cross-team delegations' },
+  ];
+  for (const spec of fieldReportActions) {
+    const p = await prisma.permission.upsert({
+      where: { action_subject: { action: spec.action, subject: 'FIELD_REPORT' } },
+      update: {},
+      create: {
+        action: spec.action,
+        subject: 'FIELD_REPORT',
+        description: spec.description,
+      },
+    });
+    allPerms[`FIELD_REPORT:${spec.action}`] = p;
+  }
+  console.log('✅ Permissions seeded (67)');
 
   // 2b. Seed role permissions (PBAC activation)
   const rolePermissionGrants: Record<string, string[]> = {
@@ -128,6 +162,8 @@ async function main() {
       'PERFORMANCE:READ', 'PERFORMANCE:MANAGE',
       'USER:READ', 'USER:UPDATE', 'USER:MANAGE',
       'AUDIT_LOG:READ',
+      'FIELD_REPORT:CREATE', 'FIELD_REPORT:READ', 'FIELD_REPORT:UPDATE', 'FIELD_REPORT:DELETE',
+      'FIELD_REPORT:REVIEW', 'FIELD_REPORT:DOWNLOAD_ORIGINAL', 'FIELD_REPORT:MANAGE',
     ],
     [SystemRole.MANAGER]: [
       'EMPLOYEE:READ',
@@ -135,6 +171,8 @@ async function main() {
       'ATTENDANCE:READ', 'ATTENDANCE:APPROVE',
       'PERFORMANCE:CREATE', 'PERFORMANCE:READ', 'PERFORMANCE:UPDATE', 'PERFORMANCE:APPROVE',
       'DOCUMENT:READ', 'DOCUMENT:CREATE',
+      'FIELD_REPORT:CREATE', 'FIELD_REPORT:READ', 'FIELD_REPORT:UPDATE',
+      'FIELD_REPORT:REVIEW', 'FIELD_REPORT:DOWNLOAD_ORIGINAL',
     ],
     [SystemRole.EMPLOYEE]: [
       'EMPLOYEE:READ',
@@ -142,8 +180,10 @@ async function main() {
       'ATTENDANCE:CREATE', 'ATTENDANCE:READ',
       'PERFORMANCE:READ',
       'DOCUMENT:READ', 'DOCUMENT:CREATE',
+      'FIELD_REPORT:CREATE', 'FIELD_REPORT:READ', 'FIELD_REPORT:UPDATE', 'FIELD_REPORT:DELETE',
     ],
-    [SystemRole.AUDITOR]: subjects.map((s) => `${s}:READ`),
+    // AUDITOR is intentionally excluded from employee-scoped FIELD_REPORT:* media access
+    [SystemRole.AUDITOR]: baseSubjects.map((s) => `${s}:READ`),
   };
 
   for (const [roleName, permKeys] of Object.entries(rolePermissionGrants)) {
@@ -1257,6 +1297,126 @@ async function main() {
     });
   }
   console.log(`✅ System audit logs seeded (${auditLogsData.length})`);
+
+  // 14. Field Reporting default download policies + demo reports (dev testing)
+  const defaultPolicies: Array<{
+    roleName: string | null;
+    defaultDownloadVariant: 'ORIGINAL' | 'RESIZED';
+    allowOriginalDownload: boolean;
+  }> = [
+    { roleName: null, defaultDownloadVariant: 'RESIZED', allowOriginalDownload: true },
+    { roleName: 'EMPLOYEE', defaultDownloadVariant: 'RESIZED', allowOriginalDownload: false },
+    { roleName: 'MANAGER', defaultDownloadVariant: 'RESIZED', allowOriginalDownload: true },
+    { roleName: 'HR_ADMIN', defaultDownloadVariant: 'ORIGINAL', allowOriginalDownload: true },
+    { roleName: 'SUPER_ADMIN', defaultDownloadVariant: 'ORIGINAL', allowOriginalDownload: true },
+  ];
+  for (const pol of defaultPolicies) {
+    const existingPol = await prisma.fieldReportPolicy.findFirst({
+      where: { entityId: null, roleName: pol.roleName },
+    });
+    if (!existingPol) {
+      await prisma.fieldReportPolicy.create({
+        data: {
+          entityId: null,
+          roleName: pol.roleName,
+          defaultDownloadVariant: pol.defaultDownloadVariant,
+          allowOriginalDownload: pol.allowOriginalDownload,
+        },
+      });
+    }
+  }
+
+  const sadiaEmp = employees['sadia.rahman@ems.local'];
+  const alexEmp = employees['alex.rivera@ems.local'];
+  const managerEmp = employees['manager@ems.local'];
+  if (sadiaEmp && managerEmp) {
+    const rep1 = await prisma.fieldReport.upsert({
+      where: { reportNumber: 'FR-2026-0001' },
+      update: {},
+      create: {
+        reportNumber: 'FR-2026-0001',
+        employeeId: sadiaEmp.id,
+        createdByUserId: sadiaEmp.userId,
+        entityId: 'default',
+        siteId: 'default-north-depot',
+        category: 'SITE_INSPECTION',
+        status: 'SUBMITTED',
+        currentRevisionNumber: 1,
+        latestSubmittedAt: new Date('2026-11-08T10:15:00.000Z'),
+      },
+    });
+    const rev1 = await prisma.fieldReportRevision.upsert({
+      where: { reportId_revisionNumber: { reportId: rep1.id, revisionNumber: 1 } },
+      update: {},
+      create: {
+        reportId: rep1.id,
+        revisionNumber: 1,
+        status: 'SUBMITTED',
+        title: 'North Depot Perimeter Switchgear Walkdown (Demo)',
+        notes: 'Completed perimeter visual inspection. Panel B seal intact; signage replacement noted for next scheduled maintenance.',
+        occurredAt: new Date('2026-11-08T09:45:00.000Z'),
+        siteId: 'default-north-depot',
+        gpsConsentGranted: false,
+        submittedAt: new Date('2026-11-08T10:15:00.000Z'),
+        submittedByUserId: sadiaEmp.userId,
+        submittedManagerSnapshotId: managerEmp.id,
+        lockedAt: new Date('2026-11-08T10:15:00.000Z'),
+      },
+    });
+    await prisma.fieldReport.update({
+      where: { id: rep1.id },
+      data: { currentRevisionId: rev1.id },
+    });
+  }
+  if (alexEmp && managerEmp) {
+    const rep2 = await prisma.fieldReport.upsert({
+      where: { reportNumber: 'FR-2026-0002' },
+      update: {},
+      create: {
+        reportNumber: 'FR-2026-0002',
+        employeeId: alexEmp.id,
+        createdByUserId: alexEmp.userId,
+        entityId: 'default',
+        siteId: 'default-hq',
+        category: 'EQUIPMENT_AUDIT',
+        status: 'APPROVED',
+        currentRevisionNumber: 1,
+        latestSubmittedAt: new Date('2026-11-05T15:00:00.000Z'),
+      },
+    });
+    const rev2 = await prisma.fieldReportRevision.upsert({
+      where: { reportId_revisionNumber: { reportId: rep2.id, revisionNumber: 1 } },
+      update: {},
+      create: {
+        reportId: rep2.id,
+        revisionNumber: 1,
+        status: 'APPROVED',
+        title: 'Backup Generator Rack Quarterly Check (Demo)',
+        notes: 'Load bank telemetry verified within tolerances.',
+        occurredAt: new Date('2026-11-05T14:20:00.000Z'),
+        siteId: 'default-hq',
+        gpsConsentGranted: false,
+        submittedAt: new Date('2026-11-05T15:00:00.000Z'),
+        submittedByUserId: alexEmp.userId,
+        submittedManagerSnapshotId: managerEmp.id,
+        lockedAt: new Date('2026-11-05T15:00:00.000Z'),
+        reviewedAt: new Date('2026-11-06T09:10:00.000Z'),
+        reviewedByUserId: managerEmp.userId,
+        reviewDecisionNote: 'Approved for Q4 compliance archive.',
+      },
+    });
+    await prisma.fieldReport.update({
+      where: { id: rep2.id },
+      data: { currentRevisionId: rev2.id },
+    });
+  }
+  await prisma.$executeRawUnsafe(
+    `CREATE SEQUENCE IF NOT EXISTS field_report_number_seq START WITH 100;`,
+  );
+  await prisma.$executeRawUnsafe(
+    `SELECT setval('field_report_number_seq', GREATEST(99, COALESCE((SELECT MAX(CAST(SUBSTRING("reportNumber" FROM '[0-9]+$') AS INTEGER)) FROM "field_reports"), 0)))`,
+  );
+  console.log('✅ Field Reporting policies, demo reports, and sequence seeded');
 
   // Go-live HIGH #8: re-sync employee_number_seq AFTER all rows are seeded.
   // The migration's setval runs at `migrate deploy` time — before these rows

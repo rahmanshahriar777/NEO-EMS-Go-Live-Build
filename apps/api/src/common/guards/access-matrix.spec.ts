@@ -61,6 +61,7 @@ import { HealthController } from '../../core/health/health.controller';
 import { RolesController } from '../../modules/roles/roles.controller';
 import { UsersController } from '../../modules/auth/users.controller';
 import { MfaController } from '../../modules/mfa/mfa.controller';
+import { FieldReportsController } from '../../modules/field-reports/field-reports.controller';
 
 // ---------------------------------------------------------------------------
 // Route introspection over real decorator metadata
@@ -89,6 +90,7 @@ const CONTROLLERS = [
   RolesController,
   UsersController,
   MfaController,
+  FieldReportsController,
 ] as const;
 
 const HTTP_METHOD_NAMES: Record<number, string> = {
@@ -363,6 +365,29 @@ describe('access matrix: explicit route expectations', () => {
     for (const r of health) {
       expect(r.isPublic).toBe(true);
     }
+  });
+
+  it('FieldReportsController: only signed grant redemption endpoints are @Public() (guarded by DownloadGrantGuard); all others require auth + FIELD_REPORT:* permissions', () => {
+    const frRoutes = routes.filter((r) => r.controller === 'FieldReportsController');
+    expect(frRoutes.length).toBeGreaterThanOrEqual(20);
+    const publicRoutes = frRoutes.filter((r) => r.isPublic);
+    expect(publicRoutes.map((r) => r.handler).sort()).toEqual([
+      'downloadSingle',
+      'downloadZip',
+    ]);
+    for (const pr of publicRoutes) {
+      expect(pr.guardNames).toContain('DownloadGrantGuard');
+    }
+    for (const route of frRoutes.filter((r) => !r.isPublic)) {
+      expect(route.permissions?.length ?? 0).toBeGreaterThan(0);
+    }
+    const reviewRoute = find('FieldReportsController', 'reviewRevision');
+    expect(reviewRoute.roles).toEqual([
+      SystemRole.SUPER_ADMIN,
+      SystemRole.HR_ADMIN,
+      SystemRole.MANAGER,
+    ]);
+    expect(reviewRoute.permissions).toEqual(['FIELD_REPORT:REVIEW']);
   });
 });
 

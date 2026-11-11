@@ -66,8 +66,30 @@ services:
       /bin/sh -c "
       /usr/bin/mc alias set ems http://minio:9000 ${MINIO_ROOT_USER:?} ${MINIO_ROOT_PASSWORD:?};
       /usr/bin/mc mb --ignore-existing ems/${S3_BUCKET:-ems-documents};
+      /usr/bin/mc ilm rule add --prefix 'field-reports/staging/' --expire-days 1 ems/${S3_BUCKET:-ems-documents} || true;
       exit 0;
       "
+    networks:
+      - ems-prod-net
+
+  clamav:
+    image: clamav/clamav:1.4
+    container_name: ems-prod-clamav
+    restart: always
+    environment:
+      CLAMD_STARTUP_TIMEOUT: "180"
+      CLAMD_CONF_StreamMaxLength: "64M"
+      CLAMD_CONF_MaxFileSize: "64M"
+      CLAMD_CONF_MaxScanSize: "256M"
+      CLAMD_CONF_ReadTimeout: "60"
+    volumes:
+      - ems-prod-clamav-db:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/clamdcheck.sh"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 120s
     networks:
       - ems-prod-net
 
@@ -96,10 +118,19 @@ services:
       S3_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY must be set for production}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET must be set for production}
       DOCUMENT_ENCRYPTION_KEY: ${DOCUMENT_ENCRYPTION_KEY:?DOCUMENT_ENCRYPTION_KEY must be set for production}
+      DOCUMENT_ENCRYPTION_KEY_ID: ${DOCUMENT_ENCRYPTION_KEY_ID:-}
+      DOCUMENT_ENCRYPTION_KEY_PREVIOUS: ${DOCUMENT_ENCRYPTION_KEY_PREVIOUS:-}
+      FIELD_REPORTS_ENABLED: ${FIELD_REPORTS_ENABLED:-false}
+      FIELD_REPORT_MALWARE_SCAN_ENABLED: ${FIELD_REPORT_MALWARE_SCAN_ENABLED:-true}
+      FIELD_REPORT_DOWNLOAD_TOKEN_SECRET: ${FIELD_REPORT_DOWNLOAD_TOKEN_SECRET:-}
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: 3310
     depends_on:
       redis:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      clamav:
         condition: service_healthy
     networks:
       - ems-prod-net
@@ -122,13 +153,24 @@ services:
       S3_ENDPOINT: minio
       S3_PORT: 9000
       S3_BUCKET: ${S3_BUCKET:-ems-documents}
+      S3_USE_SSL: "false"
+      S3_REGION: ${S3_REGION:-us-east-1}
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY must be set for production}
       S3_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY must be set for production}
       DOCUMENT_ENCRYPTION_KEY: ${DOCUMENT_ENCRYPTION_KEY:?DOCUMENT_ENCRYPTION_KEY must be set for production}
+      DOCUMENT_ENCRYPTION_KEY_ID: ${DOCUMENT_ENCRYPTION_KEY_ID:-}
+      DOCUMENT_ENCRYPTION_KEY_PREVIOUS: ${DOCUMENT_ENCRYPTION_KEY_PREVIOUS:-}
+      FIELD_REPORTS_ENABLED: ${FIELD_REPORTS_ENABLED:-false}
+      FIELD_REPORT_MALWARE_SCAN_ENABLED: ${FIELD_REPORT_MALWARE_SCAN_ENABLED:-true}
+      FIELD_REPORT_IMAGE_CONCURRENCY: ${FIELD_REPORT_IMAGE_CONCURRENCY:-2}
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: 3310
     depends_on:
       redis:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      clamav:
         condition: service_healthy
     networks:
       - ems-prod-net
@@ -154,6 +196,7 @@ services:
         NEXT_PUBLIC_SITE_LATITUDE: ${NEXT_PUBLIC_SITE_LATITUDE:-}
         NEXT_PUBLIC_SITE_LONGITUDE: ${NEXT_PUBLIC_SITE_LONGITUDE:-}
         NEXT_PUBLIC_SITE_RADIUS_METERS: ${NEXT_PUBLIC_SITE_RADIUS_METERS:-}
+        NEXT_PUBLIC_FIELD_REPORTS_ENABLED: ${NEXT_PUBLIC_FIELD_REPORTS_ENABLED:-false}
     image: ems-web:prod
     container_name: ems-prod-web
     restart: always
@@ -189,3 +232,4 @@ networks:
 volumes:
   ems-prod-redis-data:
   ems-prod-minio-data:
+  ems-prod-clamav-db:

@@ -7,4 +7,6 @@ export * from './retention.js';
 export * from './ai/index.js';
 export * from './payroll/index.js';
 export * from './employee-number.js';
+export * from './field-report-number.js';
+export * from './field-reports/index.js';
 export * from './observability/index.js';

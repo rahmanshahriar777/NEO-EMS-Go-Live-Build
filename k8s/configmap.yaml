@@ -72,5 +72,11 @@ data:
   MFA_TOTP_WINDOW: "1"
   # --- Worker scheduling ---
   SCHEDULE_TZ: "UTC"
+  # --- Field Reporting ---
+  FIELD_REPORTS_ENABLED: "true"
+  NEXT_PUBLIC_FIELD_REPORTS_ENABLED: "true"
+  FIELD_REPORT_MALWARE_SCAN_ENABLED: "true"
+  CLAMAV_HOST: "ems-clamav"
+  CLAMAV_PORT: "3310"
   # --- Observability ---
   LOG_LEVEL: "info"

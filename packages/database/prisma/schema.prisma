@@ -166,6 +166,10 @@ model User {
   erasureRequestsReviewed  ErasureRequest[] @relation("ErasureReviewedBy")
   rosterEntriesCreated     RosterEntry[]
   pushSubscriptions        PushSubscription[]
+  fieldReportsCreated            FieldReport[]           @relation("FieldReportCreator")
+  fieldReportAttachmentsUploaded FieldReportAttachment[] @relation("FieldReportAttachmentUploader")
+  fieldReportReviews             FieldReportReview[]     @relation("FieldReportReviewerUser")
+  fieldReportComments            FieldReportComment[]    @relation("FieldReportCommentAuthorUser")
 
   @@index([email])
   @@map("users")
@@ -337,12 +341,14 @@ model Entity {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  sites         Site[]
-  employees     Employee[]
-  departments   Department[]
-  payrollRuns   PayrollRun[]
-  leaveRequests LeaveRequest[]
-  rosterEntries RosterEntry[]
+  sites               Site[]
+  employees           Employee[]
+  departments         Department[]
+  payrollRuns         PayrollRun[]
+  leaveRequests       LeaveRequest[]
+  rosterEntries       RosterEntry[]
+  fieldReports        FieldReport[]
+  fieldReportPolicies FieldReportPolicy[]
 
   @@map("entities")
 }
@@ -357,7 +363,9 @@ model Site {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  entity    Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  entity               Entity                @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  fieldReports         FieldReport[]
+  fieldReportRevisions FieldReportRevision[]
 
   @@index([entityId])
   @@map("sites")
@@ -477,6 +485,14 @@ model Employee {
   invitations      Invitation[]
   onboardingChecklists OnboardingChecklist[]
   hiredCandidates  Candidate[]
+  fieldReports                   FieldReport[]           @relation("FieldReportEmployee")
+  fieldReportManagerSnapshots    FieldReportRevision[]   @relation("FieldReportManagerSnapshot")
+  fieldReportAttachments         FieldReportAttachment[] @relation("FieldReportAttachmentEmployee")
+  fieldReportReviewsGiven        FieldReportReview[]     @relation("FieldReportReviewerEmployee")
+  fieldReportDelegateReviews     FieldReportReview[]     @relation("FieldReportDelegatePrincipal")
+  fieldReportCommentsAuthored    FieldReportComment[]    @relation("FieldReportCommentAuthorEmp")
+  fieldReportDelegationsGiven    FieldReportDelegation[] @relation("FieldReportDelegator")
+  fieldReportDelegationsReceived FieldReportDelegation[] @relation("FieldReportDelegate")
 
   @@index([departmentId])
   @@index([designationId])
@@ -1226,4 +1242,348 @@ model PushSubscription {
 
   @@unique([userId, endpoint])
   @@map("push_subscriptions")
+}
+
+// -----------------------------------------------------------------------------
+// Field Reporting Module (Mobile Field Capture, Encrypted Vault, Review)
+// -----------------------------------------------------------------------------
+
+enum FieldReportStatus {
+  DRAFT
+  SUBMITTED
+  CHANGES_REQUESTED
+  APPROVED
+  REJECTED
+}
+
+enum FieldReportCategory {
+  SITE_INSPECTION
+  INCIDENT_SAFETY
+  CLIENT_VISIT
+  EQUIPMENT_AUDIT
+  DELIVERY_VERIFICATION
+  MAINTENANCE
+  OTHER
+}
+
+enum FieldMediaKind {
+  IMAGE
+  DOCUMENT
+}
+
+enum FieldMediaScanStatus {
+  PENDING_SCAN
+  CLEAN
+  INFECTED
+  SCAN_FAILED
+}
+
+enum FieldMediaProcessingStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+  SKIPPED
+}
+
+enum FieldReportDerivativeKind {
+  THUMBNAIL
+  WEB_PREVIEW
+  RESIZED_STANDARD
+}
+
+enum FieldReportDownloadVariant {
+  ORIGINAL
+  RESIZED
+}
+
+enum FieldReportReviewDecision {
+  APPROVE
+  REJECT
+  REQUEST_CHANGES
+}
+
+enum UploadSessionStatus {
+  OPEN
+  COMPLETING
+  COMPLETED
+  ABORTED
+  EXPIRED
+}
+
+model FieldReport {
+  id                    String              @id @default(uuid())
+  reportNumber          String              @unique
+  employeeId            String
+  createdByUserId       String
+  entityId              String?
+  siteId                String?
+  category              FieldReportCategory @default(SITE_INSPECTION)
+  status                FieldReportStatus   @default(DRAFT)
+  currentRevisionNumber Int                 @default(1)
+  currentRevisionId     String?             @unique
+  latestSubmittedAt     DateTime?
+  legalHold             Boolean             @default(false)
+  retentionExpiresAt    DateTime?
+  deletedAt             DateTime?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  employee        Employee                   @relation("FieldReportEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  createdByUser   User                       @relation("FieldReportCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  entity          Entity?                    @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  site            Site?                      @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  revisions       FieldReportRevision[]      @relation("ReportRevisions")
+  currentRevision FieldReportRevision?       @relation("CurrentReportRevision", fields: [currentRevisionId], references: [id], onDelete: SetNull)
+  attachments     FieldReportAttachment[]
+  comments        FieldReportComment[]
+  reviews         FieldReportReview[]
+  uploadSessions  FieldReportUploadSession[]
+
+  @@index([employeeId, status, deletedAt])
+  @@index([entityId, status, createdAt])
+  @@index([siteId, createdAt])
+  @@index([category, status])
+  @@index([deletedAt, retentionExpiresAt])
+  @@map("field_reports")
+}
+
+model FieldReportRevision {
+  id                         String            @id @default(uuid())
+  reportId                   String
+  revisionNumber             Int
+  status                     FieldReportStatus @default(DRAFT)
+  title                      String
+  notes                      String?           @db.Text
+  occurredAt                 DateTime
+  siteId                     String?
+  gpsConsentGranted          Boolean           @default(false)
+  gpsConsentAt               DateTime?
+  gpsConsentPolicyVersion    String?
+  gpsLatitude                Decimal?          @db.Decimal(9, 6)
+  gpsLongitude               Decimal?          @db.Decimal(9, 6)
+  gpsAccuracyMeters          Float?
+  gpsCapturedAt              DateTime?
+  submittedAt                DateTime?
+  submittedByUserId          String?
+  submittedManagerSnapshotId String?
+  lockedAt                   DateTime?
+  reviewedAt                 DateTime?
+  reviewedByUserId           String?
+  reviewDecisionNote         String?           @db.Text
+  createdAt                  DateTime          @default(now())
+  updatedAt                  DateTime          @updatedAt
+
+  report                   FieldReport                     @relation("ReportRevisions", fields: [reportId], references: [id], onDelete: Cascade)
+  currentOfReport          FieldReport?                    @relation("CurrentReportRevision")
+  site                     Site?                           @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  submittedManagerSnapshot Employee?                       @relation("FieldReportManagerSnapshot", fields: [submittedManagerSnapshotId], references: [id], onDelete: SetNull)
+  attachmentLinks          FieldReportRevisionAttachment[]
+  reviews                  FieldReportReview[]
+  comments                 FieldReportComment[]
+  uploadSessions           FieldReportUploadSession[]
+
+  @@unique([reportId, revisionNumber])
+  @@index([status, submittedAt])
+  @@map("field_report_revisions")
+}
+
+model FieldReportAttachment {
+  id                     String                     @id @default(uuid())
+  reportId               String
+  uploadedByUserId       String
+  employeeId             String
+  clientCaptureId        String?
+  mediaKind              FieldMediaKind
+  originalFileName       String
+  mimeType               String
+  fileSizeBytes          Int
+  checksumSha256         String
+  storageKey             String                     @unique
+  encrypted              Boolean                    @default(true)
+  encryptionScheme       String                     @default("CHUNKED_GCM_V1")
+  iv                     String
+  keyId                  String
+  chunkSizeBytes         Int                        @default(262144)
+  widthPx                Int?
+  heightPx               Int?
+  exifOrientation        Int?
+  hasEmbeddedGps         Boolean?
+  scanStatus             FieldMediaScanStatus       @default(PENDING_SCAN)
+  scannerName            String?
+  scanThreats            String[]                   @default([])
+  scannedAt              DateTime?
+  processingStatus       FieldMediaProcessingStatus @default(PENDING)
+  processingErrorCode    String?
+  processingErrorMessage String?
+  processedAt            DateTime?
+  deletedAt              DateTime?
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @updatedAt
+
+  report        FieldReport                     @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  employee      Employee                        @relation("FieldReportAttachmentEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  uploadedByUser User                           @relation("FieldReportAttachmentUploader", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+  revisionLinks FieldReportRevisionAttachment[]
+  derivatives   FieldReportDerivative[]
+
+  @@unique([reportId, clientCaptureId])
+  @@index([reportId, deletedAt])
+  @@index([employeeId, deletedAt])
+  @@index([scanStatus, processingStatus])
+  @@map("field_report_attachments")
+}
+
+model FieldReportRevisionAttachment {
+  revisionId            String
+  attachmentId          String
+  sortOrder             Int      @default(0)
+  caption               String?
+  addedInRevisionNumber Int
+  createdAt             DateTime @default(now())
+
+  revision   FieldReportRevision   @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  attachment FieldReportAttachment @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
+
+  @@id([revisionId, attachmentId])
+  @@index([attachmentId])
+  @@map("field_report_revision_attachments")
+}
+
+model FieldReportDerivative {
+  id               String                    @id @default(uuid())
+  attachmentId     String
+  kind             FieldReportDerivativeKind
+  storageKey       String                    @unique
+  mimeType         String
+  fileSizeBytes    Int
+  widthPx          Int
+  heightPx         Int
+  checksumSha256   String
+  encrypted        Boolean                   @default(true)
+  encryptionScheme String                    @default("CHUNKED_GCM_V1")
+  iv               String
+  keyId            String
+  chunkSizeBytes   Int                       @default(262144)
+  metadataStripped Boolean                   @default(true)
+  colorspace       String                    @default("srgb")
+  createdAt        DateTime                  @default(now())
+
+  attachment FieldReportAttachment @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
+
+  @@unique([attachmentId, kind])
+  @@map("field_report_derivatives")
+}
+
+model FieldReportReview {
+  id                   String                    @id @default(uuid())
+  reportId             String
+  revisionId           String
+  reviewerUserId       String
+  reviewerEmployeeId   String?
+  actedAsDelegateForId String?
+  decision             FieldReportReviewDecision
+  reason               String?                   @db.Text
+  createdAt            DateTime                  @default(now())
+
+  report             FieldReport         @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  revision           FieldReportRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  reviewerUser       User                @relation("FieldReportReviewerUser", fields: [reviewerUserId], references: [id], onDelete: Restrict)
+  reviewerEmployee   Employee?           @relation("FieldReportReviewerEmployee", fields: [reviewerEmployeeId], references: [id], onDelete: SetNull)
+  actedAsDelegateFor Employee?           @relation("FieldReportDelegatePrincipal", fields: [actedAsDelegateForId], references: [id], onDelete: SetNull)
+
+  @@index([reportId, createdAt])
+  @@index([revisionId])
+  @@index([reviewerUserId])
+  @@map("field_report_reviews")
+}
+
+model FieldReportComment {
+  id                   String               @id @default(uuid())
+  reportId             String
+  revisionId           String?
+  authorUserId         String
+  authorEmployeeId     String?
+  actedAsDelegateForId String?
+  body                 String               @db.Text
+  deletedAt            DateTime?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  report         FieldReport          @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  revision       FieldReportRevision? @relation(fields: [revisionId], references: [id], onDelete: SetNull)
+  authorUser     User                 @relation("FieldReportCommentAuthorUser", fields: [authorUserId], references: [id], onDelete: Restrict)
+  authorEmployee Employee?            @relation("FieldReportCommentAuthorEmp", fields: [authorEmployeeId], references: [id], onDelete: SetNull)
+
+  @@index([reportId, deletedAt, createdAt])
+  @@map("field_report_comments")
+}
+
+model FieldReportPolicy {
+  id                      String                     @id @default(uuid())
+  entityId                String?
+  roleName                String?
+  defaultDownloadVariant  FieldReportDownloadVariant @default(RESIZED)
+  allowOriginalDownload   Boolean                    @default(true)
+  retentionDaysOverride   Int?
+  requireGpsForCategories FieldReportCategory[]      @default([])
+  updatedByUserId         String?
+  createdAt               DateTime                   @default(now())
+  updatedAt               DateTime                   @updatedAt
+
+  entity Entity? @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@unique([entityId, roleName])
+  @@map("field_report_policies")
+}
+
+model FieldReportDelegation {
+  id                  String    @id @default(uuid())
+  delegatorEmployeeId String
+  delegateEmployeeId  String
+  entityId            String?
+  startsAt            DateTime
+  endsAt              DateTime
+  reason              String?
+  isActive            Boolean   @default(true)
+  createdByUserId     String
+  revokedByUserId     String?
+  revokedAt           DateTime?
+  createdAt           DateTime  @default(now())
+
+  delegator Employee @relation("FieldReportDelegator", fields: [delegatorEmployeeId], references: [id], onDelete: Restrict)
+  delegate  Employee @relation("FieldReportDelegate", fields: [delegateEmployeeId], references: [id], onDelete: Restrict)
+
+  @@index([delegateEmployeeId, isActive, startsAt, endsAt])
+  @@index([delegatorEmployeeId, isActive])
+  @@map("field_report_delegations")
+}
+
+model FieldReportUploadSession {
+  id                String              @id @default(uuid())
+  reportId          String
+  revisionId        String
+  uploadedByUserId  String
+  employeeId        String
+  clientCaptureId   String?
+  originalFileName  String
+  claimedMimeType   String
+  declaredSizeBytes Int
+  declaredSha256    String?
+  chunkSizeBytes    Int
+  totalChunks       Int
+  uploadedChunks    Int[]               @default([])
+  stagingKeyPrefix  String              @unique
+  stagingKeyEnc     String
+  status            UploadSessionStatus @default(OPEN)
+  expiresAt         DateTime
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  report   FieldReport         @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  revision FieldReportRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+
+  @@index([status, expiresAt])
+  @@index([revisionId, uploadedByUserId])
+  @@map("field_report_upload_sessions")
 }

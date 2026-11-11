@@ -231,7 +231,7 @@ export class GdprService {
     const attPage = pagination?.attendancePage ?? 1;
     const attLimit = pagination?.attendanceLimit ?? 100;
 
-    const [profile, attendance, attendanceTotal, leaveRequests, documents, payslips, reviews, goals, feedbackReceived, feedbackGiven, roster] =
+    const [profile, attendance, attendanceTotal, leaveRequests, documents, fieldReports, payslips, reviews, goals, feedbackReceived, feedbackGiven, roster] =
       await this.prisma.$transaction([
         this.prisma.employee.findUnique({
           where: { id: employeeId },
@@ -266,6 +266,55 @@ export class GdprService {
             fileSize: true,
             category: true,
             createdAt: true,
+          },
+        }),
+        // Field Reporting metadata only — never storageKeys or encryption secrets.
+        this.prisma.fieldReport.findMany({
+          where: { employeeId, deletedAt: null },
+          orderBy: { createdAt: 'desc' },
+          take: 200,
+          select: {
+            id: true,
+            reportNumber: true,
+            category: true,
+            status: true,
+            latestSubmittedAt: true,
+            createdAt: true,
+            site: { select: { id: true, name: true, location: true } },
+            revisions: {
+              orderBy: { revisionNumber: 'desc' },
+              select: {
+                id: true,
+                revisionNumber: true,
+                title: true,
+                notes: true,
+                occurredAt: true,
+                status: true,
+                gpsConsentGranted: true,
+                gpsConsentAt: true,
+                gpsLatitude: true,
+                gpsLongitude: true,
+                attachmentLinks: {
+                  select: {
+                    attachment: {
+                      select: {
+                        id: true,
+                        mediaKind: true,
+                        originalFileName: true,
+                        mimeType: true,
+                        fileSizeBytes: true,
+                        checksumSha256: true,
+                        widthPx: true,
+                        heightPx: true,
+                        scanStatus: true,
+                        processingStatus: true,
+                        createdAt: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
           },
         }),
         this.prisma.payslip.findMany({
@@ -340,6 +389,7 @@ export class GdprService {
       },
       leaveRequests,
       documents,
+      fieldReports,
       payslips,
       performanceReviews: reviews,
       goals,
@@ -438,21 +488,26 @@ export class GdprService {
         results.push({ entity: rule.entity, status: 'skipped', reason: 'model unavailable' });
         continue;
       }
-      const where = { [rule.dateField]: { lt: cutoff } };
+      const where = { [rule.dateField]: { lt: cutoff }, ...(rule.extraWhere ?? {}) };
       const matched: number = await delegate.count({ where });
       let deleted = 0;
-      if (!dryRun && matched > 0) {
+      if (!dryRun && matched > 0 && !rule.workerManagedPurge) {
         const res = await delegate.deleteMany({ where });
         deleted = res.count;
       }
+      const status = dryRun
+        ? 'would-delete'
+        : rule.workerManagedPurge
+          ? 'delegated-to-worker'
+          : 'deleted';
       this.logger.log(
-        `Retention purge [${dryRun ? 'DRY-RUN' : 'DELETE'}] ${rule.entity}: ` +
+        `Retention purge [${dryRun ? 'DRY-RUN' : rule.workerManagedPurge ? 'WORKER-DELEGATED' : 'DELETE'}] ${rule.entity}: ` +
           `${matched} rows older than ${cutoff.toISOString()} ` +
-          `(window ${rule.retentionDays}d)${dryRun ? ' — would delete' : ` — deleted ${deleted}`}`,
+          `(window ${rule.retentionDays}d)${dryRun ? ' — would delete' : rule.workerManagedPurge ? ' — worker cleans S3 blobs before DB delete' : ` — deleted ${deleted}`}`,
       );
       results.push({
         entity: rule.entity,
-        status: dryRun ? 'would-delete' : 'deleted',
+        status,
         retentionDays: rule.retentionDays,
         cutoff: cutoff.toISOString(),
         matched,

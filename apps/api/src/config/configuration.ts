@@ -98,6 +98,19 @@ export interface AppConfig {
     privateKey: string;
     subject: string;
   };
+  fieldReports: {
+    enabled: boolean;
+    malwareScanEnabled: boolean;
+    clamavHost: string;
+    clamavPort: number;
+    maxFileSizeBytes: number;
+    maxFilesPerRevision: number;
+    maxTotalBytesPerRevision: number;
+    chunkSizeBytes: number;
+    downloadTokenSecret: string;
+    downloadTokenTtlSeconds: number;
+    allowedMimeTypes: string[];
+  };
 }
 
 /**
@@ -238,6 +251,38 @@ export default (): AppConfig => {
       privateKey: process.env.VAPID_PRIVATE_KEY || '',
       subject: process.env.VAPID_SUBJECT || 'mailto:admin@ems.local',
     },
+    fieldReports: {
+      enabled: parseBool(process.env.FIELD_REPORTS_ENABLED, false),
+      malwareScanEnabled: parseBool(process.env.FIELD_REPORT_MALWARE_SCAN_ENABLED, true),
+      clamavHost: process.env.CLAMAV_HOST || 'localhost',
+      clamavPort: parseInt(process.env.CLAMAV_PORT || '3310', 10),
+      maxFileSizeBytes: parseInt(
+        process.env.FIELD_MEDIA_MAX_FILE_SIZE_BYTES || '52428800',
+        10,
+      ),
+      maxFilesPerRevision: parseInt(process.env.FIELD_REPORT_MAX_FILES || '20', 10),
+      maxTotalBytesPerRevision: parseInt(
+        process.env.FIELD_REPORT_MAX_TOTAL_BYTES || '262144000',
+        10,
+      ),
+      chunkSizeBytes: parseInt(process.env.FIELD_MEDIA_CHUNK_SIZE_BYTES || '5242880', 10),
+      downloadTokenSecret:
+        process.env.FIELD_REPORT_DOWNLOAD_TOKEN_SECRET ||
+        (process.env.NODE_ENV === 'production'
+          ? ''
+          : process.env.JWT_ACCESS_SECRET || ''),
+      downloadTokenTtlSeconds: parseInt(
+        process.env.FIELD_REPORT_DOWNLOAD_TOKEN_TTL_SECONDS || '300',
+        10,
+      ),
+      allowedMimeTypes: (
+        process.env.FIELD_MEDIA_ALLOWED_MIME_TYPES ||
+        'image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/csv,text/plain'
+      )
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    },
   };
 };
 
@@ -286,6 +331,7 @@ const CRYPTO_SECRETS_TO_CHECK = [
   'JWT_ACCESS_SECRET',
   'JWT_REFRESH_SECRET',
   'DOCUMENT_ENCRYPTION_KEY',
+  'FIELD_REPORT_DOWNLOAD_TOKEN_SECRET',
 ] as const;
 
 const INSECURE_DEFAULT_SUBSTRINGS = [
@@ -307,6 +353,14 @@ export function validateRequiredSecrets(): void {
   if (isProduction) {
     if (!process.env.SMTP_HOST) {
       missing.push('SMTP_HOST');
+    }
+    if (parseBool(process.env.FIELD_REPORTS_ENABLED, false)) {
+      if (!process.env.FIELD_REPORT_DOWNLOAD_TOKEN_SECRET) {
+        missing.push('FIELD_REPORT_DOWNLOAD_TOKEN_SECRET');
+      }
+      if (!process.env.DOCUMENT_ENCRYPTION_KEY) {
+        missing.push('DOCUMENT_ENCRYPTION_KEY');
+      }
     }
     if (parseBool(process.env.OAUTH_ENABLED, false)) {
       if (oauthProvidersConfigured().length === 0) {

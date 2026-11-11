@@ -48,19 +48,19 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 # --- 1a. static process.env.VAR reads ----------------------------------------
-find "${SRC_DIRS[@]}" \
+(find "${SRC_DIRS[@]}" \
   \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.mjs' \) \
   -not -name '*.test.ts' -not -name '*.spec.ts' -not -path '*/test/*' \
-  -exec grep -hoE 'process\.env\.[A-Za-z0-9_]+' {} + 2>/dev/null \
+  -exec grep -hoE 'process\.env\.[A-Za-z0-9_]+' {} + 2>/dev/null || true) \
   | sed 's/.*process\.env\.//' \
   | sort -u > "$WORK/read.txt"
 
 # --- 1b. string-literal dynamic reads ----------------------------------------
-find "${SRC_DIRS[@]}" \
+(find "${SRC_DIRS[@]}" \
   \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.mjs' \) \
   -not -name '*.test.ts' -not -name '*.spec.ts' -not -path '*/test/*' \
-  -exec grep -hoE "(process\.env\[|readPublicEnv\()['\"][A-Za-z0-9_]+['\"]" {} + 2>/dev/null \
-  | grep -oE "['\"][A-Za-z0-9_]+['\"]" \
+  -exec grep -hoE "(process\.env\[|readPublicEnv\()['\"][A-Za-z0-9_]+['\"]" {} + 2>/dev/null || true) \
+  | { grep -oE "['\"][A-Za-z0-9_]+['\"]" || true; } \
   | tr -d "'\"" \
   | sort -u >> "$WORK/read.txt"
 sort -u -o "$WORK/read.txt" "$WORK/read.txt"

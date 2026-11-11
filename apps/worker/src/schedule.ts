@@ -94,6 +94,26 @@ export async function setupRepeatableJobs(queues: Record<string, Queue>): Promis
     },
   );
 
+  // Field Reporting maintenance jobs:
+  await maintenance.add(
+    'purge-abandoned-field-uploads',
+    { operation: 'purgeAbandonedFieldUploads', correlationId },
+    { repeat: { pattern: '15 * * * *', tz }, jobId: 'repeat:purge-abandoned-field-uploads', ...REPEAT_DEFAULTS },
+  );
+
+  await maintenance.add(
+    'flush-field-report-preview-audit',
+    { operation: 'flushFieldReportPreviewAudit', correlationId },
+    { repeat: { pattern: '45 * * * *', tz }, jobId: 'repeat:flush-field-report-preview-audit', ...REPEAT_DEFAULTS },
+  );
+
+  // Dry-run by default until GDPR_RETENTION_SIGNED_OFF=true + explicit dryRun:false.
+  await maintenance.add(
+    'purge-expired-field-reports',
+    { operation: 'purgeExpiredFieldReports', correlationId },
+    { repeat: { pattern: '30 3 * * *', tz }, jobId: 'repeat:purge-expired-field-reports', ...REPEAT_DEFAULTS },
+  );
+
   // Phase 3 item 2 — scheduled reports. Only scheduled when worker 3 has
   // registered its runner; the maintenance processor throws loudly if the
   // job ever fires without one.

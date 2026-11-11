@@ -80,8 +80,32 @@ services:
       /bin/sh -c "
       /usr/bin/mc alias set ems http://minio:9000 ${MINIO_ROOT_USER:-minio_admin} ${MINIO_ROOT_PASSWORD:-minio_secure_password_123!};
       /usr/bin/mc mb --ignore-existing ems/${S3_BUCKET:-ems-documents};
+      /usr/bin/mc ilm rule add --prefix 'field-reports/staging/' --expire-days 1 ems/${S3_BUCKET:-ems-documents} || true;
       exit 0;
       "
+    networks:
+      - ems-network
+
+  clamav:
+    image: clamav/clamav:1.4
+    container_name: ems-clamav
+    restart: unless-stopped
+    environment:
+      CLAMD_STARTUP_TIMEOUT: "180"
+      CLAMD_CONF_StreamMaxLength: "64M"
+      CLAMD_CONF_MaxFileSize: "64M"
+      CLAMD_CONF_MaxScanSize: "256M"
+      CLAMD_CONF_ReadTimeout: "60"
+    ports:
+      - "127.0.0.1:${CLAMAV_PORT:-3310}:3310"
+    volumes:
+      - ems-clamav-db:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/clamdcheck.sh"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 120s
     networks:
       - ems-network
 
@@ -109,4 +133,6 @@ volumes:
   ems-redis-data:
     driver: local
   ems-minio-data:
+    driver: local
+  ems-clamav-db:
     driver: local

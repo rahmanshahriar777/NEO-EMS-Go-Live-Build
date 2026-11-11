@@ -2,6 +2,8 @@ import { requireApiBaseUrl } from './env';
 
 export interface RequestOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined>;
+  /** Per-request timeout override (defaults to 30_000ms). */
+  timeoutMs?: number;
 }
 
 /** Paginated list envelope returned by the API for list endpoints. */
@@ -12,13 +14,17 @@ export interface Paginated<T> {
   limit: number;
 }
 
-/** Error thrown for failed API requests; carries the HTTP status. */
+/** Error thrown for failed API requests; carries the HTTP status and optional code. */
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  code?: string;
+  details?: unknown;
+  constructor(message: string, status: number, code?: string, details?: unknown) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = code;
+    this.details = details;
   }
 }
 
@@ -76,9 +82,15 @@ export function csrfTokenForMutation(): string | null {
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function withTimeout(signal?: AbortSignal | null): { signal: AbortSignal; cancel: () => void } {
+function withTimeout(
+  signal?: AbortSignal | null,
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
+): { signal: AbortSignal; cancel: () => void } {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error('Request timed out after 30s')), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(
+    () => controller.abort(new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s`)),
+    timeoutMs,
+  );
   if (signal) {
     if (signal.aborted) controller.abort(signal.reason);
     else signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
@@ -206,8 +218,8 @@ class ApiClient {
     throw new ApiError('Session expired — please sign in again.', 401);
   }
 
-  private async fetchOnce(url: string, init: RequestInit): Promise<Response> {
-    const { signal, cancel } = withTimeout(init.signal ?? null);
+  private async fetchOnce(url: string, init: RequestInit, timeoutMs?: number): Promise<Response> {
+    const { signal, cancel } = withTimeout(init.signal ?? null, timeoutMs);
     try {
       // credentials:'include' sends the ems_at/ems_rt httpOnly cookies on every request.
       return await fetch(url, { ...init, credentials: 'include', signal });
@@ -230,7 +242,7 @@ class ApiClient {
       ...(options.headers as Record<string, string>),
     };
     // Only send a JSON content type when there is a body to describe and it is not FormData.
-    const { params: _params, ...fetchOptions } = options;
+    const { params: _params, timeoutMs, ...fetchOptions } = options;
     const isFormData =
       (typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData) ||
       (fetchOptions.body && typeof (fetchOptions.body as any)?.append === 'function');
@@ -260,7 +272,7 @@ class ApiClient {
     const maxAttempts = isGet ? MAX_GET_RETRIES + 1 : 1;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        response = await this.fetchOnce(url, init);
+        response = await this.fetchOnce(url, init, timeoutMs);
         if (!this.isRetryableStatus(response.status) || attempt === maxAttempts) break;
         await delay(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1));
         response = null;
@@ -271,9 +283,10 @@ class ApiClient {
       }
     }
     if (!response) {
+      const timeoutSec = Math.round((timeoutMs ?? REQUEST_TIMEOUT_MS) / 1000);
       const message =
         lastError instanceof Error && lastError.name === 'AbortError'
-          ? 'Request timed out — the API did not respond within 30 seconds.'
+          ? `Request timed out — the API did not respond within ${timeoutSec} seconds.`
           : 'Network error — could not reach the API.';
       throw new ApiError(message, 0);
     }
@@ -286,7 +299,7 @@ class ApiClient {
       if (endpoint.includes('/auth/me')) {
         try {
           await this.doRefresh();
-          response = await this.fetchOnce(url, init);
+          response = await this.fetchOnce(url, init, timeoutMs);
         } catch {
           // No active session — unauthenticated visitor. Do not redirect or mark session expired.
         }
@@ -296,7 +309,7 @@ class ApiClient {
         } catch {
           this.handleSessionExpired();
         }
-        response = await this.fetchOnce(url, init);
+        response = await this.fetchOnce(url, init, timeoutMs);
         if (response.status === 401) {
           this.handleSessionExpired();
         }
@@ -308,7 +321,13 @@ class ApiClient {
     if (!response.ok) {
       const errorMessage =
         json.error?.message || json.message || `Request failed with status ${response.status}`;
-      throw new ApiError(errorMessage, response.status);
+      const errorCode =
+        typeof json.error?.code === 'string'
+          ? json.error.code
+          : typeof json.error === 'string'
+            ? json.error
+            : undefined;
+      throw new ApiError(errorMessage, response.status, errorCode, json.error?.details);
     }
 
     return (json.data !== undefined ? json.data : json) as T;
@@ -371,6 +390,27 @@ class ApiClient {
   }
 
   /**
+   * Raw binary PUT upload (e.g. Field Reporting 5 MiB chunks) with CSRF cookie
+   * double-submit, 120s timeout, and 401 refresh handling.
+   */
+  putBinary<T = any>(
+    endpoint: string,
+    body: Blob | ArrayBuffer | Uint8Array,
+    options: RequestOptions = {},
+  ): Promise<T> {
+    return this.request<T>(endpoint, {
+      ...options,
+      method: 'PUT',
+      timeoutMs: options.timeoutMs ?? 120_000,
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        ...(options.headers as Record<string, string>),
+      },
+      body: body as BodyInit,
+    });
+  }
+
+  /**
    * Upload a file (multipart/form-data) with cookie auth, CSRF double-submit,
    * and automatic error parsing/refresh handling.
    */
@@ -383,21 +423,54 @@ class ApiClient {
   }
 
   /**
-   * Download a file (e.g. DSAR export) with cookie auth and trigger a
-   * browser download. Throws loudly on failure.
+   * Fetch binary bytes (Blob) from an API endpoint or signed download URL.
    */
-  async downloadFile(endpoint: string, filename: string): Promise<void> {
+  async fetchBlob(endpointOrUrl: string, timeoutMs = 120_000): Promise<Blob> {
+    if (this.sessionExpired && !this.isAuthEndpoint(endpointOrUrl)) {
+      throw new ApiError('Session expired — please sign in again.', 401);
+    }
+    const url = /^https?:\/\//i.test(endpointOrUrl) || endpointOrUrl.startsWith('/api/')
+      ? endpointOrUrl
+      : this.buildUrl(endpointOrUrl);
+    const { signal, cancel } = withTimeout(null, timeoutMs);
+    try {
+      const res = await fetch(url, {
+        credentials: 'include',
+        headers: { Accept: '*/*' },
+        signal,
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        const code = typeof json.error?.code === 'string' ? json.error.code : undefined;
+        throw new ApiError(
+          json.error?.message || json.message || `Download failed with status ${res.status}`,
+          res.status,
+          code,
+          json.error?.details,
+        );
+      }
+      return await res.blob();
+    } finally {
+      cancel();
+    }
+  }
+
+  /**
+   * Download a file (e.g. DSAR export or signed Field Report URL) and trigger
+   * a browser download. Throws loudly on failure.
+   */
+  async downloadFile(endpoint: string, filename: string, timeoutMs = 300_000): Promise<void> {
     if (typeof window === 'undefined') {
       throw new ApiError('File downloads are only available in the browser.', 0);
     }
     if (this.sessionExpired && !this.isAuthEndpoint(endpoint)) {
       throw new ApiError('Session expired — please sign in again.', 401);
     }
-    const url = this.buildUrl(endpoint);
-    const { signal, cancel } = withTimeout();
+    const url = endpoint.startsWith('/api/') ? endpoint : this.buildUrl(endpoint);
+    const { signal, cancel } = withTimeout(null, timeoutMs);
     try {
       const res = await fetch(url, { credentials: 'include', headers: { Accept: '*/*' }, signal });
-      if (res.status === 401) {
+      if (res.status === 401 && !endpoint.includes('/field-reports/downloads')) {
         if (this.isAuthEndpoint(endpoint)) {
           throw new ApiError('Authentication failed', 401);
         }
@@ -406,11 +479,17 @@ class ApiClient {
         } catch {
           this.handleSessionExpired();
         }
-        return this.downloadFile(endpoint, filename);
+        return this.downloadFile(endpoint, filename, timeoutMs);
       }
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
-        throw new ApiError(json.message || `Download failed with status ${res.status}`, res.status);
+        const code = typeof json.error?.code === 'string' ? json.error.code : undefined;
+        throw new ApiError(
+          json.error?.message || json.message || `Download failed with status ${res.status}`,
+          res.status,
+          code,
+          json.error?.details,
+        );
       }
       const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);

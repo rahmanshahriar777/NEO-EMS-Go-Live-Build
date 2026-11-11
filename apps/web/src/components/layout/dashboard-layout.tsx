@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
 import { useAuth } from '../../context/auth-context';
+import { isFieldReportsEnabled } from '../../lib/env';
+import { OutboxRunner } from '../field-reports/outbox-runner';
 
 export const DashboardLayout: React.FC<{
   title?: string;
@@ -44,6 +46,7 @@ export const DashboardLayout: React.FC<{
         <main className="flex-1 overflow-y-auto p-6 space-y-6">
           {children}
         </main>
+        {isFieldReportsEnabled() && <OutboxRunner />}
       </div>
     </div>
   );

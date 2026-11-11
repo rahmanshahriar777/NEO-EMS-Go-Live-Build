@@ -14,6 +14,7 @@ FROM base AS dependencies
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json tsconfig.base.json ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/database/package.json packages/database/
+COPY packages/storage/package.json packages/storage/
 COPY packages/mailer/package.json packages/mailer/
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
@@ -25,6 +26,7 @@ RUN pnpm install --frozen-lockfile
 FROM dependencies AS builder
 COPY packages/shared packages/shared
 COPY packages/database packages/database
+COPY packages/storage packages/storage
 COPY packages/mailer packages/mailer
 COPY apps/api apps/api
 COPY apps/web apps/web
@@ -34,6 +36,7 @@ COPY apps/worker apps/worker
 RUN pnpm --filter @ems/database db:generate
 RUN pnpm --filter @ems/shared build
 RUN pnpm --filter @ems/database build
+RUN pnpm --filter @ems/storage build
 RUN pnpm --filter @ems/mailer build
 RUN pnpm --filter @ems/worker build
 RUN pnpm --filter @ems/api build

@@ -44,7 +44,8 @@
   "dependencies": {},
   "pnpm": {
     "onlyBuiltDependencies": [
-      "argon2"
+      "argon2",
+      "sharp"
     ]
   }
 }

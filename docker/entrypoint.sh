@@ -64,6 +64,9 @@ if [ -z "$SMTP_HOST" ] || [ "$SMTP_HOST" = "localhost" ] || [ "$SMTP_HOST" = "12
   export EMAIL_FROM="shahriar@neotericdigitalbd.com"
 fi
 export FRONTEND_URL="${FRONTEND_URL:-https://ndems-app-479560345714.us-central1.run.app}"
+export FIELD_REPORTS_ENABLED="true"
+export ALLOW_INSECURE_DEV_SCANNER="${ALLOW_INSECURE_DEV_SCANNER:-true}"
+export FIELD_REPORT_MALWARE_SCAN_ENABLED="${FIELD_REPORT_MALWARE_SCAN_ENABLED:-false}"
 
 # Generate or enforce cryptographically strong secrets for standalone Cloud Run deployment
 if [ -z "$JWT_ACCESS_SECRET" ] || echo "$JWT_ACCESS_SECRET" | grep -qi "change_in_prod\|changeme"; then

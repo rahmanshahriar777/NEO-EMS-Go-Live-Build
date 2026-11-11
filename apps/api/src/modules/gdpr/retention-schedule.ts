@@ -45,6 +45,10 @@ export interface RetentionRule {
   basis: string;
   /** Whether the purge job may delete rows under this rule (post sign-off). */
   purgeable: boolean;
+  /** Optional additional Prisma filter clauses (e.g. excluding legal holds). */
+  extraWhere?: Record<string, unknown>;
+  /** True when the background worker performs object-store cleanup prior to DB purge. */
+  workerManagedPurge?: boolean;
 }
 
 /**
@@ -110,10 +114,39 @@ export const RETENTION_SCHEDULE: RetentionRule[] = [
       'PLACEHOLDER: 30 days past expiry for abuse forensics. Counsel to confirm.',
     purgeable: true,
   },
+  {
+    entity: 'FieldReportUploadSession (expired)',
+    model: 'fieldReportUploadSession',
+    dateField: 'expiresAt',
+    retentionDays: 7,
+    basis:
+      'PLACEHOLDER: 7 days past chunked upload session expiry (MinIO ILM expires staging parts after 1 day). Counsel to confirm.',
+    purgeable: true,
+  },
+  {
+    entity: 'FieldReport (operational)',
+    model: 'fieldReport',
+    dateField: 'updatedAt',
+    retentionDays: 1095,
+    basis:
+      'PLACEHOLDER: 3 years operational non-incident field reports (excluding legalHold and INCIDENT_SAFETY). Object blobs + DB rows purged cleanly by worker maintenance.',
+    purgeable: true,
+    extraWhere: { legalHold: false, category: { not: 'INCIDENT_SAFETY' } },
+    workerManagedPurge: true,
+  },
   // ------------------------------------------------------------------
   // NEVER purged by this job (statutory history / legal evidence / own
   // retention mechanism). Listed so the schedule is explicit about them.
   // ------------------------------------------------------------------
+  {
+    entity: 'FieldReport (INCIDENT_SAFETY / Legal Hold)',
+    model: 'fieldReport',
+    dateField: 'createdAt',
+    retentionDays: 2555,
+    basis:
+      'PLACEHOLDER: 7 years safety/incident and legal-hold statutory evidence. Retained — never auto-purged. Counsel to confirm.',
+    purgeable: false,
+  },
   {
     entity: 'AuditLog',
     model: 'auditLog',

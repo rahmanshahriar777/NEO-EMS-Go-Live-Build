@@ -72,6 +72,8 @@ const DEFAULT_PII_MASK_KEYS = [
   'passwordHash',
   'secret',
   'emergencyContact',
+  'gpsLatitude',
+  'gpsLongitude',
 ];
 
 const MASKED = '[REDACTED]';

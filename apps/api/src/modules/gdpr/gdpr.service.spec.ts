@@ -49,6 +49,7 @@ describe('GdprService', () => {
       attendanceRecord: { findMany: jest.fn(), count: jest.fn() },
       leaveRequest: { findMany: jest.fn() },
       document: { findMany: jest.fn() },
+      fieldReport: { findMany: jest.fn() },
       payslip: { findMany: jest.fn() },
       performanceReview: { findMany: jest.fn() },
       goal: { findMany: jest.fn() },
@@ -210,6 +211,7 @@ describe('GdprService', () => {
       prisma.attendanceRecord.count.mockResolvedValue(0);
       prisma.leaveRequest.findMany.mockResolvedValue([]);
       prisma.document.findMany.mockResolvedValue([]);
+      prisma.fieldReport.findMany.mockResolvedValue([]);
       prisma.payslip.findMany.mockResolvedValue([]);
       prisma.performanceReview.findMany.mockResolvedValue([]);
       prisma.goal.findMany.mockResolvedValue([]);
@@ -253,6 +255,7 @@ describe('GdprService', () => {
       prisma.attendanceRecord.count.mockResolvedValue(250);
       prisma.leaveRequest.findMany.mockResolvedValue([]);
       prisma.document.findMany.mockResolvedValue([]);
+      prisma.fieldReport.findMany.mockResolvedValue([]);
       prisma.payslip.findMany.mockResolvedValue([]);
       prisma.performanceReview.findMany.mockResolvedValue([]);
       prisma.goal.findMany.mockResolvedValue([]);
@@ -276,13 +279,14 @@ describe('GdprService', () => {
       expect(result.attendance.data).toEqual([{ id: 'a1' }]);
     });
 
-    it('exposes only document metadata, never storage keys or URLs', async () => {
+    it('exposes only document and field report metadata, never storage keys or URLs', async () => {
       prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1', employeeNumber: 'EMP-1' });
       prisma.attendanceRecord.findMany.mockResolvedValue([]);
       prisma.attendanceRecord.count.mockResolvedValue(0);
       prisma.leaveRequest.findMany.mockResolvedValue([]);
       prisma.payslip.findMany.mockResolvedValue([]);
       prisma.document.findMany.mockResolvedValue([]);
+      prisma.fieldReport.findMany.mockResolvedValue([]);
       prisma.performanceReview.findMany.mockResolvedValue([]);
       prisma.goal.findMany.mockResolvedValue([]);
       prisma.feedback.findMany.mockResolvedValue([]);
@@ -294,6 +298,11 @@ describe('GdprService', () => {
       expect(select).not.toHaveProperty('fileKey');
       expect(select).not.toHaveProperty('fileUrl');
       expect(select).not.toHaveProperty('storageKey');
+      const frAttSelect =
+        prisma.fieldReport.findMany.mock.calls[0][0].select.revisions.select.attachmentLinks.select.attachment.select;
+      expect(frAttSelect).not.toHaveProperty('storageKey');
+      expect(frAttSelect).not.toHaveProperty('iv');
+      expect(frAttSelect).not.toHaveProperty('keyId');
     });
 
     it('requires an employee profile on the caller', async () => {

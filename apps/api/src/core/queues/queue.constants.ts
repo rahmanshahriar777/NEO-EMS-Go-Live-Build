@@ -13,6 +13,7 @@ export const QUEUE_NAMES = {
   PAYROLL: SHARED_QUEUE_NAMES.payroll,
   NOTIFICATIONS: SHARED_QUEUE_NAMES.notifications,
   AI: SHARED_QUEUE_NAMES.ai,
+  FIELD_MEDIA: SHARED_QUEUE_NAMES.fieldMedia,
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -59,5 +60,17 @@ export interface AiJobPayload {
   requestId: string;
   prompt: string;
   options?: Record<string, any>;
+  correlationId: string;
+}
+
+export interface FieldMediaScanJobPayload {
+  attachmentId: string;
+  reportId: string;
+  correlationId: string;
+}
+
+export interface FieldMediaTransformJobPayload {
+  attachmentId: string;
+  reportId: string;
   correlationId: string;
 }

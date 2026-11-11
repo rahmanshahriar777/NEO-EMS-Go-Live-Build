@@ -41,9 +41,19 @@ function escapeHtml(s: string): string {
 }
 
 function actionBlock(data: TemplateData): { text: string; html: string } {
-  const text = data.actionUrl ? `\n${data.actionUrl}\n` : '';
-  const html = data.actionUrl
-    ? `<p><a href="${escapeHtml(data.actionUrl)}" style="display:inline-block;padding:10px 20px;background:#1a56db;color:#fff;text-decoration:none;border-radius:6px;">${escapeHtml(data.actionLabel || 'Open NEO EMS')}</a></p>`
+  const baseOrigin = (process.env.FRONTEND_URL || process.env.WEB_URL || '').replace(/\/$/, '');
+  const resolvedUrl =
+    data.actionUrl ||
+    (data.linkUrl
+      ? /^https?:\/\//i.test(String(data.linkUrl))
+        ? String(data.linkUrl)
+        : baseOrigin
+          ? `${baseOrigin}${String(data.linkUrl).startsWith('/') ? '' : '/'}${String(data.linkUrl)}`
+          : undefined
+      : undefined);
+  const text = resolvedUrl ? `\n${resolvedUrl}\n` : '';
+  const html = resolvedUrl
+    ? `<p><a href="${escapeHtml(resolvedUrl)}" style="display:inline-block;padding:10px 20px;background:#1a56db;color:#fff;text-decoration:none;border-radius:6px;">${escapeHtml(data.actionLabel || 'Open NEO EMS')}</a></p>`
     : '';
   return { text, html };
 }
@@ -107,6 +117,142 @@ const TEMPLATES: Record<string, (data: TemplateData) => RenderedEmail> = {
       subject,
       text,
       html: wrapHtml(subject, `<p>Hi ${escapeHtml(data.name || 'there')},</p><p>Your payslip${data.period ? ` for <strong>${escapeHtml(data.period)}</strong>` : ''} is ready in NEO EMS.</p>${data.netPay ? `<p>Net pay: <strong>${escapeHtml(`${data.currency || ''} ${data.netPay}`.trim())}</strong></p>` : ''}${actionBlock(data).html}`),
+    };
+  },
+
+  // data: { name?, subject?, title?, message?, reportNumber?, authorName?, category?, linkUrl?, actionUrl? }
+  'field-report-submitted': (data) => {
+    const subject = String(
+      data.subject || data.title || `Field Report ${data.reportNumber || ''} submitted for review`.trim(),
+    );
+    const intro = data.message
+      ? String(data.message)
+      : `${data.authorName || 'An employee'} submitted Field Report ${data.reportNumber || ''} for your review.`;
+    const blk = actionBlock({ actionLabel: 'Review Field Report', ...data });
+    const text =
+      `Hi ${data.name || 'there'},\n\n` +
+      `${intro}\n` +
+      line('Report', data.reportNumber) +
+      line('Category', data.category) +
+      blk.text;
+    return {
+      subject,
+      text,
+      html: wrapHtml(
+        subject,
+        `<p>Hi ${escapeHtml(data.name || 'there')},</p>` +
+          `<p>${escapeHtml(intro)}</p>` +
+          (data.reportNumber ? `<p>Report: <strong>${escapeHtml(String(data.reportNumber))}</strong></p>` : '') +
+          (data.category ? `<p>Category: ${escapeHtml(String(data.category))}</p>` : '') +
+          blk.html,
+      ),
+    };
+  },
+
+  'field-report-approved': (data) => {
+    const subject = String(
+      data.subject || data.title || `Field Report ${data.reportNumber || ''} approved`.trim(),
+    );
+    const body = data.message
+      ? String(data.message)
+      : `Your Field Report ${data.reportNumber || ''} has been approved.`;
+    const blk = actionBlock({ actionLabel: 'View Field Report', ...data });
+    const text = `Hi ${data.name || 'there'},\n\n${body}\n${blk.text}`;
+    return {
+      subject,
+      text,
+      html: wrapHtml(
+        subject,
+        `<p>Hi ${escapeHtml(data.name || 'there')},</p><p>${escapeHtml(body)}</p>${blk.html}`,
+      ),
+    };
+  },
+
+  'field-report-changes-requested': (data) => {
+    const subject = String(
+      data.subject || data.title || `Changes requested on Field Report ${data.reportNumber || ''}`.trim(),
+    );
+    const body = data.message
+      ? String(data.message)
+      : `Your manager requested updates on Field Report ${data.reportNumber || ''}. Please revise and resubmit.`;
+    const blk = actionBlock({ actionLabel: 'Revise Field Report', ...data });
+    const text = `Hi ${data.name || 'there'},\n\n${body}\n${blk.text}`;
+    return {
+      subject,
+      text,
+      html: wrapHtml(
+        subject,
+        `<p>Hi ${escapeHtml(data.name || 'there')},</p><p>${escapeHtml(body)}</p>${blk.html}`,
+      ),
+    };
+  },
+
+  'field-report-rejected': (data) => {
+    const subject = String(
+      data.subject || data.title || `Field Report ${data.reportNumber || ''} rejected`.trim(),
+    );
+    const body = data.message
+      ? String(data.message)
+      : `Your Field Report ${data.reportNumber || ''} was rejected.`;
+    const blk = actionBlock({ actionLabel: 'View Details', ...data });
+    const text = `Hi ${data.name || 'there'},\n\n${body}\n${blk.text}`;
+    return {
+      subject,
+      text,
+      html: wrapHtml(
+        subject,
+        `<p>Hi ${escapeHtml(data.name || 'there')},</p><p>${escapeHtml(body)}</p>${blk.html}`,
+      ),
+    };
+  },
+
+  'field-report-threat-detected': (data) => {
+    const subject = String(
+      data.subject ||
+        data.title ||
+        `[Security Alert] Infected upload quarantined on Field Report ${data.reportNumber || ''}`.trim(),
+    );
+    const threats = Array.isArray(data.threats) ? data.threats.join(', ') : data.threats;
+    const body = data.message
+      ? String(data.message)
+      : `A file uploaded to Field Report ${data.reportNumber || ''} failed malware scanning and was quarantined and deleted.`;
+    const blk = actionBlock({ actionLabel: 'Open Field Report', ...data });
+    const text =
+      `Hi ${data.name || 'there'},\n\n` +
+      `${body}\n` +
+      line('File', data.fileName) +
+      line('Detected threat(s)', threats) +
+      blk.text;
+    return {
+      subject,
+      text,
+      html: wrapHtml(
+        subject,
+        `<p>Hi ${escapeHtml(data.name || 'there')},</p>` +
+          `<p style="color:#b91c1c;"><strong>${escapeHtml(body)}</strong></p>` +
+          (data.fileName ? `<p>File: <code>${escapeHtml(String(data.fileName))}</code></p>` : '') +
+          (threats ? `<p>Detected threat(s): <strong>${escapeHtml(String(threats))}</strong></p>` : '') +
+          blk.html,
+      ),
+    };
+  },
+
+  'field-report-delegation-created': (data) => {
+    const subject = String(
+      data.subject || data.title || 'Field Report review authority delegated to you',
+    );
+    const body = data.message
+      ? String(data.message)
+      : 'You have been delegated Field Report review authority.';
+    const blk = actionBlock({ actionLabel: 'Open Team Queue', ...data });
+    const text = `Hi ${data.name || 'there'},\n\n${body}\n${blk.text}`;
+    return {
+      subject,
+      text,
+      html: wrapHtml(
+        subject,
+        `<p>Hi ${escapeHtml(data.name || 'there')},</p><p>${escapeHtml(body)}</p>${blk.html}`,
+      ),
     };
   },
 };

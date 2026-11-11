@@ -29,6 +29,10 @@ describe('EmployeesService.anonymizeEmployee — erasure inventory', () => {
       feedback: updateMany(),
       performanceReview: updateMany(),
       rosterEntry: updateMany(),
+      fieldReportRevision: updateMany(),
+      fieldReportComment: updateMany(),
+      fieldReport: { count: jest.fn(async () => 1) },
+      $executeRaw: jest.fn(async () => 0),
     };
 
     prisma = {
@@ -112,6 +116,24 @@ describe('EmployeesService.anonymizeEmployee — erasure inventory', () => {
     expect(result.erasureInventory).toHaveProperty('feedback');
     expect(result.erasureInventory).toHaveProperty('performanceReviews');
     expect(result.erasureInventory).toHaveProperty('rosterNotes');
+    expect(result.erasureInventory).toHaveProperty('fieldReports');
+    expect(tx.$executeRaw).toHaveBeenCalled();
+    expect(tx.fieldReportRevision.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          gpsConsentGranted: false,
+          gpsLatitude: null,
+          gpsLongitude: null,
+        }),
+      }),
+    );
+    expect(tx.fieldReport.count).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [{ legalHold: true }, { category: 'INCIDENT_SAFETY' }],
+        }),
+      }),
+    );
     for (const entry of Object.values(result.erasureInventory) as any[]) {
       expect(entry).toHaveProperty('scrubbed');
       expect(entry).toHaveProperty('retained');

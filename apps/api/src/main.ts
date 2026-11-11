@@ -85,7 +85,16 @@ async function bootstrap() {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'x-csrf-token'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Accept',
+      'X-Requested-With',
+      'x-csrf-token',
+      'x-chunk-sha256',
+      'Range',
+    ],
+    exposedHeaders: ['Content-Range', 'Accept-Ranges', 'Content-Disposition'],
   });
 
   // Global Prefix: /api/v1

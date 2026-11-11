@@ -445,5 +445,55 @@ describe('AuthService', () => {
       expect(userService.updatePassword).toHaveBeenCalledWith('user-1', 'new-hash');
       expect(tokenService.revokeAllUserTokens).toHaveBeenCalledWith('user-1');
     });
+
+    it('completeMfaLogin finishes login when user is valid', async () => {
+      (userService.findById as jest.Mock).mockResolvedValue(verifiedUser());
+      const result = await authService.completeMfaLogin('user-1', '127.0.0.1');
+      expect(result.user.id).toBe('user-1');
+      expect(result.tokens).toBeDefined();
+    });
+
+    it('completeMfaLogin rejects inactive or locked users', async () => {
+      (userService.findById as jest.Mock).mockResolvedValue(verifiedUser({ isActive: false }));
+      await expect(authService.completeMfaLogin('user-1')).rejects.toThrow(UnauthorizedException);
+
+      (userService.findById as jest.Mock).mockResolvedValue(
+        verifiedUser({ lockedUntil: new Date(Date.now() + 60000) }),
+      );
+      await expect(authService.completeMfaLogin('user-1')).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('register creates user when public registration is enabled', async () => {
+      configGet.mockImplementation((key: string, fallback?: any) => {
+        if (key === 'security.allowPublicRegistration') return true;
+        return fallback;
+      });
+      (userService.createUser as jest.Mock).mockResolvedValue({
+        user: { id: 'new-u', email: 'new@ems.local' },
+        employee: { id: 'new-e', firstName: 'New', lastName: 'User', employeeNumber: 'EMP-999' },
+      });
+      const res = await authService.register({
+        email: 'new@ems.local',
+        password: 'Password123!',
+        firstName: 'New',
+        lastName: 'User',
+      });
+      expect(res.user.email).toBe('new@ems.local');
+    });
+
+    it('register throws ForbiddenException when registration is disabled', async () => {
+      configGet.mockImplementation((key: string, fallback?: any) => {
+        if (key === 'security.allowPublicRegistration') return false;
+        return fallback;
+      });
+      await expect(
+        authService.register({
+          email: 'blocked@ems.local',
+          password: 'Password123!',
+          firstName: 'No',
+          lastName: 'Way',
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
   });
 });

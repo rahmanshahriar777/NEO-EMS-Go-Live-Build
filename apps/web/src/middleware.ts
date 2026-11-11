@@ -65,6 +65,7 @@ const PROTECTED_PATHS = [
   '/profile',
   '/rostering',
   '/documents',
+  '/field-reports',
   '/security',
 ];
 
@@ -73,8 +74,10 @@ const AUTH_PAGES = ['/login', '/register', '/reset-password', '/mfa-challenge'];
 
 // Routes where the Web Speech API is used (ai-assistant voice input).
 const MICROPHONE_PATHS = ['/ai-assistant'];
-// Routes where location-checked clock-in uses geolocation.
-const GEOLOCATION_PATHS = ['/attendance', '/dashboard'];
+// Routes where location-checked clock-in / field report capture uses geolocation.
+const GEOLOCATION_PATHS = ['/attendance', '/dashboard', '/field-reports'];
+// Routes where mobile field report capture may open device camera.
+const CAMERA_PATHS = ['/field-reports'];
 
 function matches(pathname: string, prefixes: string[]): boolean {
   return prefixes.some((p) => pathname === p || pathname.startsWith(`${p}/`));
@@ -137,12 +140,12 @@ function buildCsp(nonce: string): string {
 }
 
 function buildPermissionsPolicy(pathname: string): string {
+  const camera = matches(pathname, CAMERA_PATHS) ? 'camera=(self)' : 'camera=()';
   const microphone = matches(pathname, MICROPHONE_PATHS) ? 'microphone=(self)' : 'microphone=()';
   const geolocation = matches(pathname, GEOLOCATION_PATHS)
     ? 'geolocation=(self)'
     : 'geolocation=()';
-  // Camera is unused anywhere in the app; everything else stays locked down.
-  return [`camera=()`, microphone, geolocation].join(', ');
+  return [camera, microphone, geolocation].join(', ');
 }
 
 export function middleware(req: NextRequest) {

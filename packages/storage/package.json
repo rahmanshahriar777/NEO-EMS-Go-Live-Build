@@ -1,0 +1,26 @@
+{
+  "name": "@ems/storage",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shared server-side encrypted object storage, chunked AES-256-GCM cipher, ClamAV streaming scanner, and media validation for API and Worker. Never import from browser bundles.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rimraf dist",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "file-type": "^22.1.1",
+    "minio": "^8.0.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.5",
+    "rimraf": "^6.0.1",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  }
+}
+

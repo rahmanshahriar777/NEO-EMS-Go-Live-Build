@@ -108,3 +108,28 @@ self.addEventListener('notificationclick', (event) => {
     }),
   );
 });
+
+// Background Sync (Chromium Android/Desktop): notify active window clients so they
+// drain the IndexedDB outbox using live httpOnly cookies + double-submit CSRF header.
+// Service workers deliberately do NOT cache or replay /api/ responses directly.
+self.addEventListener('sync', (event) => {
+  if (event.tag !== 'ems-field-reports-sync') return;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      if (clients.length > 0) {
+        clients.forEach((client) => client.postMessage({ type: 'EMS_FIELD_REPORTS_SYNC' }));
+        return Promise.resolve();
+      }
+      if (self.registration && typeof self.registration.showNotification === 'function') {
+        return self.registration.showNotification('NEO EMS — Field Reports', {
+          body: 'Connection restored. Open Field Reports to finish uploading queued items.',
+          icon: '/logo.png',
+          badge: '/logo.png',
+          data: { url: '/field-reports?tab=outbox' },
+          tag: 'ems-field-reports-sync',
+        });
+      }
+      return Promise.resolve();
+    }),
+  );
+});

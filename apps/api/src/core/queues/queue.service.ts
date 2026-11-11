@@ -9,6 +9,8 @@ import {
   PayrollJobPayload,
   NotificationJobPayload,
   AiJobPayload,
+  FieldMediaScanJobPayload,
+  FieldMediaTransformJobPayload,
 } from './queue.constants';
 import { QueueUnavailableException } from './queue-unavailable.exception';
 import { getCorrelationId } from '../../common/correlation/correlation';
@@ -160,10 +162,43 @@ export class QueueService implements OnModuleDestroy {
     return this.enqueue(QUEUE_NAMES.AI, 'ai-generate', payload, jobId);
   }
 
+  async enqueueFieldMediaScan(
+    attachmentId: string,
+    reportId: string,
+    correlationId?: string,
+  ): Promise<string> {
+    const jobId = `field-scan:${attachmentId}`;
+    const payload: FieldMediaScanJobPayload = {
+      attachmentId,
+      reportId,
+      correlationId: this.resolveCorrelationId(correlationId),
+    };
+    return this.enqueue(QUEUE_NAMES.FIELD_MEDIA, 'scan-attachment', payload, jobId);
+  }
+
+  async enqueueFieldMediaTransform(
+    attachmentId: string,
+    reportId: string,
+    correlationId?: string,
+  ): Promise<string> {
+    const jobId = `field-transform:${attachmentId}`;
+    const payload: FieldMediaTransformJobPayload = {
+      attachmentId,
+      reportId,
+      correlationId: this.resolveCorrelationId(correlationId),
+    };
+    return this.enqueue(QUEUE_NAMES.FIELD_MEDIA, 'generate-derivatives', payload, jobId);
+  }
+
   private async enqueue(
     queueName: QueueName,
     jobName: string,
-    payload: PayrollJobPayload | NotificationJobPayload | AiJobPayload,
+    payload:
+      | PayrollJobPayload
+      | NotificationJobPayload
+      | AiJobPayload
+      | FieldMediaScanJobPayload
+      | FieldMediaTransformJobPayload,
     jobId: string,
   ): Promise<string> {
     const sanitizedJobId = jobId ? jobId.replace(/:/g, '-') : undefined;

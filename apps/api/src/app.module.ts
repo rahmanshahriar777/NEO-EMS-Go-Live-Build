@@ -50,6 +50,7 @@ import { RosteringModule } from './modules/rostering/rostering.module';
 import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { RecruitmentModule } from './modules/recruitment/recruitment.module';
 import { AiAssistantModule } from './modules/ai-assistant/ai-assistant.module';
+import { FieldReportsModule } from './modules/field-reports/field-reports.module';
 
 @Module({
   imports: [
@@ -118,6 +119,7 @@ import { AiAssistantModule } from './modules/ai-assistant/ai-assistant.module';
     PayrollModule,
     PerformanceModule,
     DocumentsModule,
+    FieldReportsModule,
     NotificationsModule,
     AiModule,
     GdprModule,

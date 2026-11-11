@@ -19,6 +19,10 @@ const nextConfig = {
       process.env.NEXT_PUBLIC_ALLOW_PUBLIC_REGISTRATION ??
       process.env.ALLOW_PUBLIC_REGISTRATION ??
       'false',
+    NEXT_PUBLIC_FIELD_REPORTS_ENABLED:
+      process.env.NEXT_PUBLIC_FIELD_REPORTS_ENABLED ??
+      process.env.FIELD_REPORTS_ENABLED ??
+      'true',
   },
   // Build gates (F29): type and lint errors fail the build in production.
   // Never re-enable ignoreDuringBuilds / ignoreBuildErrors.

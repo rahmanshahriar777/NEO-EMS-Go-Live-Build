@@ -10,6 +10,7 @@ export const QUEUE_NAMES = {
   payroll: 'payroll',
   notifications: 'notifications',
   ai: 'ai',
+  fieldMedia: 'field-media',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -71,9 +72,42 @@ export interface AiJobPayload {
   correlationId: string;
 }
 
+export interface FieldMediaScanJobPayload {
+  attachmentId: string;
+  reportId: string;
+  storageKey: string;
+  mediaKind: 'IMAGE' | 'DOCUMENT';
+  originalFileName: string;
+  fileSizeBytes: number;
+  checksumSha256: string;
+  encryptionScheme: string;
+  iv: string;
+  keyId: string;
+  chunkSizeBytes: number;
+  scanFirst: true;
+  correlationId: string;
+}
+
+export interface FieldMediaTransformJobPayload {
+  attachmentId: string;
+  reportId: string;
+  storageKey: string;
+  mimeType: string;
+  fileSizeBytes: number;
+  encryptionScheme: string;
+  iv: string;
+  keyId: string;
+  chunkSizeBytes: number;
+  correlationId: string;
+}
+
 export interface MaintenanceJobPayload {
-  /** Currently supported: 'purgeExpiredAiLogs'. */
-  operation: 'purgeExpiredAiLogs';
+  /** Supported maintenance operations. */
+  operation:
+    | 'purgeExpiredAiLogs'
+    | 'purgeAbandonedFieldUploads'
+    | 'purgeExpiredFieldReports'
+    | 'flushFieldReportPreviewAudit';
   /** When true, count but do not delete. */
   dryRun?: boolean;
   /** Overrides AI_LOG_RETENTION_DAYS for this run. */

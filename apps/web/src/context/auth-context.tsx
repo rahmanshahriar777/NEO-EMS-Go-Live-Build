@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { useRouter } from 'next/navigation';
 import { api } from '../lib/api-client';
 import { AuthUserResponse, SystemRole } from '@ems/shared';
+import { clearFieldReportsOutbox } from '../lib/field-reports-idb';
 
 interface AuthContextType {
   user: AuthUserResponse | null;
@@ -205,6 +206,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ? lastError
         : new Error('Sign out failed. You are still signed in — please try again.');
     }
+    await clearFieldReportsOutbox().catch(() => {});
     setUser(null);
     setMfaChallengeToken(null);
     setPendingRedirect('/dashboard');

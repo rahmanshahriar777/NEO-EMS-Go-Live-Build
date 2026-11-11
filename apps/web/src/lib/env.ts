@@ -65,3 +65,8 @@ export const APP_CURRENCY: string = (
 export function isPublicRegistrationEnabled(): boolean {
   return process.env.NEXT_PUBLIC_ALLOW_PUBLIC_REGISTRATION === 'true';
 }
+
+/** Whether the Field Reporting module is enabled in UI navigation & routes. Defaults to true unless explicitly disabled. */
+export function isFieldReportsEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_FIELD_REPORTS_ENABLED !== 'false';
+}

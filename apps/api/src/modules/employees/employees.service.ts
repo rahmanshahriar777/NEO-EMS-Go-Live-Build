@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   BadRequestException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { pickKnownColumns } from '../../core/prisma/schema-compat.util';
@@ -21,6 +22,7 @@ import { sanitizeEmployee } from './sanitize.util';
 import { AuditAction, createPaginatedResponse, SystemRole, JwtPayload } from '@ems/shared';
 import { nextEmployeeNumber } from '@ems/shared';
 import { AvatarStorageService } from '../../core/storage/avatar-storage.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 export interface EmployeeViewer {
   userId: string;
@@ -135,6 +137,7 @@ export class EmployeesService {
     private readonly audit: AuditService,
     private readonly accessPolicy: AccessPolicyService,
     private readonly avatars: AvatarStorageService,
+    @Optional() private readonly notifications?: NotificationsService,
   ) {}
 
   /**
@@ -629,6 +632,60 @@ export class EmployeesService {
       note: 'Roster note text cleared; schedule rows retained.',
     };
 
+    // 9. Field reports — clear GPS coordinates everywhere; scrub free-text
+    //    revisions/comments when legalHold === false and category !== INCIDENT_SAFETY.
+    if (typeof tx.$executeRaw === 'function') {
+      await tx.$executeRaw`SELECT set_config('ems.gdpr_erasure', 'on', true)`;
+    }
+    const gpsCleared = await tx.fieldReportRevision.updateMany({
+      where: { report: { employeeId } },
+      data: {
+        gpsConsentGranted: false,
+        gpsConsentAt: null,
+        gpsConsentPolicyVersion: null,
+        gpsLatitude: null,
+        gpsLongitude: null,
+        gpsAccuracyMeters: null,
+        gpsCapturedAt: null,
+      },
+    });
+    const textScrubbed = await tx.fieldReportRevision.updateMany({
+      where: {
+        report: {
+          employeeId,
+          legalHold: false,
+          category: { not: 'INCIDENT_SAFETY' },
+        },
+      },
+      data: { title: REDACTED_TEXT, notes: null },
+    });
+    const commentsScrubbed = await tx.fieldReportComment.updateMany({
+      where: {
+        OR: [
+          { authorEmployeeId: employeeId },
+          {
+            report: {
+              employeeId,
+              legalHold: false,
+              category: { not: 'INCIDENT_SAFETY' },
+            },
+          },
+        ],
+      },
+      data: { body: REDACTED_TEXT },
+    });
+    const retainedFieldReports = await tx.fieldReport.count({
+      where: {
+        employeeId,
+        OR: [{ legalHold: true }, { category: 'INCIDENT_SAFETY' }],
+      },
+    });
+    inventory.fieldReports = {
+      scrubbed: gpsCleared.count + textScrubbed.count + commentsScrubbed.count,
+      retained: retainedFieldReports,
+      note: 'GPS coordinates cleared; free-text revisions and comments redacted except legalHold/INCIDENT_SAFETY safety evidence (Art. 17(3)(b)/(e)).',
+    };
+
     return inventory;
   }
 
@@ -785,6 +842,46 @@ export class EmployeesService {
       beforeState: existing,
       afterState: updated,
     });
+
+    if (
+      dto.managerId !== undefined &&
+      dto.managerId !== existing.managerId &&
+      dto.managerId !== null &&
+      this.notifications &&
+      typeof (this.prisma as any).fieldReport?.findMany === 'function'
+    ) {
+      try {
+        const [newManager, pendingReports] = await Promise.all([
+          this.prisma.employee.findFirst({
+            where: { id: dto.managerId, deletedAt: null },
+            select: { id: true, userId: true, email: true },
+          }),
+          this.prisma.fieldReport.findMany({
+            where: { employeeId: id, status: 'SUBMITTED', deletedAt: null },
+            select: { id: true, reportNumber: true },
+          }),
+        ]);
+        if (newManager?.userId && pendingReports.length > 0) {
+          for (const report of pendingReports) {
+            await this.notifications.notify({
+              userId: newManager.userId,
+              template: 'field-report-submitted',
+              title: `Reassigned Field Report ${report.reportNumber} awaiting review`,
+              message: `${existing.firstName} ${existing.lastName} now reports to you and has field report ${report.reportNumber} awaiting review.`,
+              linkUrl: `/field-reports/${report.id}`,
+              idempotencyKey: `fr-reassigned:${report.id}:${newManager.id}`,
+              emailCopy: Boolean(newManager.email),
+              emailTo: newManager.email,
+              emailSubject: `[Field Report] ${report.reportNumber} reassigned for your review`,
+            });
+          }
+        }
+      } catch (err: any) {
+        this.logger.warn(
+          `Failed to notify new manager of pending field reports for employee ${id}: ${err?.message}`,
+        );
+      }
+    }
 
     return updated;
   }

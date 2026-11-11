@@ -29,6 +29,15 @@ import type {
   FeedbackType as PrismaFeedbackType,
   AuditAction as PrismaAuditAction,
   ErasureStatus as PrismaErasureStatus,
+  FieldReportStatus as PrismaFieldReportStatus,
+  FieldReportCategory as PrismaFieldReportCategory,
+  FieldMediaKind as PrismaFieldMediaKind,
+  FieldMediaScanStatus as PrismaFieldMediaScanStatus,
+  FieldMediaProcessingStatus as PrismaFieldMediaProcessingStatus,
+  FieldReportDerivativeKind as PrismaFieldReportDerivativeKind,
+  FieldReportDownloadVariant as PrismaFieldReportDownloadVariant,
+  FieldReportReviewDecision as PrismaFieldReportReviewDecision,
+  UploadSessionStatus as PrismaUploadSessionStatus,
 } from '@prisma/client';
 
 export enum SystemRole {
@@ -46,6 +55,8 @@ export enum PermissionAction {
   DELETE = 'DELETE',
   MANAGE = 'MANAGE',
   APPROVE = 'APPROVE',
+  REVIEW = 'REVIEW',
+  DOWNLOAD_ORIGINAL = 'DOWNLOAD_ORIGINAL',
 }
 
 export enum PermissionSubject {
@@ -59,6 +70,7 @@ export enum PermissionSubject {
   PERFORMANCE = 'PERFORMANCE',
   AUDIT_LOG = 'AUDIT_LOG',
   DOCUMENT = 'DOCUMENT',
+  FIELD_REPORT = 'FIELD_REPORT',
 }
 
 export enum EmploymentStatus {
@@ -164,6 +176,69 @@ export enum ErasureStatus {
   PENDING = 'PENDING',
   APPROVED = 'APPROVED',
   REJECTED = 'REJECTED',
+}
+
+export enum FieldReportStatus {
+  DRAFT = 'DRAFT',
+  SUBMITTED = 'SUBMITTED',
+  CHANGES_REQUESTED = 'CHANGES_REQUESTED',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+}
+
+export enum FieldReportCategory {
+  SITE_INSPECTION = 'SITE_INSPECTION',
+  INCIDENT_SAFETY = 'INCIDENT_SAFETY',
+  CLIENT_VISIT = 'CLIENT_VISIT',
+  EQUIPMENT_AUDIT = 'EQUIPMENT_AUDIT',
+  DELIVERY_VERIFICATION = 'DELIVERY_VERIFICATION',
+  MAINTENANCE = 'MAINTENANCE',
+  OTHER = 'OTHER',
+}
+
+export enum FieldMediaKind {
+  IMAGE = 'IMAGE',
+  DOCUMENT = 'DOCUMENT',
+}
+
+export enum FieldMediaScanStatus {
+  PENDING_SCAN = 'PENDING_SCAN',
+  CLEAN = 'CLEAN',
+  INFECTED = 'INFECTED',
+  SCAN_FAILED = 'SCAN_FAILED',
+}
+
+export enum FieldMediaProcessingStatus {
+  PENDING = 'PENDING',
+  PROCESSING = 'PROCESSING',
+  READY = 'READY',
+  FAILED = 'FAILED',
+  SKIPPED = 'SKIPPED',
+}
+
+export enum FieldReportDerivativeKind {
+  THUMBNAIL = 'THUMBNAIL',
+  WEB_PREVIEW = 'WEB_PREVIEW',
+  RESIZED_STANDARD = 'RESIZED_STANDARD',
+}
+
+export enum FieldReportDownloadVariant {
+  ORIGINAL = 'ORIGINAL',
+  RESIZED = 'RESIZED',
+}
+
+export enum FieldReportReviewDecision {
+  APPROVE = 'APPROVE',
+  REJECT = 'REJECT',
+  REQUEST_CHANGES = 'REQUEST_CHANGES',
+}
+
+export enum UploadSessionStatus {
+  OPEN = 'OPEN',
+  COMPLETING = 'COMPLETING',
+  COMPLETED = 'COMPLETED',
+  ABORTED = 'ABORTED',
+  EXPIRED = 'EXPIRED',
 }
 
 // ---------------------------------------------------------------------------
@@ -297,4 +372,88 @@ export const ErasureStatusParity: Record<PrismaErasureStatus, ErasureStatus> = {
   PENDING: ErasureStatus.PENDING,
   APPROVED: ErasureStatus.APPROVED,
   REJECTED: ErasureStatus.REJECTED,
+};
+
+/** Shared FieldReportStatus ≡ Prisma FieldReportStatus. */
+export const FieldReportStatusParity: Record<PrismaFieldReportStatus, FieldReportStatus> = {
+  DRAFT: FieldReportStatus.DRAFT,
+  SUBMITTED: FieldReportStatus.SUBMITTED,
+  CHANGES_REQUESTED: FieldReportStatus.CHANGES_REQUESTED,
+  APPROVED: FieldReportStatus.APPROVED,
+  REJECTED: FieldReportStatus.REJECTED,
+};
+
+/** Shared FieldReportCategory ≡ Prisma FieldReportCategory. */
+export const FieldReportCategoryParity: Record<PrismaFieldReportCategory, FieldReportCategory> = {
+  SITE_INSPECTION: FieldReportCategory.SITE_INSPECTION,
+  INCIDENT_SAFETY: FieldReportCategory.INCIDENT_SAFETY,
+  CLIENT_VISIT: FieldReportCategory.CLIENT_VISIT,
+  EQUIPMENT_AUDIT: FieldReportCategory.EQUIPMENT_AUDIT,
+  DELIVERY_VERIFICATION: FieldReportCategory.DELIVERY_VERIFICATION,
+  MAINTENANCE: FieldReportCategory.MAINTENANCE,
+  OTHER: FieldReportCategory.OTHER,
+};
+
+/** Shared FieldMediaKind ≡ Prisma FieldMediaKind. */
+export const FieldMediaKindParity: Record<PrismaFieldMediaKind, FieldMediaKind> = {
+  IMAGE: FieldMediaKind.IMAGE,
+  DOCUMENT: FieldMediaKind.DOCUMENT,
+};
+
+/** Shared FieldMediaScanStatus ≡ Prisma FieldMediaScanStatus. */
+export const FieldMediaScanStatusParity: Record<PrismaFieldMediaScanStatus, FieldMediaScanStatus> = {
+  PENDING_SCAN: FieldMediaScanStatus.PENDING_SCAN,
+  CLEAN: FieldMediaScanStatus.CLEAN,
+  INFECTED: FieldMediaScanStatus.INFECTED,
+  SCAN_FAILED: FieldMediaScanStatus.SCAN_FAILED,
+};
+
+/** Shared FieldMediaProcessingStatus ≡ Prisma FieldMediaProcessingStatus. */
+export const FieldMediaProcessingStatusParity: Record<
+  PrismaFieldMediaProcessingStatus,
+  FieldMediaProcessingStatus
+> = {
+  PENDING: FieldMediaProcessingStatus.PENDING,
+  PROCESSING: FieldMediaProcessingStatus.PROCESSING,
+  READY: FieldMediaProcessingStatus.READY,
+  FAILED: FieldMediaProcessingStatus.FAILED,
+  SKIPPED: FieldMediaProcessingStatus.SKIPPED,
+};
+
+/** Shared FieldReportDerivativeKind ≡ Prisma FieldReportDerivativeKind. */
+export const FieldReportDerivativeKindParity: Record<
+  PrismaFieldReportDerivativeKind,
+  FieldReportDerivativeKind
+> = {
+  THUMBNAIL: FieldReportDerivativeKind.THUMBNAIL,
+  WEB_PREVIEW: FieldReportDerivativeKind.WEB_PREVIEW,
+  RESIZED_STANDARD: FieldReportDerivativeKind.RESIZED_STANDARD,
+};
+
+/** Shared FieldReportDownloadVariant ≡ Prisma FieldReportDownloadVariant. */
+export const FieldReportDownloadVariantParity: Record<
+  PrismaFieldReportDownloadVariant,
+  FieldReportDownloadVariant
+> = {
+  ORIGINAL: FieldReportDownloadVariant.ORIGINAL,
+  RESIZED: FieldReportDownloadVariant.RESIZED,
+};
+
+/** Shared FieldReportReviewDecision ≡ Prisma FieldReportReviewDecision. */
+export const FieldReportReviewDecisionParity: Record<
+  PrismaFieldReportReviewDecision,
+  FieldReportReviewDecision
+> = {
+  APPROVE: FieldReportReviewDecision.APPROVE,
+  REJECT: FieldReportReviewDecision.REJECT,
+  REQUEST_CHANGES: FieldReportReviewDecision.REQUEST_CHANGES,
+};
+
+/** Shared UploadSessionStatus ≡ Prisma UploadSessionStatus. */
+export const UploadSessionStatusParity: Record<PrismaUploadSessionStatus, UploadSessionStatus> = {
+  OPEN: UploadSessionStatus.OPEN,
+  COMPLETING: UploadSessionStatus.COMPLETING,
+  COMPLETED: UploadSessionStatus.COMPLETED,
+  ABORTED: UploadSessionStatus.ABORTED,
+  EXPIRED: UploadSessionStatus.EXPIRED,
 };

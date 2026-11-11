@@ -80,3 +80,37 @@ role-scoped retrieval over company policies + the user's own HR records.
 2. Provider-side transient processing of redacted-but-contextual prompts (mitigated by executed DPAs and zero-retention terms).
 3. Re-identification from quasi-identifiers (mitigated by ongoing sampled redaction audits).
 4. Model version drift changing redaction/formatting behaviour.
+
+---
+
+# Part II: Field Reporting — Mobile Photo & Geolocation Capture DPIA
+
+> STATUS: Working DPIA notes for mobile field reporting, device EXIF retention, and location capture.
+
+## 1. Scope & Personal Data Categories
+
+Employees working on-site or off-site capture photographs and upload technical documentation. The module captures:
+1. **Full-resolution device photos**: Includes embedded EXIF metadata (camera model, lens serial, capture timestamp, camera orientation, and optional GPS coordinates).
+2. **Device Geolocation (GPS)**: Precise latitude, longitude, and accuracy radius captured via the HTML5 Geolocation API or phone camera sensor.
+3. **Field Observations & Incident Notes**: Free-text descriptions and optional incident timestamps.
+4. **Author & Reviewer IDs**: Linked to the employee identity and hierarchical reporting chain.
+
+## 2. Lawful Basis & Consent Controls
+
+- **Lawful Basis (Core Work Reports)**: Article 6(1)(b) (Performance of contract) and Article 6(1)(f) (Legitimate interests of the employer for safety, site compliance, and incident logging).
+- **Explicit Consent for GPS Tracking**: Article 6(1)(a). GPS location capture is strictly **opt-in** with a dedicated checkbox on the capture form (`gpsConsent: true/false`). Employees may submit reports without enabling geolocation.
+- **Privacy Notice at Capture Point**: The mobile interface explicitly informs the user that location coordinates are recorded for incident verification and will be automatically stripped from resized derivatives.
+
+## 3. Data Minimisation & Technical Mitigations
+
+1. **Original vs Resized Separation**:
+   - **Originals**: Retained bit-exact at rest in private S3/MinIO buckets with chunked AES-256-GCM envelope encryption. Download access is strictly role-gated (restricted to HR, administrators, and authorized managers with explicit `FIELD_REPORT:DOWNLOAD_ORIGINAL` permission).
+   - **Resized & Web Preview Derivatives**: Processed through `sharp` with libvips. All EXIF metadata, GPS IFD tags, maker notes, and device serial numbers are **100% stripped** (`withMetadata({ exif: {} })` omitted). Routine manager reviews and team views consume sanitized derivatives only.
+2. **Malware & Anti-Bomb Hardening**:
+   - ClamAV fail-closed scanning before any derivative is generated or served.
+   - Decompression bomb protection: max 100 megapixels (`limitInputPixels: 100_000_000`) and 16,384px dimension bounds.
+3. **Retention & GDPR Erasure Integration**:
+   - Field reports are tied to the Employee record via `onDelete: Restrict`.
+   - On GDPR erasure requests (`gdpr.service.ts`), employee associations are anonymised; photos are retained or purged per organization retention schedule with dry-run protection (`GDPR_RETENTION_SIGNED_OFF`).
+   - S3 staging multipart uploads expire after 24 hours via MinIO/S3 bucket lifecycle rules.
+

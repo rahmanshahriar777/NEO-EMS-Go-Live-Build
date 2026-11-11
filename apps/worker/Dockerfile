@@ -12,6 +12,8 @@ FROM base AS dependencies
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json tsconfig.base.json ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/database/package.json packages/database/
+COPY packages/storage/package.json packages/storage/
+COPY packages/mailer/package.json packages/mailer/
 COPY apps/worker/package.json apps/worker/
 
 RUN pnpm install --frozen-lockfile
@@ -19,12 +21,16 @@ RUN pnpm install --frozen-lockfile
 FROM dependencies AS builder
 COPY packages/shared packages/shared
 COPY packages/database packages/database
+COPY packages/storage packages/storage
+COPY packages/mailer packages/mailer
 COPY apps/worker apps/worker
 
 RUN pnpm --filter @ems/database db:generate
 # NOTE: db:generate must precede the shared build — packages/shared asserts
 # enum parity against the generated Prisma types (type-only import).
 RUN pnpm --filter @ems/shared build
+RUN pnpm --filter @ems/storage build
+RUN pnpm --filter @ems/mailer build
 RUN pnpm --filter @ems/worker build
 
 # Produce a pruned production install (no devDependencies) for the runner
@@ -46,6 +52,10 @@ COPY --chown=node:node --from=builder /deploy/apps/worker/node_modules ./node_mo
 COPY --chown=node:node --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --chown=node:node --from=builder /app/packages/database/dist ./packages/database/dist
 COPY --chown=node:node --from=builder /app/packages/database/prisma ./packages/database/prisma
+COPY --chown=node:node --from=builder /app/packages/storage/dist ./packages/storage/dist
+COPY --chown=node:node --from=builder /app/packages/storage/package.json ./packages/storage/package.json
+COPY --chown=node:node --from=builder /app/packages/mailer/dist ./packages/mailer/dist
+COPY --chown=node:node --from=builder /app/packages/mailer/package.json ./packages/mailer/package.json
 COPY --chown=node:node --from=builder /app/apps/worker/dist ./apps/worker/dist
 COPY --chown=node:node --from=builder /app/apps/worker/package.json ./apps/worker/package.json
 

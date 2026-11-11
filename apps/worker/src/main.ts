@@ -1,4 +1,4 @@
-import { Job, Queue, Worker } from 'bullmq';
+import { Job, Queue, UnrecoverableError, Worker } from 'bullmq';
 import Redis from 'ioredis';
 import * as dotenv from 'dotenv';
 import * as fs from 'fs';
@@ -10,13 +10,18 @@ import {
   isRetentionSignedOff,
   metrics,
 } from '@ems/shared';
+import { prisma } from '@ems/database';
 import * as http from 'http';
 import { processPayroll } from './processors/payroll.processor.js';
 import { processNotification, registerChannelHook } from './processors/notification.processor.js';
 import { sendEmailChannelHook } from './processors/email.processor.js';
 import { processAi } from './processors/ai.processor.js';
-import { processMaintenance } from './processors/maintenance.processor.js';
+import { processMaintenance, setMaintenanceRedis } from './processors/maintenance.processor.js';
 import { setLeaveAccrualRedis } from './processors/leave-accrual.processor.js';
+import {
+  processFieldMediaJob,
+  setFieldMediaQueues,
+} from './processors/field-media-scan.processor.js';
 import { setupRepeatableJobs } from './schedule.js';
 import { log, alertOps } from './logger.js';
 
@@ -130,6 +135,11 @@ async function bootstrap() {
   // Its old module-local client used lazyConnect:true and never connected,
   // so every monthly accrual run failed into the DLQ.
   setLeaveAccrualRedis(connection);
+  setMaintenanceRedis(connection);
+  setFieldMediaQueues({
+    fieldMediaQueue: queues[QUEUE_NAMES.fieldMedia],
+    notificationsQueue: queues[QUEUE_NAMES.notifications],
+  });
 
   // Retention gate state (HIGH #3, go-live hardening): the scheduled AI-log
   // purge is DRY-RUN BY DEFAULT — it counts and logs but never deletes.
@@ -148,10 +158,19 @@ async function bootstrap() {
   // and (once worker 3 registers its runner) scheduled reports.
   await setupRepeatableJobs(queues);
 
+  const fieldMediaConcurrency = Math.max(
+    1,
+    parseInt(process.env.FIELD_REPORT_IMAGE_CONCURRENCY || '2', 10) || 2,
+  );
+
   const workers = [
     new Worker(QUEUE_NAMES.payroll, processPayroll, { connection, concurrency: 1 }),
     new Worker(QUEUE_NAMES.notifications, processNotification, { connection, concurrency: 5 }),
     new Worker(QUEUE_NAMES.ai, processAi, { connection, concurrency: 2 }),
+    new Worker(QUEUE_NAMES.fieldMedia, (job) => processFieldMediaJob(job), {
+      connection,
+      concurrency: fieldMediaConcurrency,
+    }),
     new Worker(MAINTENANCE_QUEUE, processMaintenance, { connection, concurrency: 1 }),
   ];
 
@@ -161,16 +180,56 @@ async function bootstrap() {
     });
     w.on('failed', async (job, err) => {
       const attemptsMade = job?.attemptsMade ?? 0;
+      const isUnrecoverable = err instanceof UnrecoverableError || err?.name === 'UnrecoverableError';
       // Loud structured failure log — impossible to miss in the aggregator.
       log.error('worker.job.failed', {
         queue: w.name,
         jobId: job?.id,
         attemptsMade,
         maxAttempts: MAX_ATTEMPTS,
+        isUnrecoverable,
         error: err.message,
         stack: err.stack,
       });
-      if (job && attemptsMade >= MAX_ATTEMPTS) {
+
+      const attachmentId = (job?.data as any)?.attachmentId as string | undefined;
+      if (job && (attemptsMade >= MAX_ATTEMPTS || isUnrecoverable)) {
+        if (w.name === QUEUE_NAMES.fieldMedia && attachmentId) {
+          try {
+            if (job.name === 'generate-derivatives') {
+              await prisma.fieldReportAttachment.updateMany({
+                where: {
+                  id: attachmentId,
+                  processingStatus: { in: ['PENDING', 'PROCESSING'] },
+                },
+                data: {
+                  processingStatus: 'FAILED',
+                  processingErrorCode: 'PROCESSING_FAILED',
+                  processingErrorMessage: err.message.slice(0, 500),
+                },
+              });
+            } else {
+              await prisma.fieldReportAttachment.updateMany({
+                where: {
+                  id: attachmentId,
+                  scanStatus: 'PENDING_SCAN',
+                },
+                data: {
+                  scanStatus: 'SCAN_FAILED',
+                  processingStatus: 'SKIPPED',
+                  processingErrorCode: 'MALWARE_SCAN_FAILED',
+                  processingErrorMessage: err.message.slice(0, 500),
+                },
+              });
+            }
+          } catch (dbErr: any) {
+            log.error('worker.field-media.failure-mark-failed', {
+              attachmentId,
+              error: dbErr?.message,
+            });
+          }
+        }
+
         try {
           await moveToDlq(queues, w.name, job, err);
         } catch (dlqErr: any) {

@@ -27,9 +27,11 @@ import {
   Webhook,
   FileCheck2,
   Shield,
+  Camera,
 } from 'lucide-react';
 import { useAuth } from '../../context/auth-context';
 import { SystemRole } from '@ems/shared';
+import { isFieldReportsEnabled } from '../../lib/env';
 import { AvatarModal } from '../profile/avatar-modal';
 import '../../styles/sidebar.css';
 
@@ -48,7 +50,7 @@ interface NavSection {
 
 export const Sidebar: React.FC = () => {
   const pathname = usePathname();
-  const { user, logout, hasRole } = useAuth();
+  const { user, logout, hasRole, hasPermission } = useAuth();
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
   // Sign-out failure: the auth context only throws when the API logout could
   // not be confirmed (bounded retries exhausted) — the session is then still
@@ -117,6 +119,19 @@ export const Sidebar: React.FC = () => {
     { label: 'Performance', href: '/performance', icon: TrendingUp },
     { label: 'Documents', href: '/documents', icon: FileText }
   );
+
+  // Field Reporting (PWA mobile capture, line manager review & photo downloads)
+  if (
+    isFieldReportsEnabled() &&
+    (hasPermission('FIELD_REPORT:READ') ||
+      hasRole(SystemRole.EMPLOYEE, SystemRole.MANAGER, SystemRole.HR_ADMIN, SystemRole.SUPER_ADMIN))
+  ) {
+    navSections[1].items.push({
+      label: 'Field Reports',
+      href: '/field-reports',
+      icon: Camera,
+    });
+  }
 
   // Account security and GDPR (everyone)
   navSections.push({
