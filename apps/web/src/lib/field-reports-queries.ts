@@ -228,11 +228,16 @@ export function useCreateFieldReportMutation() {
       notes?: string;
       category: FieldReportCategory;
       siteId?: string;
+      occurredAt?: string;
       incidentAt?: string;
-      gpsConsent: boolean;
+      gpsConsent?: boolean;
+      gpsConsentGranted?: boolean;
       latitude?: number;
+      gpsLatitude?: number;
       longitude?: number;
+      gpsLongitude?: number;
       accuracyMeters?: number;
+      gpsAccuracyMeters?: number;
     }) => api.post<FieldReportItem>('/field-reports', dto),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['field-reports'] });

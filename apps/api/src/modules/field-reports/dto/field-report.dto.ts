@@ -42,9 +42,15 @@ export class CreateFieldReportDto {
   @IsEnum(FieldReportCategory)
   category!: FieldReportCategory;
 
-  @ApiProperty({ example: '2026-11-10T14:30:00.000Z' })
-  @IsISO8601()
-  occurredAt!: string;
+  @ApiPropertyOptional({ example: '2026-11-10T14:30:00.000Z' })
+  @IsOptional()
+  @IsString()
+  occurredAt?: string;
+
+  @ApiPropertyOptional({ example: '2026-11-10T14:30:00.000Z' })
+  @IsOptional()
+  @IsString()
+  incidentAt?: string;
 
   @ApiPropertyOptional({ example: 'default-north-depot' })
   @IsOptional()
@@ -56,6 +62,11 @@ export class CreateFieldReportDto {
   @IsOptional()
   @IsBoolean()
   gpsConsentGranted?: boolean;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  gpsConsent?: boolean;
 
   @ApiPropertyOptional({ example: GPS_CONSENT_POLICY_VERSION })
   @IsOptional()
@@ -71,6 +82,14 @@ export class CreateFieldReportDto {
   @Max(90)
   gpsLatitude?: number;
 
+  @ApiPropertyOptional({ example: 51.507351 })
+  @IsOptional()
+  @ValidateIf((o) => o.latitude !== undefined && o.latitude !== null)
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  latitude?: number;
+
   @ApiPropertyOptional({ example: -0.127758 })
   @IsOptional()
   @ValidateIf((o) => o.gpsLongitude !== undefined && o.gpsLongitude !== null)
@@ -79,6 +98,14 @@ export class CreateFieldReportDto {
   @Max(180)
   gpsLongitude?: number;
 
+  @ApiPropertyOptional({ example: -0.127758 })
+  @IsOptional()
+  @ValidateIf((o) => o.longitude !== undefined && o.longitude !== null)
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  longitude?: number;
+
   @ApiPropertyOptional({ example: 6.5 })
   @IsOptional()
   @IsNumber()
@@ -86,9 +113,16 @@ export class CreateFieldReportDto {
   @Max(100000)
   gpsAccuracyMeters?: number;
 
+  @ApiPropertyOptional({ example: 6.5 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100000)
+  accuracyMeters?: number;
+
   @ApiPropertyOptional({ example: '2026-11-10T14:29:52.000Z' })
   @IsOptional()
-  @IsISO8601()
+  @IsString()
   gpsCapturedAt?: string;
 }
 

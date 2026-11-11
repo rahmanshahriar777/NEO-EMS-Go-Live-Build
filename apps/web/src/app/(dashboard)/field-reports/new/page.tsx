@@ -168,16 +168,32 @@ export default function NewFieldReportPage() {
     try {
       // If online, create the report directly on the server
       if (typeof navigator !== 'undefined' && navigator.onLine) {
+        const occurredIso = incidentAt
+          ? (() => {
+              try {
+                const d = new Date(incidentAt);
+                return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+              } catch {
+                return new Date().toISOString();
+              }
+            })()
+          : new Date().toISOString();
+
         const report = await createMutation.mutateAsync({
           title: title.trim(),
           notes: notes.trim() || undefined,
           category,
           siteId: siteId || undefined,
-          incidentAt: incidentAt ? new Date(incidentAt).toISOString() : undefined,
+          occurredAt: occurredIso,
+          incidentAt: occurredIso,
           gpsConsent,
+          gpsConsentGranted: gpsConsent,
           latitude: coords?.latitude,
+          gpsLatitude: coords?.latitude,
           longitude: coords?.longitude,
+          gpsLongitude: coords?.longitude,
           accuracyMeters: coords?.accuracyMeters,
+          gpsAccuracyMeters: coords?.accuracyMeters,
         });
 
         // Queue selected files into outbox with the remote report ID

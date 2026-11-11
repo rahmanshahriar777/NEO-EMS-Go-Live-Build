@@ -280,7 +280,18 @@ export class FieldReportsService {
       this.prisma.$queryRawUnsafe(sql),
     );
     const now = new Date();
-    const consentGranted = dto.gpsConsentGranted === true;
+    const consentGranted = dto.gpsConsentGranted === true || (dto as any).gpsConsent === true;
+    const rawOccurred = dto.occurredAt || (dto as any).incidentAt;
+    let occurredDate = now;
+    if (rawOccurred) {
+      const parsed = new Date(rawOccurred);
+      if (!isNaN(parsed.getTime())) {
+        occurredDate = parsed;
+      }
+    }
+    const lat = consentGranted ? ((dto as any).latitude ?? dto.gpsLatitude ?? null) : null;
+    const lon = consentGranted ? ((dto as any).longitude ?? dto.gpsLongitude ?? null) : null;
+    const acc = consentGranted ? ((dto as any).accuracyMeters ?? dto.gpsAccuracyMeters ?? null) : null;
 
     const createdId = await this.prisma.$transaction(async (tx) => {
       const report = await tx.fieldReport.create({
@@ -303,21 +314,23 @@ export class FieldReportsService {
           status: FieldReportStatus.DRAFT,
           title: dto.title.trim(),
           notes: dto.notes?.trim() ?? null,
-          occurredAt: new Date(dto.occurredAt),
+          occurredAt: occurredDate,
           siteId: dto.siteId ?? null,
           gpsConsentGranted: consentGranted,
           gpsConsentAt: consentGranted ? now : null,
           gpsConsentPolicyVersion: consentGranted
             ? dto.gpsConsentPolicyVersion || GPS_CONSENT_POLICY_VERSION
             : null,
-          gpsLatitude: consentGranted && dto.gpsLatitude !== undefined ? dto.gpsLatitude : null,
-          gpsLongitude: consentGranted && dto.gpsLongitude !== undefined ? dto.gpsLongitude : null,
-          gpsAccuracyMeters:
-            consentGranted && dto.gpsAccuracyMeters !== undefined
-              ? dto.gpsAccuracyMeters
-              : null,
+          gpsLatitude: lat !== null && lat !== undefined ? lat : null,
+          gpsLongitude: lon !== null && lon !== undefined ? lon : null,
+          gpsAccuracyMeters: acc !== null && acc !== undefined ? acc : null,
           gpsCapturedAt:
-            consentGranted && dto.gpsCapturedAt ? new Date(dto.gpsCapturedAt) : null,
+            consentGranted && (dto.gpsCapturedAt || rawOccurred)
+              ? (() => {
+                  const d = new Date(dto.gpsCapturedAt || rawOccurred);
+                  return isNaN(d.getTime()) ? now : d;
+                })()
+              : null,
         },
       });
 
