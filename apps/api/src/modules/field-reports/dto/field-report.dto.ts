@@ -213,26 +213,53 @@ export class CreateFieldReportCommentDto {
 }
 
 export class CreateUploadSessionDto {
-  @ApiProperty({ example: 'roof_damage_01.jpg', maxLength: 255 })
+  @ApiPropertyOptional({ example: 'roof_damage_01.jpg', maxLength: 255 })
+  @IsOptional()
   @IsString()
   @Length(1, 255)
-  originalFileName!: string;
+  originalFileName?: string;
 
-  @ApiProperty({ example: 'image/jpeg' })
+  @ApiPropertyOptional({ example: 'roof_damage_01.jpg', maxLength: 255 })
+  @IsOptional()
+  @IsString()
+  @Length(1, 255)
+  fileName?: string;
+
+  @ApiPropertyOptional({ example: 'image/jpeg' })
+  @IsOptional()
   @IsString()
   @MaxLength(128)
-  claimedMimeType!: string;
+  claimedMimeType?: string;
 
-  @ApiProperty({ example: 2048576, minimum: 1, maximum: 52428800 })
+  @ApiPropertyOptional({ example: 'image/jpeg' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  mimeType?: string;
+
+  @ApiPropertyOptional({ example: 2048576, minimum: 1, maximum: 52428800 })
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  declaredSizeBytes!: number;
+  declaredSizeBytes?: number;
+
+  @ApiPropertyOptional({ example: 2048576, minimum: 1, maximum: 52428800 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  byteSize?: number;
 
   @ApiPropertyOptional({ description: 'Client precomputed hex SHA-256 of Original' })
   @IsOptional()
   @Matches(/^[a-f0-9]{64}$/i)
   declaredSha256?: string;
+
+  @ApiPropertyOptional({ description: 'Client precomputed hex SHA-256 of Original' })
+  @IsOptional()
+  @Matches(/^[a-f0-9]{64}$/i)
+  clientSha256?: string;
 
   @ApiPropertyOptional({ format: 'uuid', description: 'IndexedDB idempotency token' })
   @IsOptional()

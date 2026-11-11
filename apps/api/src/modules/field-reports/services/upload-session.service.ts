@@ -66,12 +66,19 @@ export class UploadSessionService {
     revisionId: string,
     viewer: FieldReportViewer,
   ) {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(revisionId);
     const revision = await this.prisma.fieldReportRevision.findFirst({
-      where: {
-        id: revisionId,
-        reportId,
-        report: { deletedAt: null },
-      },
+      where: isUuid
+        ? {
+            id: revisionId,
+            reportId,
+            report: { deletedAt: null },
+          }
+        : {
+            revisionNumber: parseInt(revisionId, 10) || 1,
+            reportId,
+            report: { deletedAt: null },
+          },
       include: {
         report: {
           select: { id: true, employeeId: true, createdByUserId: true, status: true },
@@ -110,21 +117,27 @@ export class UploadSessionService {
   ) {
     const limits = this.getLimits();
     const revision = await this.assertEditableDraftRevision(reportId, revisionId, viewer);
+    const actualRevisionId = revision.id;
 
-    if (dto.declaredSizeBytes > limits.maxFileSizeBytes) {
+    const originalFileName = (dto.originalFileName || (dto as any).fileName || 'attachment').trim();
+    const claimedMimeType = (dto.claimedMimeType || (dto as any).mimeType || 'application/octet-stream').trim();
+    const declaredSizeBytes = Number(dto.declaredSizeBytes ?? (dto as any).byteSize ?? 0);
+    const declaredSha256 = dto.declaredSha256 || (dto as any).clientSha256;
+
+    if (declaredSizeBytes > limits.maxFileSizeBytes) {
       throw new PayloadTooLargeException({
-        message: `File size ${dto.declaredSizeBytes} exceeds per-file limit of ${limits.maxFileSizeBytes} bytes.`,
+        message: `File size ${declaredSizeBytes} exceeds per-file limit of ${limits.maxFileSizeBytes} bytes.`,
         error: 'FILE_TOO_LARGE',
       });
     }
 
     if (
       limits.allowedMimeTypes.length > 0 &&
-      !limits.allowedMimeTypes.includes(dto.claimedMimeType) &&
-      dto.claimedMimeType !== 'application/octet-stream'
+      !limits.allowedMimeTypes.includes(claimedMimeType) &&
+      claimedMimeType !== 'application/octet-stream'
     ) {
       throw new UnsupportedMediaTypeException({
-        message: `Claimed file type '${dto.claimedMimeType}' is not allowed for field reporting.`,
+        message: `Claimed file type '${claimedMimeType}' is not allowed for field reporting.`,
         error: 'UNSUPPORTED_MIME_TYPE',
       });
     }
@@ -145,7 +158,7 @@ export class UploadSessionService {
       const existingOpen = await this.prisma.fieldReportUploadSession.findFirst({
         where: {
           reportId,
-          revisionId,
+          revisionId: actualRevisionId,
           clientCaptureId: dto.clientCaptureId,
           status: UploadSessionStatus.OPEN,
           expiresAt: { gt: new Date() },
@@ -165,7 +178,7 @@ export class UploadSessionService {
 
     const existingLinks = await this.prisma.fieldReportRevisionAttachment.findMany({
       where: {
-        revisionId,
+        revisionId: actualRevisionId,
         attachment: { deletedAt: null },
       },
       include: { attachment: { select: { fileSizeBytes: true } } },
@@ -182,7 +195,7 @@ export class UploadSessionService {
       (sum, l) => sum + (l.attachment?.fileSizeBytes ?? 0),
       0,
     );
-    if (currentBytes + dto.declaredSizeBytes > limits.maxTotalBytesPerRevision) {
+    if (currentBytes + declaredSizeBytes > limits.maxTotalBytesPerRevision) {
       throw new PayloadTooLargeException({
         message: `Report revision total size exceeds limit of ${limits.maxTotalBytesPerRevision} bytes.`,
         error: 'REPORT_QUOTA_EXCEEDED',
@@ -191,7 +204,7 @@ export class UploadSessionService {
 
     const sessionId = randomUUID();
     const chunkSizeBytes = limits.chunkSizeBytes;
-    const totalChunks = Math.ceil(dto.declaredSizeBytes / chunkSizeBytes);
+    const totalChunks = Math.ceil(declaredSizeBytes / chunkSizeBytes);
     const { wrapped } = this.storage.cipher.createWrappedStagingKey();
     const stagingKeyPrefix = `field-reports/staging/sessions/${sessionId}`;
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -200,14 +213,14 @@ export class UploadSessionService {
       data: {
         id: sessionId,
         reportId,
-        revisionId,
+        revisionId: actualRevisionId,
         uploadedByUserId: viewer.userId,
         employeeId: revision.report.employeeId,
         clientCaptureId: dto.clientCaptureId ?? null,
-        originalFileName: sanitizeFileName(dto.originalFileName),
-        claimedMimeType: dto.claimedMimeType,
-        declaredSizeBytes: dto.declaredSizeBytes,
-        declaredSha256: dto.declaredSha256?.toLowerCase() ?? null,
+        originalFileName: sanitizeFileName(originalFileName),
+        claimedMimeType,
+        declaredSizeBytes,
+        declaredSha256: declaredSha256?.toLowerCase() ?? null,
         chunkSizeBytes,
         totalChunks,
         uploadedChunks: [],
@@ -720,10 +733,11 @@ export class UploadSessionService {
     viewer: FieldReportViewer,
     ipAddress?: string,
   ) {
-    await this.assertEditableDraftRevision(reportId, revisionId, viewer);
+    const revision = await this.assertEditableDraftRevision(reportId, revisionId, viewer);
+    const actualRevisionId = revision.id;
 
     const link = await this.prisma.fieldReportRevisionAttachment.findUnique({
-      where: { revisionId_attachmentId: { revisionId, attachmentId } },
+      where: { revisionId_attachmentId: { revisionId: actualRevisionId, attachmentId } },
       include: { attachment: true },
     });
     if (!link) {
@@ -734,12 +748,12 @@ export class UploadSessionService {
     }
 
     const otherLinksCount = await this.prisma.fieldReportRevisionAttachment.count({
-      where: { attachmentId, NOT: { revisionId } },
+      where: { attachmentId, NOT: { revisionId: actualRevisionId } },
     });
 
     await this.prisma.$transaction(async (tx) => {
       await tx.fieldReportRevisionAttachment.delete({
-        where: { revisionId_attachmentId: { revisionId, attachmentId } },
+        where: { revisionId_attachmentId: { revisionId: actualRevisionId, attachmentId } },
       });
 
       if (otherLinksCount === 0) {

@@ -94,7 +94,7 @@ export class FieldReportsController {
     );
   }
 
-  @Get('mine')
+  @Get(['mine', 'my'])
   @Permissions('FIELD_REPORT:READ')
   @ApiOperation({ summary: 'List caller’s own field reports' })
   findMine(@Query() query: FieldReportQueryDto, @CurrentUser() user: JwtPayload) {
@@ -284,7 +284,7 @@ export class FieldReportsController {
   @ApiOperation({ summary: 'Update metadata of an unlocked DRAFT revision' })
   async updateRevision(
     @Param('id', ParseUUIDPipe) id: string,
-    @Param('revId', ParseUUIDPipe) revId: string,
+    @Param('revId') revId: string,
     @Body() dto: UpdateFieldReportDto,
     @CurrentUser() user: JwtPayload,
     @Req() req: Request,
@@ -300,7 +300,7 @@ export class FieldReportsController {
   @ApiOperation({ summary: 'Lock DRAFT revision, enforce clean scan gate, and submit for review' })
   async submitRevision(
     @Param('id', ParseUUIDPipe) id: string,
-    @Param('revId', ParseUUIDPipe) revId: string,
+    @Param('revId') revId: string,
     @CurrentUser() user: JwtPayload,
     @Req() req: Request,
   ) {
@@ -316,7 +316,7 @@ export class FieldReportsController {
   @ApiOperation({ summary: 'Approve, reject, or request changes on a SUBMITTED revision' })
   async reviewRevision(
     @Param('id', ParseUUIDPipe) id: string,
-    @Param('revId', ParseUUIDPipe) revId: string,
+    @Param('revId') revId: string,
     @Body() dto: ReviewFieldReportDto,
     @CurrentUser() user: JwtPayload,
     @Req() req: Request,
@@ -332,7 +332,7 @@ export class FieldReportsController {
   @ApiOperation({ summary: 'Open or resume a chunked upload session for a DRAFT revision' })
   async createUploadSession(
     @Param('id', ParseUUIDPipe) id: string,
-    @Param('revId', ParseUUIDPipe) revId: string,
+    @Param('revId') revId: string,
     @Body() dto: CreateUploadSessionDto,
     @CurrentUser() user: JwtPayload,
   ) {
@@ -347,7 +347,7 @@ export class FieldReportsController {
   @ApiOperation({ summary: 'Detach an attachment from an unlocked DRAFT revision' })
   async removeAttachment(
     @Param('id', ParseUUIDPipe) id: string,
-    @Param('revId', ParseUUIDPipe) revId: string,
+    @Param('revId') revId: string,
     @Param('attId', ParseUUIDPipe) attId: string,
     @CurrentUser() user: JwtPayload,
     @Req() req: Request,

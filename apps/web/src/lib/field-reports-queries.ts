@@ -308,7 +308,20 @@ export async function createUploadSession(
 ): Promise<{ sessionId: string; chunkSize: number; totalChunks: number; expiresAt: string }> {
   return api.post<{ sessionId: string; chunkSize: number; totalChunks: number; expiresAt: string }>(
     `/field-reports/${reportId}/revisions/${revisionNumber}/upload-sessions`,
-    dto,
+    {
+      originalFileName: dto.fileName,
+      fileName: dto.fileName,
+      claimedMimeType: dto.mimeType,
+      mimeType: dto.mimeType,
+      declaredSizeBytes: dto.byteSize,
+      byteSize: dto.byteSize,
+      declaredSha256: dto.clientSha256,
+      clientSha256: dto.clientSha256,
+      clientCaptureId: dto.clientCaptureId,
+      width: dto.width,
+      height: dto.height,
+      capturedAt: dto.capturedAt,
+    },
   );
 }
 

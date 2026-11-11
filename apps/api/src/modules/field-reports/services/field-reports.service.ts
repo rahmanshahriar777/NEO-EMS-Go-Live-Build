@@ -672,8 +672,11 @@ export class FieldReportsService {
     viewer: FieldReportViewer,
     ipAddress?: string,
   ) {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(revisionId);
     const revision = await this.prisma.fieldReportRevision.findFirst({
-      where: { id: revisionId, reportId, report: { deletedAt: null } },
+      where: isUuid
+        ? { id: revisionId, reportId, report: { deletedAt: null } }
+        : { revisionNumber: parseInt(revisionId, 10) || 1, reportId, report: { deletedAt: null } },
       include: { report: true },
     });
     if (!revision) {
@@ -933,8 +936,11 @@ export class FieldReportsService {
     viewer: FieldReportViewer,
     ipAddress?: string,
   ) {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(revisionId);
     const revision = await this.prisma.fieldReportRevision.findFirst({
-      where: { id: revisionId, reportId, report: { deletedAt: null } },
+      where: isUuid
+        ? { id: revisionId, reportId, report: { deletedAt: null } }
+        : { revisionNumber: parseInt(revisionId, 10) || 1, reportId, report: { deletedAt: null } },
       include: {
         report: true,
         attachmentLinks: {
@@ -1194,8 +1200,11 @@ export class FieldReportsService {
     viewer: FieldReportViewer,
     ipAddress?: string,
   ) {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(revisionId);
     const revision = await this.prisma.fieldReportRevision.findFirst({
-      where: { id: revisionId, reportId, report: { deletedAt: null } },
+      where: isUuid
+        ? { id: revisionId, reportId, report: { deletedAt: null } }
+        : { revisionNumber: parseInt(revisionId, 10) || 1, reportId, report: { deletedAt: null } },
       include: {
         report: {
           include: {
