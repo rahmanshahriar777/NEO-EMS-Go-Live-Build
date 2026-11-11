@@ -11,14 +11,18 @@ sed -i "s/listen 8080;/listen ${PORT};/g" /etc/nginx/nginx.conf
 echo "🔴 Starting local Redis server..."
 redis-server --daemonize yes 2>/dev/null || true
 
-# Start MinIO S3 object storage server in background
-echo "🪣 Starting embedded MinIO S3 object storage on port 9000..."
-mkdir -p /var/lib/minio/data /var/lib/minio/data/ems-documents /var/lib/minio/data/ems-avatars
-export MINIO_ROOT_USER="${S3_ACCESS_KEY:-ems_minio_access_key_2026}"
-export MINIO_ROOT_PASSWORD="${S3_SECRET_KEY:-ems_minio_secret_key_2026}"
-export MINIO_BROWSER="off"
-minio server /var/lib/minio/data --address "127.0.0.1:9000" --quiet &
-MINIO_PID=$!
+# Start embedded S3 object storage server in background on port 9000
+echo "🪣 Starting embedded S3 object storage on port 9000..."
+node /s3-server.js &
+S3_PID=$!
+
+for i in $(seq 1 30); do
+  if curl -s http://127.0.0.1:9000/ems-documents > /dev/null 2>&1; then
+    echo "✅ S3 object storage is up and running on port 9000!"
+    break
+  fi
+  sleep 0.5
+done
 
 # ------------------------------------------------------------------------------
 # 1. Database Provisioning & Startup
@@ -151,7 +155,7 @@ for i in $(seq 1 60); do
 done
 
 # Graceful termination handler
-trap "echo 'Shutting down...'; kill $API_PID $WEB_PID $WORKER_PID $MINIO_PID 2>/dev/null || true; exit 0" SIGTERM SIGINT
+trap "echo 'Shutting down...'; kill $API_PID $WEB_PID $WORKER_PID $S3_PID 2>/dev/null || true; exit 0" SIGTERM SIGINT
 
 # 6. Start Nginx reverse proxy in foreground
 echo "🛡️ Starting Nginx on port ${PORT}..."

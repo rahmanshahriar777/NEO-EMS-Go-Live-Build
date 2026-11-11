@@ -51,10 +51,7 @@ ENV PORT=8080
 ENV PNPM_HOME="/pnpm"
 ENV PATH="/app/node_modules/.bin:/app/apps/web/node_modules/.bin:$PNPM_HOME:$PATH"
 
-RUN apk add --no-cache bash curl nginx postgresql postgresql-contrib su-exec redis libc6-compat
-RUN curl -sLO https://dl.min.io/server/minio/release/linux-amd64/minio && \
-    chmod +x minio && \
-    mv minio /usr/local/bin/minio
+RUN apk add --no-cache bash curl nginx postgresql postgresql-contrib su-exec redis
 RUN corepack enable && corepack prepare pnpm@10.5.2 --activate
 
 # Copy built workspace
@@ -63,7 +60,8 @@ COPY --from=builder /app /app
 # Copy Nginx configuration
 COPY docker/nginx-gcp.conf /etc/nginx/nginx.conf
 
-# Copy entrypoint script
+# Copy S3 storage server and entrypoint script
+COPY docker/s3-server.js /s3-server.js
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
