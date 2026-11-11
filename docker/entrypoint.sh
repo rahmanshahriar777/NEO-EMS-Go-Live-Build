@@ -78,6 +78,9 @@ fi
 if [ -z "$DOCUMENT_ENCRYPTION_KEY" ] || [ "${#DOCUMENT_ENCRYPTION_KEY}" -lt 32 ]; then
   export DOCUMENT_ENCRYPTION_KEY="$(node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))')"
 fi
+if [ -z "$FIELD_REPORT_DOWNLOAD_TOKEN_SECRET" ] || [ "${#FIELD_REPORT_DOWNLOAD_TOKEN_SECRET}" -lt 32 ]; then
+  export FIELD_REPORT_DOWNLOAD_TOKEN_SECRET="$(node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))')"
+fi
 
 # Production origins without insecure localhost by default
 export ALLOWED_ORIGINS="https://ndems-app-knbmj7xqka-uc.a.run.app,https://ndems-app-479560345714.us-central1.run.app,${ALLOWED_ORIGINS:-}"

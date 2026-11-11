@@ -1430,25 +1430,7 @@ async function main() {
     `CREATE SEQUENCE IF NOT EXISTS "${schemaName}".employee_number_seq START WITH 1000;`,
   );
   await prisma.$executeRawUnsafe(
-    `SELECT setval('"${schemaName}".employee_number_seq', GREATEST(999, COALESCE((SELECT MAX(CAST(SUBSTRING("employeeNumber" FROM '[0-9]+
-  console.log('✅ employee_number_seq re-synced above seeded employee numbers');
-
-  console.log('🎉 Comprehensive database seed finished successfully with rich enterprise dummy data!');
-  // Printed exactly ONCE. Valid only when superadmin@ems.local was created by
-  // THIS run; re-runs never change existing credentials, so ignore this line
-  // if the account already existed.
-  console.log(`🔑 DEMO admin (superadmin@ems.local) password for fresh seeds: ${SEED_ADMIN_PASSWORD}`);
-}
-
-main()
-  .catch((e) => {
-    console.error('❌ Error during seed:', e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
-) AS INTEGER)) FROM "${schemaName}"."employees"), 0)))`,
+    `SELECT setval('"${schemaName}".employee_number_seq', GREATEST(999, COALESCE((SELECT MAX(CAST(SUBSTRING("employeeNumber" FROM '[0-9]+') AS INTEGER)) FROM "${schemaName}"."employees"), 0)))`,
   );
   console.log('✅ employee_number_seq re-synced above seeded employee numbers');
 
