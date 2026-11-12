@@ -176,12 +176,10 @@ export default function FieldReportsPage() {
               </p>
             </div>
             <div className="fr-actions">
-              {isManagerOrAdmin && (
-                <Link href="/field-reports/settings" className="fr-btn-secondary">
-                  <SlidersHorizontal className="w-4 h-4" />
-                  Policy & Delegations
-                </Link>
-              )}
+              <Link href="/field-reports/settings" className="fr-btn-secondary">
+                <SlidersHorizontal className="w-4 h-4" />
+                Policy & Delegations
+              </Link>
               <Link href="/field-reports/new" className="fr-btn-primary">
                 <Plus className="w-4 h-4" />
                 New Field Report

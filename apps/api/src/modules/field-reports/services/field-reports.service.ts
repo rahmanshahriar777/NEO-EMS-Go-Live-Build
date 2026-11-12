@@ -1499,6 +1499,14 @@ export class FieldReportsService {
     viewer: FieldReportViewer,
     ipAddress?: string,
   ) {
+    if (Array.isArray(dto.policies) && dto.policies.length > 0) {
+      const results = [];
+      for (const item of dto.policies) {
+        results.push(await this.upsertPolicy(item, viewer, ipAddress));
+      }
+      return results;
+    }
+
     const entityId = dto.entityId?.trim() || null;
     const roleName = dto.roleName?.trim() || null;
 
@@ -1509,8 +1517,8 @@ export class FieldReportsService {
     const data = {
       entityId,
       roleName,
-      defaultDownloadVariant: dto.defaultDownloadVariant,
-      allowOriginalDownload: dto.allowOriginalDownload,
+      defaultDownloadVariant: dto.defaultDownloadVariant ?? FieldReportDownloadVariant.RESIZED,
+      allowOriginalDownload: dto.allowOriginalDownload ?? false,
       retentionDaysOverride: dto.retentionDaysOverride ?? null,
       requireGpsForCategories: dto.requireGpsForCategories ?? [],
       updatedByUserId: viewer.userId,

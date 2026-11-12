@@ -117,9 +117,11 @@ export interface FieldReportSite {
 
 export interface FieldReportPolicyItem {
   id?: string;
-  role: SystemRole;
+  role?: SystemRole | string;
+  roleName?: string;
   defaultDownloadVariant: FieldReportDownloadVariant;
-  allowDownloadOriginal: boolean;
+  allowDownloadOriginal?: boolean;
+  allowOriginalDownload?: boolean;
   updatedAt?: string;
 }
 
@@ -206,17 +208,34 @@ export function useFieldReportSitesQuery() {
   });
 }
 
+export interface FieldReportPoliciesPayload {
+  effectivePolicy?: {
+    defaultDownloadVariant: FieldReportDownloadVariant;
+    allowOriginalDownload: boolean;
+    hasDownloadOriginalPermission: boolean;
+    canDownloadOriginal: boolean;
+    requireGpsForCategories?: string[];
+  };
+  policies: FieldReportPolicyItem[];
+}
+
 export function useFieldReportPoliciesQuery() {
   return useQuery({
     queryKey: ['field-reports', 'policies'],
-    queryFn: () => api.get<FieldReportPolicyItem[]>('/field-reports/policies'),
+    queryFn: async () => {
+      const res = await api.get<FieldReportPoliciesPayload | FieldReportPolicyItem[]>('/field-reports/policies');
+      if (Array.isArray(res)) return res;
+      if (res && Array.isArray((res as any).policies)) return (res as any).policies as FieldReportPolicyItem[];
+      return [];
+    },
   });
 }
 
-export function useFieldReportDelegationsQuery() {
+export function useFieldReportDelegationsQuery(enabled = true) {
   return useQuery({
     queryKey: ['field-reports', 'delegations'],
     queryFn: () => api.get<FieldReportDelegationItem[]>('/field-reports/delegations'),
+    enabled,
   });
 }
 

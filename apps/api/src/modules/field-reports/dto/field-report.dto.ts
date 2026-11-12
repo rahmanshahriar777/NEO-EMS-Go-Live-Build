@@ -298,6 +298,11 @@ export class CreateZipDownloadGrantDto {
 }
 
 export class UpdateFieldReportPolicyDto {
+  @ApiPropertyOptional({ isArray: true, type: () => UpdateFieldReportPolicyDto })
+  @IsOptional()
+  @IsArray()
+  policies?: UpdateFieldReportPolicyDto[];
+
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
   @IsString()
@@ -310,13 +315,15 @@ export class UpdateFieldReportPolicyDto {
   @MaxLength(64)
   roleName?: string | null;
 
-  @ApiProperty({ enum: FieldReportDownloadVariant })
+  @ApiPropertyOptional({ enum: FieldReportDownloadVariant })
+  @IsOptional()
   @IsEnum(FieldReportDownloadVariant)
-  defaultDownloadVariant!: FieldReportDownloadVariant;
+  defaultDownloadVariant?: FieldReportDownloadVariant;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsBoolean()
-  allowOriginalDownload!: boolean;
+  allowOriginalDownload?: boolean;
 
   @ApiPropertyOptional({ minimum: 30, maximum: 3650, nullable: true })
   @IsOptional()
