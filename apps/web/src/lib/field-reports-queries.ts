@@ -285,11 +285,20 @@ export function useUpdateRevisionMutation(reportId: string, revisionNumber: numb
   });
 }
 
+export async function submitRevision(
+  reportId: string,
+  revisionNumber: number,
+): Promise<FieldReportItem> {
+  return api.post<FieldReportItem>(
+    `/field-reports/${reportId}/revisions/${revisionNumber}/submit`,
+    {},
+  );
+}
+
 export function useSubmitRevisionMutation(reportId: string, revisionNumber: number) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () =>
-      api.post<FieldReportItem>(`/field-reports/${reportId}/revisions/${revisionNumber}/submit`, {}),
+    mutationFn: () => submitRevision(reportId, revisionNumber),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['field-reports', 'detail', reportId] });
       queryClient.invalidateQueries({ queryKey: ['field-reports'] });
@@ -377,9 +386,13 @@ export async function completeUploadSession(sessionId: string): Promise<FieldRep
 export async function mintDownloadGrant(
   attachmentId: string,
   variant: FieldReportDownloadVariant,
+  reportId?: string,
 ): Promise<{ grant: string; expiresAt: string; downloadUrl: string }> {
+  const url = reportId
+    ? `/field-reports/${reportId}/attachments/${attachmentId}/download-token`
+    : `/field-reports/attachments/${attachmentId}/download-token`;
   return api.post<{ grant: string; expiresAt: string; downloadUrl: string }>(
-    `/field-reports/attachments/${attachmentId}/download-token`,
+    url,
     { variant },
   );
 }

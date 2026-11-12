@@ -27,6 +27,10 @@ import {
   useSubmitRevisionMutation,
   useFieldReportSitesQuery,
   FieldReportSite,
+  createUploadSession,
+  uploadChunkBinary,
+  completeUploadSession,
+  submitRevision,
 } from '../../../../lib/field-reports-queries';
 import { DashboardLayout } from '../../../../components/layout/dashboard-layout';
 import {
@@ -91,6 +95,7 @@ export default function NewFieldReportPage() {
   const [mediaList, setMediaList] = useState<SelectedMedia[]>([]);
   const [fileError, setFileError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitProgressText, setSubmitProgressText] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -186,6 +191,7 @@ export default function NewFieldReportPage() {
     }
 
     setIsSubmitting(true);
+    setSubmitProgressText(shouldSubmit ? 'Preparing report...' : 'Saving draft...');
     setSubmitError(null);
 
     const localDraftId = crypto.randomUUID();
@@ -204,6 +210,7 @@ export default function NewFieldReportPage() {
             })()
           : new Date().toISOString();
 
+        setSubmitProgressText('Creating field report on server...');
         const report = await createMutation.mutateAsync({
           title: title.trim(),
           notes: notes.trim() || undefined,
@@ -221,39 +228,48 @@ export default function NewFieldReportPage() {
           gpsAccuracyMeters: coords?.accuracyMeters,
         });
 
-        // Queue selected files into outbox with the remote report ID
-        const localDraft: LocalDraft = {
-          localId: localDraftId,
-          reportId: report.id,
-          revisionNumber: report.currentRevisionNumber,
-          title: title.trim(),
-          notes: notes.trim(),
-          category,
-          siteId: siteId || undefined,
-          incidentAt: incidentAt ? new Date(incidentAt).toISOString() : undefined,
-          gpsConsent,
-          latitude: coords?.latitude,
-          longitude: coords?.longitude,
-          accuracyMeters: coords?.accuracyMeters,
-          updatedAt: new Date().toISOString(),
-        };
-        await saveDraft(localDraft);
+        // If attachments were selected, upload each directly before proceeding
+        if (mediaList.length > 0) {
+          const CHUNK_SIZE = 5 * 1024 * 1024;
+          for (let i = 0; i < mediaList.length; i++) {
+            const item = mediaList[i];
+            setSubmitProgressText(
+              `Uploading media (${i + 1}/${mediaList.length}): ${item.file.name}...`
+            );
 
-        for (const item of mediaList) {
-          const outboxFile: OutboxFile = {
-            clientCaptureId: crypto.randomUUID(),
-            localDraftId,
-            fileName: item.file.name,
-            mimeType: item.file.type || 'application/octet-stream',
-            byteSize: item.file.size,
-            clientSha256: item.sha256Hex,
-            capturedAt: new Date().toISOString(),
-            blob: item.file,
-            status: 'QUEUED',
-            uploadedBytes: 0,
-            retryCount: 0,
-          };
-          await queueOutboxFile(outboxFile);
+            // 1. Create upload session
+            const session = await createUploadSession(report.id, report.currentRevisionNumber, {
+              clientCaptureId: crypto.randomUUID(),
+              fileName: item.file.name,
+              mimeType: item.file.type || 'application/octet-stream',
+              byteSize: item.file.size,
+              clientSha256: item.sha256Hex,
+              capturedAt: new Date().toISOString(),
+            });
+
+            // 2. Upload binary chunks
+            const totalChunks = Math.ceil(item.file.size / CHUNK_SIZE);
+            for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+              const start = chunkIdx * CHUNK_SIZE;
+              const end = Math.min(start + CHUNK_SIZE, item.file.size);
+              const chunkSlice = item.file.slice(start, end);
+              const buffer = await chunkSlice.arrayBuffer();
+              const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+              const chunkSha = Array.from(new Uint8Array(hashBuffer))
+                .map((b) => b.toString(16).padStart(2, '0'))
+                .join('');
+              await uploadChunkBinary(session.sessionId, chunkIdx, chunkSlice, chunkSha);
+            }
+
+            // 3. Complete session
+            await completeUploadSession(session.sessionId);
+          }
+        }
+
+        // If user requested Submit for Review, submit revision now that media is fully uploaded
+        if (shouldSubmit) {
+          setSubmitProgressText('Submitting report for review...');
+          await submitRevision(report.id, report.currentRevisionNumber);
         }
 
         router.push(`/field-reports/${report.id}`);
@@ -298,6 +314,7 @@ export default function NewFieldReportPage() {
       setSubmitError(err?.message || 'Failed to save field report.');
     } finally {
       setIsSubmitting(false);
+      setSubmitProgressText(null);
     }
   };
 
@@ -560,7 +577,14 @@ export default function NewFieldReportPage() {
                 onClick={() => handleSubmit(false)}
                 className="fr-btn-secondary"
               >
-                Save Draft
+                {isSubmitting && !submitProgressText?.includes('Submitting') ? (
+                  <span className="flex items-center gap-2">
+                    <div className="w-3.5 h-3.5 border-2 border-[#2c5f4a] border-t-transparent rounded-full animate-spin" />
+                    {submitProgressText || 'Saving Draft...'}
+                  </span>
+                ) : (
+                  'Save Draft'
+                )}
               </button>
               <button
                 type="button"
@@ -571,10 +595,13 @@ export default function NewFieldReportPage() {
                 {isSubmitting ? (
                   <span className="flex items-center gap-2">
                     <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Saving...
+                    {submitProgressText || 'Submitting...'}
                   </span>
                 ) : (
-                  'Save & View Report'
+                  <span className="flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4" />
+                    Submit for Review
+                  </span>
                 )}
               </button>
             </div>

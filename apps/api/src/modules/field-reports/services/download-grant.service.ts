@@ -204,13 +204,36 @@ export class DownloadGrantService {
   }
 
   async mintSingleGrant(
-    reportId: string,
+    reportId: string | undefined,
     attachmentId: string,
     dto: CreateDownloadGrantDto,
     viewer: FieldReportViewer,
-  ): Promise<DownloadGrantResponseDto> {
+  ): Promise<DownloadGrantResponseDto & { grant: string }> {
+    let resolvedReportId = reportId;
+    let attachment: any;
+    if (resolvedReportId) {
+      attachment = await this.prisma.fieldReportAttachment.findFirst({
+        where: { id: attachmentId, reportId: resolvedReportId, deletedAt: null },
+        include: { derivatives: true },
+      });
+    } else {
+      attachment = await this.prisma.fieldReportAttachment.findFirst({
+        where: { id: attachmentId, deletedAt: null },
+        include: { derivatives: true },
+      });
+      if (attachment) {
+        resolvedReportId = attachment.reportId;
+      }
+    }
+    if (!attachment || !resolvedReportId) {
+      throw new NotFoundException({
+        message: 'Attachment not found.',
+        error: 'REPORT_NOT_FOUND',
+      });
+    }
+
     const report = await this.prisma.fieldReport.findFirst({
-      where: { id: reportId, deletedAt: null },
+      where: { id: resolvedReportId, deletedAt: null },
     });
     if (!report) {
       throw new NotFoundException({
@@ -223,17 +246,6 @@ export class DownloadGrantService {
       employeeId: report.employeeId,
       entityId: report.entityId,
     });
-
-    const attachment = await this.prisma.fieldReportAttachment.findFirst({
-      where: { id: attachmentId, reportId, deletedAt: null },
-      include: { derivatives: true },
-    });
-    if (!attachment) {
-      throw new NotFoundException({
-        message: 'Attachment not found.',
-        error: 'REPORT_NOT_FOUND',
-      });
-    }
 
     const policy = await this.policyService.resolveEffectivePolicy(viewer, report.entityId);
     const target = this.resolveAttachmentTarget(
@@ -266,6 +278,7 @@ export class DownloadGrantService {
 
     const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
     return {
+      grant: grantToken,
       grantToken,
       expiresAt,
       downloadUrl: `/api/v1/field-reports/downloads?grant=${encodeURIComponent(grantToken)}`,
@@ -280,7 +293,7 @@ export class DownloadGrantService {
     reportId: string,
     dto: CreateZipDownloadGrantDto,
     viewer: FieldReportViewer,
-  ): Promise<DownloadGrantResponseDto> {
+  ): Promise<DownloadGrantResponseDto & { grant: string }> {
     const report = await this.prisma.fieldReport.findFirst({
       where: { id: reportId, deletedAt: null },
     });
@@ -376,6 +389,7 @@ export class DownloadGrantService {
     const zipName = `${sanitizeFileName(report.reportNumber)}_${suffix}.zip`;
 
     return {
+      grant: grantToken,
       grantToken,
       expiresAt: new Date(Date.now() + ttlSeconds * 1000).toISOString(),
       downloadUrl: `/api/v1/field-reports/downloads/zip?grant=${encodeURIComponent(grantToken)}`,

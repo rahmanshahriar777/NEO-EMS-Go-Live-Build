@@ -127,8 +127,16 @@ export const OutboxRunner: React.FC = () => {
             });
           }
 
-          const message = err?.message || 'Upload failed';
-          setSyncError(`File "${file.fileName}" failed: ${message}`);
+          let message = err?.message || 'Upload failed';
+          if (
+            err instanceof ApiError &&
+            err.status === 409 &&
+            (err.message?.includes('locked') || err.message?.includes('Submitted'))
+          ) {
+            message = 'Report was already submitted before media upload completed. Revision is locked.';
+          }
+
+          setSyncError(`File "${file.fileName}": ${message}`);
           await updateOutboxFile(file.clientCaptureId, {
             status: 'FAILED',
             lastError: message,

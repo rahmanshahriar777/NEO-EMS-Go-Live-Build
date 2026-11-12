@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, use, useMemo } from 'react';
+import React, { useState, useEffect, use, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -44,6 +44,11 @@ import {
   mintZipGrant,
   FieldReportAttachmentDetail,
 } from '../../../../lib/field-reports-queries';
+import {
+  listOutboxFiles,
+  listDrafts,
+  OutboxFile,
+} from '../../../../lib/field-reports-idb';
 import { DashboardLayout } from '../../../../components/layout/dashboard-layout';
 import { api } from '../../../../lib/api-client';
 import '../../../../styles/field-reports.css';
@@ -77,6 +82,39 @@ export default function FieldReportDetailPage({
   const { data: report, isLoading, refetch } = useFieldReportQuery(id, {
     refetchInterval: 4000,
   });
+
+  const [pendingOutboxFiles, setPendingOutboxFiles] = useState<OutboxFile[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    const checkOutbox = async () => {
+      try {
+        const [drafts, files] = await Promise.all([listDrafts(), listOutboxFiles()]);
+        const draftIdsForReport = new Set(
+          drafts.filter((d) => d.reportId === id).map((d) => d.localId),
+        );
+        const reportFiles = files.filter(
+          (f) =>
+            draftIdsForReport.has(f.localDraftId) &&
+            (f.status === 'QUEUED' || f.status === 'UPLOADING'),
+        );
+        if (mounted) {
+          setPendingOutboxFiles(reportFiles);
+          if (reportFiles.length === 0 && files.some((f) => draftIdsForReport.has(f.localDraftId))) {
+            refetch();
+          }
+        }
+      } catch {
+        // IDB unavailable
+      }
+    };
+    checkOutbox();
+    const interval = setInterval(checkOutbox, 3000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [id, refetch]);
 
   const submitRevisionMutation = useSubmitRevisionMutation(
     report?.id || '',
@@ -135,7 +173,7 @@ export default function FieldReportDetailPage({
     setDownloadingId(`${attachmentId}-${variant}`);
     setDownloadError(null);
     try {
-      const grant = await mintDownloadGrant(attachmentId, variant);
+      const grant = await mintDownloadGrant(attachmentId, variant, report?.id);
       // Trigger browser download via minted signed grant URL
       const link = document.createElement('a');
       link.href = grant.downloadUrl;
@@ -173,12 +211,12 @@ export default function FieldReportDetailPage({
   // View image preview in lightbox
   const handleOpenPreview = async (att: FieldReportAttachmentDetail) => {
     try {
-      const grant = await mintDownloadGrant(att.id, FieldReportDownloadVariant.RESIZED);
+      const grant = await mintDownloadGrant(att.id, FieldReportDownloadVariant.RESIZED, report?.id);
       setLightboxUrl(grant.downloadUrl);
     } catch {
       try {
         // Fallback to original if resized not available
-        const grant = await mintDownloadGrant(att.id, FieldReportDownloadVariant.ORIGINAL);
+        const grant = await mintDownloadGrant(att.id, FieldReportDownloadVariant.ORIGINAL, report?.id);
         setLightboxUrl(grant.downloadUrl);
       } catch (err: any) {
         setDownloadError(err?.message || 'Preview not available yet.');
@@ -272,13 +310,23 @@ export default function FieldReportDetailPage({
           {canSubmit && (
             <button
               onClick={() => submitRevisionMutation.mutate()}
-              disabled={submitRevisionMutation.isPending}
+              disabled={submitRevisionMutation.isPending || pendingOutboxFiles.length > 0}
               className="fr-btn-primary fr-touch-target"
+              title={
+                pendingOutboxFiles.length > 0
+                  ? 'Please wait for queued media uploads to finish before submitting.'
+                  : undefined
+              }
             >
               {submitRevisionMutation.isPending ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   Submitting...
+                </>
+              ) : pendingOutboxFiles.length > 0 ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Uploading ({pendingOutboxFiles.length})...
                 </>
               ) : (
                 <>
@@ -445,6 +493,21 @@ export default function FieldReportDetailPage({
               </div>
             )}
           </div>
+
+          {/* Outbox synchronization banner */}
+          {pendingOutboxFiles.length > 0 && (
+            <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-3.5 h-3.5 border-2 border-amber-700 border-t-transparent rounded-full animate-spin" />
+                <span>
+                  Synchronizing {pendingOutboxFiles.length} media file(s) from outbox: {pendingOutboxFiles.map((f) => f.fileName).join(', ')}...
+                </span>
+              </div>
+              <span className="font-semibold text-amber-800 text-[11px] bg-amber-100 px-2 py-0.5 rounded">
+                Uploading in background
+              </span>
+            </div>
+          )}
 
           {/* Attachment Cards */}
           {currentRev?.attachments && currentRev.attachments.length > 0 ? (

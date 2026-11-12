@@ -378,7 +378,12 @@ export class FieldReportsController {
     );
   }
 
-  @Post(':id/attachments/:attId/download-grant')
+  @Post([
+    ':id/attachments/:attId/download-grant',
+    ':id/attachments/:attId/download-token',
+    'attachments/:attId/download-grant',
+    'attachments/:attId/download-token',
+  ])
   @Permissions('FIELD_REPORT:READ')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 120, ttl: 60_000 } })
@@ -387,8 +392,8 @@ export class FieldReportsController {
     summary: 'Mint a 300s signed download grant for ORIGINAL, RESIZED, PREVIEW, or THUMBNAIL',
   })
   async mintDownloadGrant(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Param('attId', ParseUUIDPipe) attId: string,
+    @Param('id') id: string | undefined,
+    @Param('attId') attId: string,
     @Body() dto: CreateDownloadGrantDto,
     @CurrentUser() user: JwtPayload,
   ) {
@@ -397,7 +402,11 @@ export class FieldReportsController {
     );
   }
 
-  @Post(':id/download-zip-grant')
+  @Post([
+    ':id/download-zip-grant',
+    ':id/zip-token',
+    ':id/revisions/:rev/zip-token',
+  ])
   @Permissions('FIELD_REPORT:READ')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 20, ttl: 60_000 } })

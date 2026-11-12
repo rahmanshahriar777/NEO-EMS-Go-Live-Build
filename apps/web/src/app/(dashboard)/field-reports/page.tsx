@@ -697,7 +697,7 @@ export default function FieldReportsPage() {
                                             loadOutboxData();
                                           }}
                                           className="px-2 py-0.5 rounded text-[11px] font-bold bg-red-100 hover:bg-red-200 text-red-800 transition-colors cursor-pointer"
-                                          title="Click to retry file upload"
+                                          title={f.lastError ? `Error: ${f.lastError} (Click to retry)` : "Click to retry file upload"}
                                         >
                                           FAILED &bull; Retry
                                         </button>
