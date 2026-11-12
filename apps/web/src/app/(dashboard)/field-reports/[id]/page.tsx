@@ -236,6 +236,7 @@ export default function FieldReportDetailPage({
     try {
       await reviewMutation.mutateAsync({
         decision: reviewDecision,
+        reason: reviewComments.trim() || undefined,
         comments: reviewComments.trim() || undefined,
       });
       setShowReviewModal(false);

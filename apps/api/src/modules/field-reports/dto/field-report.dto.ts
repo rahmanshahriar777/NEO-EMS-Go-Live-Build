@@ -194,10 +194,14 @@ export class ReviewFieldReportDto {
   decision!: FieldReportReviewDecision;
 
   @ApiPropertyOptional({ description: 'Required for REJECT and REQUEST_CHANGES' })
-  @ValidateIf((o) => o.decision !== FieldReportReviewDecision.APPROVE)
+  @IsOptional()
   @IsString()
-  @Length(5, 2000)
   reason?: string;
+
+  @ApiPropertyOptional({ description: 'Optional comments or approval notes' })
+  @IsOptional()
+  @IsString()
+  comments?: string;
 }
 
 export class CreateFieldReportCommentDto {

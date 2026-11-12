@@ -799,7 +799,7 @@ export class FieldReportsService {
       }
 
       await tx.fieldReportRevision.update({
-        where: { id: revisionId },
+        where: { id: revision.id },
         data: revUpdateData,
       });
 
@@ -819,7 +819,7 @@ export class FieldReportsService {
           actorEmail: viewer.email,
           action: AuditAction.UPDATE,
           entityType: 'FIELD_REPORT_REVISION',
-          entityId: revisionId,
+          entityId: revision.id,
           afterState: {
             reportId,
             revisionNumber: revision.revisionNumber,
@@ -1244,9 +1244,10 @@ export class FieldReportsService {
       });
     }
 
+    const cleanReason = (dto.reason || (dto as any).comments || '').trim() || null;
     if (
       dto.decision !== FieldReportReviewDecision.APPROVE &&
-      (!dto.reason || dto.reason.trim().length < 5)
+      (!cleanReason || cleanReason.length < 5)
     ) {
       throw new BadRequestException({
         message: 'A review reason (at least 5 characters) is required when rejecting or requesting changes.',
@@ -1266,14 +1267,13 @@ export class FieldReportsService {
     };
 
     const nextStatus = statusMap[dto.decision];
-    const cleanReason = dto.reason?.trim() || null;
     const now = new Date();
 
     const review = await this.prisma.$transaction(async (tx) => {
       const createdReview = await tx.fieldReportReview.create({
         data: {
           reportId,
-          revisionId,
+          revisionId: revision.id,
           reviewerUserId: viewer.userId,
           reviewerEmployeeId: viewer.employeeId ?? null,
           actedAsDelegateForId,
@@ -1283,7 +1283,7 @@ export class FieldReportsService {
       });
 
       await tx.fieldReportRevision.update({
-        where: { id: revisionId },
+        where: { id: revision.id },
         data: {
           status: nextStatus,
           reviewedAt: now,
@@ -1307,7 +1307,7 @@ export class FieldReportsService {
           afterState: {
             reportId,
             reportNumber: revision.report.reportNumber,
-            revisionId,
+            revisionId: revision.id,
             decision: dto.decision,
             nextStatus,
             actedAsDelegateForId,

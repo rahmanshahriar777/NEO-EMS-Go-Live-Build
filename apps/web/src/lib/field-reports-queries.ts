@@ -309,8 +309,12 @@ export function useSubmitRevisionMutation(reportId: string, revisionNumber: numb
 export function useReviewRevisionMutation(reportId: string, revisionNumber: number) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (dto: { decision: FieldReportReviewDecision; comments?: string }) =>
-      api.post<FieldReportItem>(`/field-reports/${reportId}/revisions/${revisionNumber}/review`, dto),
+    mutationFn: (dto: { decision: FieldReportReviewDecision; reason?: string; comments?: string }) =>
+      api.post<FieldReportItem>(`/field-reports/${reportId}/revisions/${revisionNumber}/review`, {
+        decision: dto.decision,
+        reason: dto.reason || dto.comments,
+        comments: dto.comments || dto.reason,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['field-reports', 'detail', reportId] });
       queryClient.invalidateQueries({ queryKey: ['field-reports'] });
