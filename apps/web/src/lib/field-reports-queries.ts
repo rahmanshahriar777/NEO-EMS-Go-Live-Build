@@ -56,20 +56,28 @@ export interface FieldReportRevisionDetail {
 export interface FieldReportAttachmentDetail {
   id: string;
   attachmentId?: string;
-  storageKey: string;
-  fileName: string;
+  storageKey?: string;
+  mediaKind?: string;
+  originalFileName?: string;
+  fileName?: string;
   mimeType: string;
-  byteSize: number;
-  sha256Checksum: string;
+  fileSizeBytes?: number;
+  byteSize?: number;
+  checksumSha256?: string;
+  sha256Checksum?: string;
   width?: number;
   height?: number;
-  isImage: boolean;
+  widthPx?: number;
+  heightPx?: number;
+  isImage?: boolean;
   scanStatus: FieldMediaScanStatus;
+  scanThreats?: string[];
   scanFailureReason?: string;
   processingStatus: FieldMediaProcessingStatus;
+  processingErrorCode?: string;
   processingError?: string;
   createdAt: string;
-  derivatives: FieldReportDerivativeDetail[];
+  derivatives?: FieldReportDerivativeDetail[];
 }
 
 export interface FieldReportDerivativeDetail {

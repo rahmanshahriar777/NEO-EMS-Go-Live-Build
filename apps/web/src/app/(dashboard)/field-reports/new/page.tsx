@@ -45,12 +45,26 @@ interface SelectedMedia {
   isImage: boolean;
 }
 
+function safeRandomId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2, 11);
+}
+
 async function computeSha256(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer();
-  const hash = await crypto.subtle.digest('SHA-256', buffer);
-  return Array.from(new Uint8Array(hash))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+  try {
+    const buffer = await file.arrayBuffer();
+    if (typeof crypto !== 'undefined' && crypto.subtle) {
+      const hash = await crypto.subtle.digest('SHA-256', buffer);
+      return Array.from(new Uint8Array(hash))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+    }
+  } catch (err) {
+    console.warn('SubtleCrypto SHA-256 calculation fallback:', err);
+  }
+  return 'fallback-sha-' + Date.now();
 }
 
 export default function NewFieldReportPage() {
@@ -115,35 +129,46 @@ export default function NewFieldReportPage() {
     if (!files || files.length === 0) return;
     setFileError(null);
 
-    if (mediaList.length + files.length > FIELD_REPORT_LIMITS.maxFilesPerRevision) {
-      setFileError(`Maximum ${FIELD_REPORT_LIMITS.maxFilesPerRevision} files per report allowed.`);
-      return;
-    }
-
-    const additions: SelectedMedia[] = [];
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-
-      if (file.size > FIELD_REPORT_LIMITS.maxFileSizeBytes) {
-        setFileError(`File "${file.name}" exceeds the 50 MiB per-file limit.`);
-        continue;
+    try {
+      if (mediaList.length + files.length > FIELD_REPORT_LIMITS.maxFilesPerRevision) {
+        setFileError(`Maximum ${FIELD_REPORT_LIMITS.maxFilesPerRevision} files per report allowed.`);
+        return;
       }
 
-      const isImage = file.type.startsWith('image/');
-      const sha256Hex = await computeSha256(file);
-      const previewUrl = isImage ? URL.createObjectURL(file) : undefined;
+      const additions: SelectedMedia[] = [];
 
-      additions.push({
-        id: crypto.randomUUID(),
-        file,
-        previewUrl,
-        sha256Hex,
-        isImage,
-      });
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+
+        if (file.size > FIELD_REPORT_LIMITS.maxFileSizeBytes) {
+          setFileError(`File "${file.name}" exceeds the 50 MiB per-file limit.`);
+          continue;
+        }
+
+        const isImage = file.type.startsWith('image/');
+        const sha256Hex = await computeSha256(file);
+        let previewUrl: string | undefined;
+        try {
+          if (isImage && typeof URL !== 'undefined' && URL.createObjectURL) {
+            previewUrl = URL.createObjectURL(file);
+          }
+        } catch {
+          previewUrl = undefined;
+        }
+
+        additions.push({
+          id: safeRandomId(),
+          file,
+          previewUrl,
+          sha256Hex,
+          isImage,
+        });
+      }
+
+      setMediaList((prev) => [...prev, ...additions]);
+    } catch (err: any) {
+      setFileError(err?.message || 'Failed to select media files.');
     }
-
-    setMediaList((prev) => [...prev, ...additions]);
   };
 
   const handleRemoveMedia = (id: string) => {

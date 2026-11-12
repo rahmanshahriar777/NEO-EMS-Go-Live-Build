@@ -120,7 +120,9 @@ export default function FieldReportDetailPage({
 
   const allImagesReady = useMemo(() => {
     if (!currentRev?.attachments) return true;
-    const images = currentRev.attachments.filter((a) => a.isImage);
+    const images = currentRev.attachments.filter(
+      (a) => a.isImage ?? (a.mediaKind === 'IMAGE' || (typeof a.mimeType === 'string' && a.mimeType.startsWith('image/'))),
+    );
     if (images.length === 0) return true;
     return images.every((a) => a.processingStatus === FieldMediaProcessingStatus.READY);
   }, [currentRev]);
@@ -174,9 +176,13 @@ export default function FieldReportDetailPage({
       const grant = await mintDownloadGrant(att.id, FieldReportDownloadVariant.RESIZED);
       setLightboxUrl(grant.downloadUrl);
     } catch {
-      // Fallback to original if resized not available
-      const grant = await mintDownloadGrant(att.id, FieldReportDownloadVariant.ORIGINAL);
-      setLightboxUrl(grant.downloadUrl);
+      try {
+        // Fallback to original if resized not available
+        const grant = await mintDownloadGrant(att.id, FieldReportDownloadVariant.ORIGINAL);
+        setLightboxUrl(grant.downloadUrl);
+      } catch (err: any) {
+        setDownloadError(err?.message || 'Preview not available yet.');
+      }
     }
   };
 
@@ -444,14 +450,21 @@ export default function FieldReportDetailPage({
           {currentRev?.attachments && currentRev.attachments.length > 0 ? (
             <div className="space-y-3">
               {currentRev.attachments.map((att) => {
+                const isImage = Boolean(
+                  att.isImage ?? (att.mediaKind === 'IMAGE' || (typeof att.mimeType === 'string' && att.mimeType.startsWith('image/'))),
+                );
+                const fileName = att.fileName || att.originalFileName || 'Attachment';
+                const byteSize = att.byteSize ?? att.fileSizeBytes ?? 0;
+                const sha = att.sha256Checksum || att.checksumSha256 || '';
+
                 const isScanning = att.scanStatus === FieldMediaScanStatus.PENDING_SCAN;
                 const isInfected = att.scanStatus === FieldMediaScanStatus.INFECTED;
                 const isProcessing =
-                  att.isImage &&
+                  isImage &&
                   (att.processingStatus === FieldMediaProcessingStatus.PENDING ||
                     att.processingStatus === FieldMediaProcessingStatus.PROCESSING);
                 const isReady =
-                  !att.isImage || att.processingStatus === FieldMediaProcessingStatus.READY;
+                  !isImage || att.processingStatus === FieldMediaProcessingStatus.READY;
 
                 return (
                   <div
@@ -459,7 +472,7 @@ export default function FieldReportDetailPage({
                     className="p-4 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4"
                   >
                     <div className="flex items-start gap-3 min-w-0">
-                      {att.isImage ? (
+                      {isImage ? (
                         <div
                           onClick={() => handleOpenPreview(att)}
                           className="w-14 h-14 rounded-lg bg-slate-100 border border-slate-200 flex-shrink-0 flex items-center justify-center cursor-pointer hover:opacity-80 overflow-hidden"
@@ -474,15 +487,19 @@ export default function FieldReportDetailPage({
                       )}
 
                       <div className="min-w-0">
-                        <h4 className="text-sm font-bold text-slate-900 truncate" title={att.fileName}>
-                          {att.fileName}
+                        <h4 className="text-sm font-bold text-slate-900 truncate" title={fileName}>
+                          {fileName}
                         </h4>
                         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-0.5">
-                          <span>{(att.byteSize / (1024 * 1024)).toFixed(2)} MB</span>
-                          <span>•</span>
-                          <span className="font-mono text-[10px] text-slate-400 truncate max-w-[150px]">
-                            SHA: {att.sha256Checksum.slice(0, 12)}…
-                          </span>
+                          <span>{(byteSize / (1024 * 1024)).toFixed(2)} MB</span>
+                          {sha && (
+                            <>
+                              <span>•</span>
+                              <span className="font-mono text-[10px] text-slate-400 truncate max-w-[150px]">
+                                SHA: {sha.slice(0, 12)}…
+                              </span>
+                            </>
+                          )}
                         </div>
 
                         {/* Status Badges */}
@@ -502,7 +519,7 @@ export default function FieldReportDetailPage({
                             </span>
                           )}
 
-                          {att.isImage &&
+                          {isImage &&
                             (isProcessing ? (
                               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
                                 <RefreshCw className="w-3 h-3 animate-spin" /> Resizing...
@@ -522,7 +539,7 @@ export default function FieldReportDetailPage({
 
                     {/* Download Buttons */}
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      {att.isImage && (
+                      {isImage && (
                         <button
                           type="button"
                           onClick={() => handleOpenPreview(att)}
@@ -535,7 +552,7 @@ export default function FieldReportDetailPage({
                       )}
 
                       {/* Download Resized: disabled until derivatives are ready */}
-                      {att.isImage ? (
+                      {isImage ? (
                         <button
                           type="button"
                           disabled={
@@ -573,7 +590,7 @@ export default function FieldReportDetailPage({
                           title="Download bit-exact Original with full EXIF intact"
                         >
                           <Download className="w-3.5 h-3.5" />
-                          {att.isImage ? 'Original' : 'Download'}
+                          {isImage ? 'Original' : 'Download'}
                         </button>
                       )}
                     </div>
